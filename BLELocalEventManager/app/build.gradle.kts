@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    id("io.realm.kotlin")
 }
 
 android {
@@ -37,6 +38,7 @@ android {
     }
 }
 
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -54,4 +56,19 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    //Ktor
+    implementation("io.ktor:ktor-client-core:3.4.0")
+    implementation("io.ktor:ktor-client-okhttp:3.4.0")
+
+    // Realm
+    implementation("io.realm.kotlin:library-base-android:3.0.0")
+
+    //Libsodium
+    implementation("com.goterl:lazysodium-android:5.2.0")
+    // Required JNA support
+    implementation("net.java.dev.jna:jna:5.17.0")
+
+    // Andriod security
+    implementation("androidx.security:security-crypto:1.1.0")
 }
