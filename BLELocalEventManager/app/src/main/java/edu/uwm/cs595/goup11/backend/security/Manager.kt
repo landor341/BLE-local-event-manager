@@ -1,4 +1,4 @@
-package edu.uwm.cs595.goup11.backed.security
+package edu.uwm.cs595.goup11.backend.security
 
 /**
  * Handles all of the managing of encryption keys, certs, and other security data that is stored
