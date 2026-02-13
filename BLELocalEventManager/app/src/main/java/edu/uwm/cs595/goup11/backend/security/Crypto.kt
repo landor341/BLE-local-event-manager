@@ -1,6 +1,4 @@
-package edu.uwm.cs595.goup11.backed.security
-import android.Manifest
-import android.os.Build
+package edu.uwm.cs595.goup11.backend.security
 
 /**
  * Handles all data encryption/decryption and

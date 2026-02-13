@@ -1,16 +1,18 @@
-package edu.uwm.cs595.goup11.backed.network
+package edu.uwm.cs595.goup11.backend.network
 
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Basic interface defining a network
+ * Basic interface defining a network.
+ * Classes that derive from this class SHOULD NOT handle anything else besides basic message
+ * sending and receiving. All message processing should be done by the client
  */
 interface Network {
 
     /**
      * Initializes the network
      */
-    fun init(config: Config)
+    fun init(client: Client, config: Config)
 
     /**
      * Clears any cache data and local keys.
@@ -64,6 +66,19 @@ interface Network {
      * TODO: Create data class for message
      */
     fun sendMessage()
+
+    /**
+     * Adds a listener for messages received.
+     */
+    fun addListener(listener: (Message) -> Unit)
+
+    /**
+     * Should be called whenever a message is received. This should ONLY be called for messages
+     * that are intended for this client
+     */
+    fun notifyListeners(message: Message)
+
+
 
     data class Config(var maxTTL: Int)
 }
