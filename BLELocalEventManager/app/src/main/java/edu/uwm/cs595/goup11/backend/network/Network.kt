@@ -35,7 +35,7 @@ interface Network {
      * Returns a flow with discovered networks
      * TODO: Should this be a string?
      */
-    fun observeDiscoveredNetworks(): Flow<List<String>>
+    fun observeDiscoveredNetworks(): Flow<String>
 
     /**
      * Joins a session with the given ID
@@ -65,7 +65,8 @@ interface Network {
      * not marked as admin this method will throw an error
      * TODO: Create data class for message
      */
-    fun sendMessage()
+    fun sendMessage(message: Message)
+
 
     /**
      * Adds a listener for messages received.

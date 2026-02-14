@@ -70,4 +70,7 @@ dependencies {
 
     // Google nearby connections API
     implementation("com.google.android.gms:play-services-nearby:18.3.0")
+
+    //Kotlin Testing
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }
