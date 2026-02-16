@@ -84,7 +84,9 @@ interface Network {
      */
     fun notifyListeners(message: Message)
 
+    fun startAdvertising(serviceId: String = "edu.uwm.cs595.group11")
 
+    fun stopAdvertising()
 
     data class Config(var maxTTL: Int)
 }

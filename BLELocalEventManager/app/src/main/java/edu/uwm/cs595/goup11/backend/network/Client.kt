@@ -1,6 +1,7 @@
 package edu.uwm.cs595.goup11.backend.network
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
@@ -10,7 +11,7 @@ import kotlinx.coroutines.launch
  *
  * When passing the [network], DO NOT call the init() function, this class will handle that
  */
-class Client(val id: String, val type: ClientType, private val scope: CoroutineScope) {
+class Client(val id: String, val type: ClientType, private val scope: CoroutineScope = MainScope()) {
     //TODO: This class currently does NOT handle any message logic, refactor this and local class
     var listeners = mutableListOf<(Message) -> Unit>()
     private var network: Network? = null;
