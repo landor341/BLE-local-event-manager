@@ -1,4 +1,4 @@
-package edu.uwm.cs595.goup11.frontend.ui.theme
+package edu.uwm.cs595.goup11.frontend.core.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

@@ -1,4 +1,4 @@
-package edu.uwm.cs595.goup11.frontend.ui.theme
+package edu.uwm.cs595.goup11.frontend.core.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
