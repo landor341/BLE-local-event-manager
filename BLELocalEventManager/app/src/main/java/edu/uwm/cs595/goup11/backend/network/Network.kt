@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * Basic interface defining a network.
+ *
  * Classes that derive from this class SHOULD NOT handle anything else besides basic message
  * sending and receiving. All message processing should be done by the client
  */
@@ -38,10 +39,10 @@ interface Network {
     fun observeDiscoveredNetworks(): Flow<String>
 
     /**
-     * Joins a session with the given ID
+     * Joins a network with the given id, after connection it will call this callback
      * TODO: Need to also add user class
      */
-    fun join(sessionId: String)
+    fun join(sessionId: String, callback: (success: Boolean, routerId: String) -> Unit)
 
     /**
      * Leaves the active network. Will throw error if user is not on network
@@ -61,11 +62,15 @@ interface Network {
     suspend fun deleteNetwork()
 
     /**
-     * Sends message on the network. If passed message is an action and the user is
-     * not marked as admin this method will throw an error
-     * TODO: Create data class for message
+     * Sends message on the network
      */
-    fun sendMessage(message: Message)
+    fun sendMessage(to: String, message: Message)
+
+    /**
+     * Sends a message on a network and will wait for a message that has the "replyTo" field
+     * with the passed message's id
+     */
+    suspend fun sendMessageAndWait(to:String, message: Message, timeoutMillis: Long = 10_000): Message?
 
 
     /**

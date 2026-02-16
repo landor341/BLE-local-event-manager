@@ -4,6 +4,7 @@ data class Message(
     val to: String,
     val from: String,
     val type: MessageType,
-    val data: ByteArray,
-    val ttl: Int
+    val data: ByteArray?,
+    var ttl: Int,
+    val replyTo: String? = null,
 )
