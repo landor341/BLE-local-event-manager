@@ -1,6 +1,6 @@
 package edu.uwm.cs595.goup11.backend.security
 
-import java.security.SeccureRandom
+import java.security.SecureRandom
 import java.util.UUID
 import java.util.zip.CRC32
 import javax.crypto.Cipher
