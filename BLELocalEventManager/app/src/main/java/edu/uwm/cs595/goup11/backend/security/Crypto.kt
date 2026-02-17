@@ -17,28 +17,34 @@ object Crypto {
      * Generates a unique UUID
      */
     fun generateUUID(): String {
-
+        return UUID.randomUUID().toString()
     }
 
     /**
      * Calculates a CRC32 checksum for a redundant data check
      */
     fun calculateChecksum(data: ByteArray): Long {
-
+        val crc = CRC32()
+        crc.update(data)
+        return crc.value
     }
 
     /**
      * Generates a HMAC using SHA-256
      */
     fun generateMAC(data: ByteArray, key: ByteArray): ByteArray {
-
+        val hmacKey = SecretKeySpec(key, "HmacSHA256")
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(hmacKey)
+        return mac.doFinal(data)
     }
 
     /**
      * Checks if provided MAC matches data using provided key
      */
     fun authenticateMAC(data: ByteArray, macToVerify: ByteArray, key: ByteArray): Boolean {
-
+        val generatedMAC = generateMAC(data, key)
+        return generatedMAC.contentEquals(macToVerify)
     }
 
     /**
