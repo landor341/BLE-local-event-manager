@@ -3,6 +3,7 @@
 
 package edu.uwm.cs595.goup11.frontend.domain.models
 
+
 data class Event(
     val id: String,
     val name: String,
