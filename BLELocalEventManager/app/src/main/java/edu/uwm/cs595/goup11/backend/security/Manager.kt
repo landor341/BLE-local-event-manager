@@ -9,21 +9,26 @@ import java.security.SecureRandom
  * This class is a singleton and has only one instance. [init] should be called on startup
  */
 object Manager {
+
     private var IS_INITIALIZED = false
     private lateinit var key: ByteArray
 
     fun init() {
-        IS_INITIALIZED = true
-        TODO("Setup")
+        if (!IS_INITIALIZED) {
+            rotateKey()
+            IS_INITIALIZED = true
+        }
     }
 
     fun isInitialized(): Boolean = IS_INITIALIZED
 
-    fun getKey() {
-        TODO("Finish implementation")
+    fun getKey(): ByteArray {
+        if (!IS_INITIALIZED) throw IllegalStateException("Manager not initialized")
+        return key
     }
 
     fun rotateKey() {
-        TODO("Finish implementation")
+        key = ByteArray(32)
+        SecureRandom().nextBytes(key)
     }
 }
