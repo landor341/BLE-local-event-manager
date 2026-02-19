@@ -38,14 +38,25 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ConnectNetwork(
     private val context: Context,
-    /** All "network beacons" advertise here so clients can browse events/networks. */
-    private val directoryServiceId: String = "edu.uwm.cs595.DIRECTORY",
-    override val state: StateFlow<NetworkState>,
-    override val events: SharedFlow<NetworkEvent>,
-    override val currentSessionId: StateFlow<String?>,
-    override val discoveredNetworks: Flow<String>
+
 ) : Network {
     override val logger: KLogger = KotlinLogging.logger {  }
+
+    private val _currentSessionId = MutableStateFlow<String?>(null)
+    override val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
+
+    /** All "network beacons" advertise here so clients can browse events/networks. */
+    private val directoryServiceId: String = "edu.uwm.cs595.DIRECTORY"
+    private val _state = MutableStateFlow<NetworkState>(NetworkState.Idle)
+    override val state: StateFlow<NetworkState> = _state.asStateFlow()
+
+    private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64, replay = 1)
+    override val events: SharedFlow<NetworkEvent> = _events.asSharedFlow()
+
+    // discovered networks output
+    private val _discoveredNetworks = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    override val discoveredNetworks: Flow<String> = _discoveredNetworks.asSharedFlow()
+
 
     // --- Provided by init() ---
     private lateinit var client: Client

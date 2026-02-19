@@ -22,8 +22,8 @@ class LocalNetwork() : Network {
     /** Kotlin Logger*/
     override val logger: KLogger = KotlinLogging.logger {  }
 
-    override val currentSessionId: StateFlow<String?>
-        get() = TODO("Not yet implemented")
+    private val _currentSessionId = MutableStateFlow<String?>(null)
+    override val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
 
     // ---- Network interface reactive state/events ----
     private val _state = MutableStateFlow<NetworkState>(NetworkState.Idle)
@@ -66,6 +66,7 @@ class LocalNetwork() : Network {
     override fun shutdown() {
         // If joined, leave
         runCatching { leave() }
+
         stopAdvertising()
 
         isScanning = false
@@ -73,6 +74,7 @@ class LocalNetwork() : Network {
 
         // fail any waiters
         replyWaiters.values.forEach { d ->
+            logger.debug { "${client?.id}. SUSPENDED reply waiter ${d.key}" }
             if (!d.isCompleted) d.completeExceptionally(RuntimeException("Network shutdown"))
         }
         replyWaiters.clear()
@@ -81,6 +83,8 @@ class LocalNetwork() : Network {
         client = null
         config = null
         currentNetworkId = null
+
+        logger.debug { "Network has been shutdown" }
     }
 
     // ------------------ Scan ------------------
@@ -121,7 +125,9 @@ class LocalNetwork() : Network {
     // ------------------ Join / Leave ------------------
 
     override suspend fun join(sessionId: String): Peer {
-        val c = client ?: throw Error("Client not instantiated")
+
+        val c = requireClient()
+        logger.debug { "${c.id} is attempting to join $sessionId" }
         val net = InMemoryNetworks.getNetworkById(sessionId)
             ?: throw Error("Network '$sessionId' not found")
 
@@ -134,6 +140,9 @@ class LocalNetwork() : Network {
             router!!.client.id,
             router.client.id
         )
+
+        logger.debug { "${c.id} is attempting to attach to ${routerPeer.endpointId}" }
+
         // Register this client in the network, connecting to master/router by default
         net.addClient(
             client = c,
@@ -142,6 +151,7 @@ class LocalNetwork() : Network {
         )
 
         currentNetworkId = sessionId
+        _currentSessionId.value = sessionId
 
         _state.value = NetworkState.Joined(sessionId, routerPeer)
         _events.tryEmit(NetworkEvent.Joined(sessionId, routerPeer))
@@ -151,56 +161,54 @@ class LocalNetwork() : Network {
     }
 
     override fun leave() {
-        val c = client ?: throw Error("Client not instantiated")
-        val netId = currentNetworkId ?: throw Error("Client is not in a network")
-
-        val net = InMemoryNetworks.getNetworkById(netId)
-            ?: throw Error("Network '$netId' not found")
-
+        val c = requireClient()
+        val net = requireNet()
+        logger.debug { "${c.id} is leaving network ${currentSessionId.value}" }
         net.removeClient(c.id)
 
         currentNetworkId = null
+        _currentSessionId.value = null
         _state.value = NetworkState.Idle
 
+        logger.debug { "${c.id} emitting PeerDisconnected(${c.id}) event" }
         _events.tryEmit(NetworkEvent.PeerDisconnected(c.id))
     }
 
     // ------------------ Host / Delete ------------------
 
     override suspend fun create(eventName: String) {
-        val c = client ?: throw Error("Client not instantiated")
-
-        // For emulator: use eventName as id (you can swap to a generated id if you prefer)
-        val id = eventName
+        val c = requireClient()
 
         val created = InMemoryNetworks.createNetwork(
-            id = id,
+            id = eventName,
             masterClient = c,
             masterNetwork = this
         )
 
         currentNetworkId = created.id
-        isAdvertising = true
+
+        startAdvertising()
+
+        logger.debug { "${c.id} emitting a NetworkState.Hosting(${created.id}) event" }
         _state.value = NetworkState.Hosting(created.id)
     }
 
     override suspend fun deleteNetwork() {
-        val c = client ?: throw Error("Client not instantiated")
-        val netId = currentNetworkId ?: throw Error("Client is not in a network")
-
-        val net = InMemoryNetworks.getNetworkById(netId)
-            ?: throw Error("Network '$netId' not found")
+        val c = requireClient()
+        val net = requireNet()
 
         if (net.masterClient.id != c.id) {
             throw Error("Only the network owner can delete the network")
         }
-
+        logger.debug { "Starting network deletion process for ${net.id}" }
         // disconnect everyone
         net.connectedClients.keys.toList().forEach { clientId ->
+            logger.debug { "REMOVING ${clientId} from Network ${net.id}" }
             net.removeClient(clientId)
         }
 
-        InMemoryNetworks.deleteNetwork(netId)
+        InMemoryNetworks.deleteNetwork(net.id)
+        logger.debug { "Network ${net.id} deleted" }
 
         currentNetworkId = null
         isAdvertising = false
@@ -210,9 +218,8 @@ class LocalNetwork() : Network {
     // ------------------ Messaging ------------------
 
     override fun sendMessage(to: String, message: Message) {
-        val c = client ?: throw Error("Client not instantiated")
-        val netId = currentNetworkId ?: throw Error("Client is not in a network")
-        val net = InMemoryNetworks.getNetworkById(netId) ?: return
+        val c = requireClient()
+        val net = requireNet()
 
         net.sendMessage(fromClientId = c.id, toClientId = to, message = message)
 
@@ -224,8 +231,7 @@ class LocalNetwork() : Network {
         message: Message,
         timeoutMillis: Long
     ): Message? {
-        val netId = currentNetworkId ?: throw Error("Client is not in a network")
-        InMemoryNetworks.getNetworkById(netId) ?: throw Error("Network not found")
+        requireNet()
 
         // Register waiter BEFORE sending
         val deferred = CompletableDeferred<Message>()
@@ -249,10 +255,15 @@ class LocalNetwork() : Network {
      * Called by the in-memory network to deliver messages to this client instance.
      */
     fun onReceive(message: Message) {
+        val c = requireClient()
+
+        logger.debug { "${client?.id} received message on local network by ${message.from}. Type=${message.type}. Id=${message.id}" }
+
         // Complete request/response waiter if this is a reply
         val replyTo = message.replyTo
         if (!replyTo.isNullOrBlank()) {
             replyWaiters.remove(replyTo)?.let { deferred ->
+                logger.debug { "Completing waiter for $replyTo" }
                 if (!deferred.isCompleted) deferred.complete(message)
             }
         }
@@ -260,10 +271,11 @@ class LocalNetwork() : Network {
         // Legacy listeners
         notifyListeners(message)
 
-        // Event stream (useful for client)
+        logger.debug { "${c.id} emitting NetworkEvent.MessageReceived()" }
+        // Event stream
         _events.tryEmit(NetworkEvent.MessageReceived(message))
 
-        logger.debug { "${client?.id} received message on local network by ${message.from}. Type=${message.type}. Id=${message.id}" }
+
     }
 
     override fun addListener(listener: (Message) -> Unit) {
@@ -274,7 +286,7 @@ class LocalNetwork() : Network {
         listeners.forEach { it.invoke(message) }
     }
 
-    // ------------------ Advertising (no-op-ish for Local emulator) ------------------
+    // ------------------ Advertising  ------------------
 
     override fun startAdvertising() {
         val net = requireNet()
@@ -282,13 +294,17 @@ class LocalNetwork() : Network {
         isAdvertising = true
         net.startAdvertising(Peer(c.id, c.id))
 
+        logger.debug { "${c.id} started advertising on ${net.id}" }
     }
 
     override fun stopAdvertising() {
         val net = requireNet()
         val c = requireClient()
+
         isAdvertising = false
         net.stopAdvertising(Peer(c.id, c.id))
+
+        logger.debug { "${c.id} stopped advertising on ${net.id}" }
     }
 
     override fun onPeerConnect(peer: Peer) {
@@ -301,23 +317,33 @@ class LocalNetwork() : Network {
         _events.tryEmit(NetworkEvent.PeerDisconnected(peer.endpointId))
     }
 
-    private fun requireNet(): InMemoryNetworks.InMemoryNetwork {
-        val netId = currentNetworkId ?: throw Error("Client is not in a network")
-        val net = InMemoryNetworks.getNetworkById(netId) ?: throw Error("Network is required for this operation")
 
-        return net
-    }
 
     // ------------------ Helper Methods ------------------
 
     /**
      * This method will return the current client and throw an error when the client is not
      * present or is null
+     *
+     * @exception IllegalStateException if [client] is null
      */
     private fun requireClient(): Client {
-        return client ?: throw Error("Client is required for this operation")
+        return client ?: throw IllegalStateException("Client is required for this operation")
     }
 
+    /**
+     *  This method will return the current network and throw an error when the network does not
+     *  exist, or if the client is not on a network
+     *
+     *  @exception IllegalStateException if [currentNetworkId] is null or [InMemoryNetworks.getNetworkById] returns null
+     *
+     */
+    private fun requireNet(): InMemoryNetworks.InMemoryNetwork {
+        val netId = currentNetworkId ?: throw Error("Client is not in a network")
+        val net = InMemoryNetworks.getNetworkById(netId) ?: throw IllegalStateException("Network is required for this operation")
+
+        return net
+    }
     // ------------------ Debug Methods ------------------
 
     /**

@@ -149,4 +149,23 @@ class LocalNetworkUnitTest_TransportOnly {
         assertEquals(request.id, response.replyTo)
     }
 
+
+    /*
+     * Edge Cases:
+     * - If network called "A" is created, no other user should be allowed to make a network "A"
+     */
+
+    @Test(expected = Error::class)
+    fun onMessageCreate_duplicatesShouldThrowError() = runTest{
+        val hostClient = Client("MASTER", ClientType.ROUTER)
+        val hostNet = LocalNetwork().apply { init(hostClient, Network.Config(5)) }
+        hostNet.create("TEST_NETWORK")
+        hostNet.startAdvertising()
+
+        // Create 2nd network
+        val hostClient2 = Client("MASTER2", ClientType.ROUTER)
+        val hostNet2 = LocalNetwork().apply { init(hostClient2, Network.Config(5)) }
+        hostNet2.create("TEST_NETWORK")
+        hostNet2.startAdvertising()
+    }
 }
