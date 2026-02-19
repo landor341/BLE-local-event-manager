@@ -94,6 +94,8 @@ data class Message(
         }
     }
 
+    // ------------------- Helpers -------------------
+
     /**
      * Creates a reply message preserving correlation
      */

@@ -1,6 +1,32 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import io.github.oshai.kotlinlogging.KLogger
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+
+/**
+ * Represents the state of the network
+ */
+sealed class NetworkState {
+    data object Idle : NetworkState()
+    data object Scanning : NetworkState()
+    data class Joining(val sessionId: String) : NetworkState()
+    data class Joined(val sessionId: String, val router: Peer) : NetworkState()
+    data class Hosting(val sessionId: String) : NetworkState()
+    data class Error(val reason: String) : NetworkState()
+}
+
+/**
+ * Represents an event on the network (i.e. Peer joining or leaving)
+ */
+sealed class NetworkEvent {
+    data class Joined(val sessionId: String, val router: Peer) : NetworkEvent()
+    data class PeerConnected(val peer: Peer) : NetworkEvent()
+    data class PeerDisconnected(val endpointId: String) : NetworkEvent()
+    data class MessageReceived(val message: Message) : NetworkEvent()
+}
 
 /**
  * Basic interface defining a network.
@@ -9,6 +35,22 @@ import kotlinx.coroutines.flow.Flow
  * sending and receiving. All message processing should be done by the client
  */
 interface Network {
+
+    val logger: KLogger
+
+    data class Config(
+        val defaultTtl: Int,
+        val directoryServiceId: String = "edu.uwm.cs595.group11"
+    )
+
+    /** Reactive state for UI/client setup logic */
+    val state: StateFlow<NetworkState>
+
+    /** One-time events */
+    val events: SharedFlow<NetworkEvent>
+
+    /** id */
+    val currentSessionId: StateFlow<String?>
 
     /**
      * Initializes the network
@@ -36,13 +78,13 @@ interface Network {
      * Returns a flow with discovered networks
      * TODO: Should this be a string?
      */
-    fun observeDiscoveredNetworks(): Flow<String>
+    val discoveredNetworks: Flow<String>
 
     /**
      * Joins a network with the given id, after connection it will call this callback
      * TODO: Need to also add user class
      */
-    fun join(sessionId: String, callback: (success: Boolean, routerId: String) -> Unit)
+    suspend fun join(sessionId: String): Peer
 
     /**
      * Leaves the active network. Will throw error if user is not on network
@@ -54,7 +96,7 @@ interface Network {
      * Creates a network with the given configuration
      * TODO: Create configuration
      */
-    suspend fun create()
+    suspend fun create(eventName: String)
 
     /**
      * Deletes the network. Fails if user is not owner
@@ -84,9 +126,12 @@ interface Network {
      */
     fun notifyListeners(message: Message)
 
-    fun startAdvertising(serviceId: String = "edu.uwm.cs595.group11")
+    fun startAdvertising()
 
     fun stopAdvertising()
 
-    data class Config(var maxTTL: Int)
+    fun onPeerConnect(peer: Peer)
+
+    fun onPeerDisconnect(peer: Peer)
+
 }

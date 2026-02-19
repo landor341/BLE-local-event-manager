@@ -102,6 +102,12 @@ enum class MessageType {
     SESSION_ESTABLISHED,
 
 
+    /*
+     * Basic Messages
+     */
+    TEXT_MESSAGE,
+
+
 
 
 }

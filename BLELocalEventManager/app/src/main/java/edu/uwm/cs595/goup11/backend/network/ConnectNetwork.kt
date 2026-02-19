@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.Flow
 import android.content.Context
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.*
+import io.github.oshai.kotlinlogging.KLogger
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.*
@@ -37,8 +39,13 @@ import java.util.concurrent.ConcurrentHashMap
 class ConnectNetwork(
     private val context: Context,
     /** All "network beacons" advertise here so clients can browse events/networks. */
-    private val directoryServiceId: String = "edu.uwm.cs595.DIRECTORY"
+    private val directoryServiceId: String = "edu.uwm.cs595.DIRECTORY",
+    override val state: StateFlow<NetworkState>,
+    override val events: SharedFlow<NetworkEvent>,
+    override val currentSessionId: StateFlow<String?>,
+    override val discoveredNetworks: Flow<String>
 ) : Network {
+    override val logger: KLogger = KotlinLogging.logger {  }
 
     // --- Provided by init() ---
     private lateinit var client: Client
@@ -239,8 +246,7 @@ class ConnectNetwork(
 
         discoveredNetworksSet.clear()
 
-        // Safely complete any waiters as "null" by timing out naturally is fine,
-        // but if you prefer immediate completion:
+        // Complete all waiters and pass a RuntimeException
         replyWaiters.values.forEach { deferred ->
             if (!deferred.isCompleted) deferred.completeExceptionally(RuntimeException("Network shutdown"))
         }
@@ -279,35 +285,38 @@ class ConnectNetwork(
         mConnectionsClient.stopDiscovery()
     }
 
-    override fun observeDiscoveredNetworks(): Flow<String> {
+
+    fun observeDiscoveredNetworks(): Flow<String> {
         return discoveredNetworksFlow.asSharedFlow()
     }
 
     /**
      * Join a session/network identified by sessionId (serviceId).
      */
-    override fun join(sessionId: String, callback: (success: Boolean, routerId: String) -> Unit) {
-        if (!::mConnectionsClient.isInitialized) {
-            callback(false, "")
-            return
-        }
+    override suspend fun join(sessionId: String): Peer {
+//        if (!::mConnectionsClient.isInitialized) {
+//
+//            return
+//        }
+//
+//        joinCallback = callback
+//        pendingJoinEndpointId = null
+//        pendingJoinRouterName = null
+//
+//        val discoveryOptions = DiscoveryOptions.Builder()
+//            .setStrategy(Strategy.P2P_CLUSTER)
+//            .build()
+//
+//        mConnectionsClient.startDiscovery(
+//            sessionId,
+//            endpointDiscoveryCallback,
+//            discoveryOptions
+//        ).addOnFailureListener {
+//            joinCallback?.invoke(false, "")
+//            joinCallback = null
+//        }
 
-        joinCallback = callback
-        pendingJoinEndpointId = null
-        pendingJoinRouterName = null
-
-        val discoveryOptions = DiscoveryOptions.Builder()
-            .setStrategy(Strategy.P2P_CLUSTER)
-            .build()
-
-        mConnectionsClient.startDiscovery(
-            sessionId,
-            endpointDiscoveryCallback,
-            discoveryOptions
-        ).addOnFailureListener {
-            joinCallback?.invoke(false, "")
-            joinCallback = null
-        }
+        return Peer("test", "test")
     }
 
     /**
@@ -337,9 +346,9 @@ class ConnectNetwork(
      * - currentServiceId if set previously
      * - else client.id as a fallback
      */
-    override suspend fun create() {
-        val sid = currentServiceId ?: client.id
-        startAdvertising(sid)
+    override suspend fun create(eventName: String) {
+//        val sid = currentServiceId ?: client.id
+//        startAdvertising(sid)
     }
 
     /**
@@ -407,6 +416,8 @@ class ConnectNetwork(
         listeners.forEach { it.invoke(message) }
     }
 
+
+
     /**
      * Start advertising on a serviceId (session/network id).
      *
@@ -417,34 +428,42 @@ class ConnectNetwork(
      * This method starts advertising on the provided serviceId directly.
      * (Use this for "inside the network" discovery/join.)
      */
-    override fun startAdvertising(serviceId: String) {
-        if (!::mConnectionsClient.isInitialized) throw Error("Connections client not created")
-
-        currentServiceId = serviceId
-
-        val advOptions = AdvertisingOptions.Builder()
-            .setStrategy(Strategy.P2P_CLUSTER)
-            .build()
-
-        // Use something meaningful as endpointName (router id/client id)
-        val endpointName = client.id.ifBlank { "PHONE_${android.os.Build.MODEL}" }
-
-        mConnectionsClient.startAdvertising(
-            endpointName,
-            serviceId,
-            connectionLifecycleCallback,
-            advOptions
-        ).addOnSuccessListener {
-            isAdvertising = true
-        }.addOnFailureListener {
-            isAdvertising = false
-        }
+    override fun startAdvertising() {
+//        if (!::mConnectionsClient.isInitialized) throw Error("Connections client not created")
+//
+//        currentServiceId = serviceId
+//
+//        val advOptions = AdvertisingOptions.Builder()
+//            .setStrategy(Strategy.P2P_CLUSTER)
+//            .build()
+//
+//        // Use something meaningful as endpointName (router id/client id)
+//        val endpointName = client.id.ifBlank { "PHONE_${android.os.Build.MODEL}" }
+//
+//        mConnectionsClient.startAdvertising(
+//            endpointName,
+//            TODO("IMPLEMENT"),
+//            connectionLifecycleCallback,
+//            advOptions
+//        ).addOnSuccessListener {
+//            isAdvertising = true
+//        }.addOnFailureListener {
+//            isAdvertising = false
+//        }
     }
 
     override fun stopAdvertising() {
         if (!::mConnectionsClient.isInitialized) return
         isAdvertising = false
         mConnectionsClient.stopAdvertising()
+    }
+
+    override fun onPeerConnect(peer: Peer) {
+        TODO("Not yet implemented")
+    }
+
+    override fun onPeerDisconnect(peer: Peer) {
+        TODO("Not yet implemented")
     }
 
     // ------------------- Helpers -------------------
@@ -465,6 +484,7 @@ class ConnectNetwork(
      *   "EVT:Event Name|TYP:R|N:Router1"
      */
     private fun parseFieldPipeColon(raw: String, key: String): String? {
+        //TODO: This should probably be in its own Object so all methods and classes can use it
         val token = "$key:"
         val start = raw.indexOf(token)
         if (start == -1) return null
