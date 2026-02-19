@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.frontend.domain.models.Event
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.tooling.preview.Preview
 import edu.uwm.cs595.goup11.frontend.features.explore.components.EventCard
 
 // ExploreScreen.kt
@@ -100,5 +101,13 @@ private fun EmptyExploreState() {
             "Try a different search or wait for nearby discovery to find events.",
             style = MaterialTheme.typography.bodyMedium
         )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ExplorePreview() {
+    edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme {
+        ExploreScreen(onBack = {})
     }
 }
