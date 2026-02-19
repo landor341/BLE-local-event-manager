@@ -1,3 +1,5 @@
+package edu.uwm.cs595.goup11.backend.network
+
 import edu.uwm.cs595.goup11.backend.network.Client
 import edu.uwm.cs595.goup11.backend.network.ClientType
 import edu.uwm.cs595.goup11.backend.network.LocalNetwork
@@ -16,7 +18,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class LocalNetworkUnitTest_TransportOnly {
+class LocalNetworkUnitTest {
 
     @After
     fun purgeNetworks() {

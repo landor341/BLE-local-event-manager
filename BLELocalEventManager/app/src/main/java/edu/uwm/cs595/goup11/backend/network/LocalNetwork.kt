@@ -22,6 +22,11 @@ class LocalNetwork() : Network {
     /** Kotlin Logger*/
     override val logger: KLogger = KotlinLogging.logger {  }
 
+    init {
+        logger.warn { "WARNING. a LocalNetwork class has been created. If this is for a unit" +
+                " test or local debugging this log can be ignored" }
+    }
+
     private val _currentSessionId = MutableStateFlow<String?>(null)
     override val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
 
@@ -47,7 +52,7 @@ class LocalNetwork() : Network {
      *  network id this client is currently joined to (or hosting). TODO: Move to [currentSessionId]
      *  @see [currentSessionId]
      *  */
-    private var currentNetworkId: String? = null
+    //private var currentNetworkId: String? = null
 
     /** Message listeners */
     private val listeners = mutableListOf<(Message) -> Unit>()
@@ -82,7 +87,7 @@ class LocalNetwork() : Network {
         listeners.clear()
         client = null
         config = null
-        currentNetworkId = null
+        _currentSessionId.value = null
 
         logger.debug { "Network has been shutdown" }
     }
@@ -150,7 +155,6 @@ class LocalNetwork() : Network {
             routerPeer
         )
 
-        currentNetworkId = sessionId
         _currentSessionId.value = sessionId
 
         _state.value = NetworkState.Joined(sessionId, routerPeer)
@@ -166,7 +170,6 @@ class LocalNetwork() : Network {
         logger.debug { "${c.id} is leaving network ${currentSessionId.value}" }
         net.removeClient(c.id)
 
-        currentNetworkId = null
         _currentSessionId.value = null
         _state.value = NetworkState.Idle
 
@@ -185,7 +188,7 @@ class LocalNetwork() : Network {
             masterNetwork = this
         )
 
-        currentNetworkId = created.id
+        _currentSessionId.value = created.id
 
         startAdvertising()
 
@@ -210,7 +213,7 @@ class LocalNetwork() : Network {
         InMemoryNetworks.deleteNetwork(net.id)
         logger.debug { "Network ${net.id} deleted" }
 
-        currentNetworkId = null
+        _currentSessionId.value = null
         isAdvertising = false
         _state.value = NetworkState.Idle
     }
@@ -335,11 +338,11 @@ class LocalNetwork() : Network {
      *  This method will return the current network and throw an error when the network does not
      *  exist, or if the client is not on a network
      *
-     *  @exception IllegalStateException if [currentNetworkId] is null or [InMemoryNetworks.getNetworkById] returns null
+     *  @exception IllegalStateException if [currentSessionId] is null or [InMemoryNetworks.getNetworkById] returns null
      *
      */
     private fun requireNet(): InMemoryNetworks.InMemoryNetwork {
-        val netId = currentNetworkId ?: throw Error("Client is not in a network")
+        val netId = currentSessionId.value ?: throw IllegalStateException("Client is not in a network")
         val net = InMemoryNetworks.getNetworkById(netId) ?: throw IllegalStateException("Network is required for this operation")
 
         return net
@@ -354,7 +357,7 @@ class LocalNetwork() : Network {
      */
     @VisibleForTesting
     fun prettyPrintNetworkGraph(): String {
-        val netId = currentNetworkId ?: throw Error("Client is not in a network")
+        val netId = currentSessionId.value ?: throw Error("Client is not in a network")
         val net = InMemoryNetworks.getNetworkById(netId) ?: return "Network not found"
 
         val sb = StringBuilder()
@@ -417,7 +420,7 @@ class LocalNetwork() : Network {
             }
             // Create network with master
             val net = InMemoryNetworks.createNetwork(networkId, masterClient, network)
-            network.currentNetworkId = net.id
+            network._currentSessionId.value = net.id
 
             // Keep references to all router ConnectedClients (including master)
             val routerIds = mutableListOf<String>()
@@ -428,7 +431,7 @@ class LocalNetwork() : Network {
                 val n = LocalNetwork()
                 val routerClient = Client("ROUTER$i", ClientType.ROUTER)
                 routerClient.attachNetwork(n, Network.Config(5))
-                n.currentNetworkId = net.id
+                n._currentSessionId.value = net.id
 
                 // Add router connected to MASTER (guarantees connectivity)
                 val masterPeer = Peer(masterClient.id, masterClient.id)
@@ -465,7 +468,7 @@ class LocalNetwork() : Network {
                 val n = LocalNetwork()
                 val leafClient = Client("LEAF$i", ClientType.LEAF)
                 leafClient.attachNetwork(n, Network.Config(5))
-                n.currentNetworkId = net.id
+                n._currentSessionId.value = net.id
 
                 // Connect leaf to a random router
                 val routerId = routerIds.random()
