@@ -1,27 +1,34 @@
 package edu.uwm.cs595.goup11.backend.security
 
+import java.security.SecureRandom
+
 /**
  * Handles all of the managing of encryption keys, certs, and other security data that is stored
  * locally
  *
  * This class is a singleton and has only one instance. [init] should be called on startup
  */
-class Manager {
+object Manager {
 
-    companion object ManagerInstance {
-        private var IS_INITIALIZED = false
-        fun init() {
+    private var IS_INITIALIZED = false
+    private lateinit var key: ByteArray
+
+    fun init() {
+        if (!IS_INITIALIZED) {
+            rotateKey()
             IS_INITIALIZED = true
-            TODO("Setup")
         }
+    }
 
-        fun getKey() {
-            TODO("Finish implementation")
-        }
+    fun isInitialized(): Boolean = IS_INITIALIZED
 
-        fun rotateKey() {
-            TODO("Finish implementation")
-        }
+    fun getKey(): ByteArray {
+        if (!IS_INITIALIZED) throw IllegalStateException("Manager not initialized")
+        return key
+    }
 
+    fun rotateKey() {
+        key = ByteArray(32)
+        SecureRandom().nextBytes(key)
     }
 }
