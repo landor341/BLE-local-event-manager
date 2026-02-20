@@ -68,6 +68,9 @@ class LocalNetwork() : Network {
         logger.debug { "${client.id} initialized the LocalNetwork" }
     }
 
+    /**
+     * Cleans up all active connections, stops advertising, and stops discovery.
+     */
     override fun shutdown() {
         // If joined, leave
         runCatching { leave() }
@@ -119,6 +122,9 @@ class LocalNetwork() : Network {
         }
     }
 
+    /**
+     * Discontinues the search for new nearby devices.
+     */
     override suspend fun stopScan() {
         logger.debug { "${client?.id} stopped scanning." }
         isScanning = false
@@ -164,6 +170,9 @@ class LocalNetwork() : Network {
         return routerPeer
     }
 
+    /**
+     * Gracefully disconnects from all currently connected peers.
+     */
     override fun leave() {
         val c = requireClient()
         val net = requireNet()
@@ -196,6 +205,9 @@ class LocalNetwork() : Network {
         _state.value = NetworkState.Hosting(created.id)
     }
 
+    /**
+     * Stops making this device visible to scanners.
+     */
     override suspend fun deleteNetwork() {
         val c = requireClient()
         val net = requireNet()
@@ -281,10 +293,16 @@ class LocalNetwork() : Network {
 
     }
 
+    /**
+     * Registers a callback to be invoked when a message is received from a peer.
+     */
     override fun addListener(listener: (Message) -> Unit) {
         listeners.add(listener)
     }
 
+    /**
+     * Forwards a received message to all registered listeners (usually the Client).
+     */
     override fun notifyListeners(message: Message) {
         listeners.forEach { it.invoke(message) }
     }
