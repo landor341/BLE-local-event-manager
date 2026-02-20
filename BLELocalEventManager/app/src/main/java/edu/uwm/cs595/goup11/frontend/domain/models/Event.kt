@@ -9,5 +9,7 @@ data class Event(
     val name: String,
     val description: String,
     val hostName: String,
-    val participantCount: Int
+    val participantCount: Int,
+    val time: String,
+    val location: String
 )
