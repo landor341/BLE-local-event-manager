@@ -26,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
+import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventMockData
 import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
@@ -33,7 +35,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavigation() {
-    var currentDestination by remember { mutableStateOf(Destinations.HOME) }
+    var currentDestination by remember { mutableStateOf(Destinations.EVENT_DETAIL) }
 
     when (currentDestination) {
         Destinations.HOME ->
@@ -45,6 +47,14 @@ fun AppNavigation() {
             ExploreScreen(onBack = {
                 currentDestination = Destinations.HOME
             })
+
+        Destinations.EVENT_DETAIL -> {
+            val mockEvent = EventMockData.events().first()
+            EventDetailScreen(
+                event = mockEvent,
+                onBack = { currentDestination = Destinations.EXPLORE }
+            )
+        }
 
         Destinations.PROFILE ->
             ProfileScreen()

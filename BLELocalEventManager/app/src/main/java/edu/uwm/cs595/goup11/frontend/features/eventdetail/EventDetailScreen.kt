@@ -42,10 +42,10 @@ import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
 fun EventDetailScreen(
     event: Event,
     onBack: () -> Unit,
-    isJoined: Boolean,
-    onOpenChat: () -> Unit,
-    onJoin: () -> Unit,
-    onLeave: () -> Unit,
+    isJoined: Boolean = true,
+    onOpenChat: () -> Unit ={},
+    onJoin: () -> Unit ={},
+    onLeave: () -> Unit ={},
 ) {
     Scaffold(
         topBar = {

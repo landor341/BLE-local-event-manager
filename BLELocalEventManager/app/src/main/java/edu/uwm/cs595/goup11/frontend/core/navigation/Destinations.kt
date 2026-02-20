@@ -6,5 +6,6 @@ package edu.uwm.cs595.goup11.frontend.core.navigation
 enum class Destinations {
     HOME,
     EXPLORE,
+    EVENT_DETAIL,
     PROFILE
 }
