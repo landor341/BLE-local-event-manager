@@ -62,6 +62,11 @@ enum class MessageType {
      */
     DISCONNECT,
 
+    /**
+     * Send directly after connecting to peer. Returns metadata on the peer.
+     */
+    HANDSHAKE,
+
     /*
      * DIRECTORY
      */

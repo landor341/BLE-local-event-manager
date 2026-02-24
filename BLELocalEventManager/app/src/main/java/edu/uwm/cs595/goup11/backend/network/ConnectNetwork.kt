@@ -358,8 +358,8 @@ class ConnectNetwork(
      * - else client.id as a fallback
      */
     override suspend fun create(eventName: String) {
-//        val sid = currentServiceId ?: client.id
-//        startAdvertising(sid)
+       val sid = currentServiceId ?: client.id
+       startAdvertising()
     }
 
     /**
@@ -440,29 +440,44 @@ class ConnectNetwork(
      * (Use this for "inside the network" discovery/join.)
      */
     override fun startAdvertising() {
-//        if (!::mConnectionsClient.isInitialized) throw Error("Connections client not created")
-//
-//        currentServiceId = serviceId
-//
-//        val advOptions = AdvertisingOptions.Builder()
-//            .setStrategy(Strategy.P2P_CLUSTER)
-//            .build()
-//
-//        // Use something meaningful as endpointName (router id/client id)
-//        val endpointName = client.id.ifBlank { "PHONE_${android.os.Build.MODEL}" }
-//
-//        mConnectionsClient.startAdvertising(
-//            endpointName,
-//            TODO("IMPLEMENT"),
-//            connectionLifecycleCallback,
-//            advOptions
-//        ).addOnSuccessListener {
-//            isAdvertising = true
-//        }.addOnFailureListener {
-//            isAdvertising = false
-//        }
+        if (!::mConnectionsClient.isInitialized) throw Error("Connections client not created")
+
+
+        val advOptions = AdvertisingOptions.Builder()
+            .setStrategy(Strategy.P2P_CLUSTER)
+            .build()
+
+        // Use something meaningful as endpointName (router id/client id)
+        val endpointName = client.id.ifBlank { "PHONE_${android.os.Build.MODEL}" }
+
+        mConnectionsClient.startAdvertising(
+            endpointName,
+            directoryServiceId,
+            connectionLifecycleCallback,
+            advOptions
+        ).addOnSuccessListener {
+            isAdvertising = true
+        }.addOnFailureListener {
+            isAdvertising = false
+        }
     }
 
+    /**
+     * Generates an endpoint name following this format:
+     * EVT:(Event Name)|TOP:(Topology type)|TYP:(Client Type)|N:(Router Name)
+     */
+    private fun generateEndpointName(eventName: String): String {
+        /* Follows:
+            "EVT:<Event Name>|TOP:<Topology type>|TYP:<Client Type>|N:<Router Name>"
+
+            Example for a "UWM Career Fair" using hub-and-spoke and this is a router named VENDOR
+            "EVT:UWM Career Fair|TOP:hub|TYP:R|N:VENDOR"
+         */
+
+        return "EVT:$eventName|TOP:hub|TYP:R|N:${client.id.ifBlank { "PHONE_${android.os.Build.MODEL}" }}"
+
+
+    }
     override fun stopAdvertising() {
         if (!::mConnectionsClient.isInitialized) return
         isAdvertising = false
