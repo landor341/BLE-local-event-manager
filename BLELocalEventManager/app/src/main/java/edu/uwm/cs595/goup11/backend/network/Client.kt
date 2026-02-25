@@ -1,5 +1,8 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import SnakeTopology
+import edu.uwm.cs595.goup11.backend.network.topology.TopologyContext
+import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -30,26 +33,61 @@ class Client(
     val id: String,
     val type: ClientType,
     var network: Network? = null,
+    /**
+     * Defines the topology of the client. By default this is snake, but it should update depending
+     * on the network
+     */
+    private val topology: TopologyStrategy = SnakeTopology(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
 
     private val logger = KotlinLogging.logger {}
-
+    private var currentSessionId: String? = null
     private val replyWaiters =
         ConcurrentHashMap<String, CompletableDeferred<Message>>() // requestId -> deferred reply
 
     /**
      * The router peer this client joined through (if applicable).
      * This is returned by Network.join(sessionId).
+     * TODO: DEPRECATED. MOVED TO TOPOLOGY
      */
     private var attachedRouter: Peer? = null
-
+    /**
+    * TODO: DEPRECATED. MOVED TO TOPOLOGY
+    */
     private var attachedPeers = mutableListOf<Peer>();
 
     /**
      * Used if [type] == [ClientType.ROUTER]
+     *
+     * TODO: DEPRECATED. MOVED TO TOPOLOGY
      */
     private var attachedRouters = mutableListOf<Peer>()
+
+
+    /**
+     * Topology setup
+     */
+    private val topologyContext by lazy {
+        TopologyContext(
+            localId = id,
+            network = requireNetwork(),
+            onAdvertisingChanged = { advertising ->
+                if (advertising) requireNetwork().startAdvertising()
+                else requireNetwork().stopAdvertising()
+            },
+            onScanChanged = { scanning ->
+                scope.launch {
+                    if (scanning) requireNetwork().startScan()
+                    else requireNetwork().stopScan()
+                }
+            },
+            onRoleChanged = { role ->
+                logger.info { "Role changed to $role" }
+            },
+            coroutineScope = scope
+        )
+    }
 
     /**
      * Attach a Network implementation (LocalNetwork or ConnectNetwork).
@@ -62,6 +100,8 @@ class Client(
 
         // Attach listeners
         this.network!!.addListener { message ->  onMessageReceived(message) }
+
+        topology.start(topologyContext)
     }
 
     /**
@@ -106,6 +146,9 @@ class Client(
         // Join Network
         val p = n.join(sessionId)
 
+        listenToEvents()
+
+        //TODO: Everything below should be removed. Logic has been moved to TOPOLOGY
         attachedRouter = p
         attachedPeers.add(p)
 
@@ -122,6 +165,18 @@ class Client(
         ))
 
         return p
+    }
+
+    private fun listenToEvents() {
+        scope.launch {
+            requireNetwork().events.collect { ev ->
+                when (ev) {
+                    is NetworkEvent.PeerConnected -> topology.onPeerConnected(topologyContext, ev.peer)
+                    is NetworkEvent.PeerDisconnected -> topology.onPeerDisconnected(topologyContext, ev.endpointId)
+                    else -> Unit
+                }
+            }
+        }
     }
 
     /**
@@ -152,6 +207,7 @@ class Client(
      * Shutdown and cleanup.
      */
     fun shutdown() {
+        topology.stop()
         TODO("Not implemented")
     }
 
@@ -215,32 +271,20 @@ class Client(
         }
     }
     /**
-     * Sends a [message] to the [attachedRouter] client (if the router mesh topology is used)
-     * otherwise this will look for the [Message.to] peer within the [attachedPeers] list.
-     *
-     * If this is a [ClientType.ROUTER] (if that topology is used) and the to field is not within the peer list, this
-     * will send the message to all peers instead
-     *
-     * If neither are found this will throw a error
+     * Sends a [message] depending on the [topology] that has been selected for this
+     * network
      */
     fun sendMessage(message: Message) {
         val net = requireNetwork()
         // Check if peer is in our list of peers
-        val inPeerList = attachedPeers.any { peer -> peer.endpointId == message.to }
+        val nextHops = topology.resolveNextHop(topologyContext, message)
 
-        if (inPeerList) {
-            // Send the message to the peer
-            net.sendMessage(message.to, message)
+        if (nextHops.isEmpty()) {
+            logger.warn { "No route found for message to ${message.to}" }
+            return
         }
 
-        if(type == ClientType.ROUTER) {
-            // send message to all connected routers
-
-        }
-
-        // Otherwise send to router
-        val router = requireJoinedRouter()
-        net.sendMessage(router.endpointId, message)
+        nextHops.forEach { hop -> net.sendMessage(hop, message) }
     }
 
     /**
@@ -329,6 +373,11 @@ class Client(
 
      */
     private fun handleMessage(message: Message) {
+
+        val consumed = topology.onMessage(topologyContext, message)
+        if (consumed) return;
+
+        //TODO: Below is deprecated. All routing messages have been moved to the topology
         when(type) {
             ClientType.ROUTER -> {
                 when(message.type){

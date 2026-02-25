@@ -10,6 +10,7 @@ class TopologyContext(
     val localId: String,
     private val network: Network,
     private val onAdvertisingChanged: (Boolean) -> Unit,
+    private val onScanChanged: (Boolean) -> Unit,
     private val onRoleChanged: (TopologyStrategy.Role) -> Unit,
     private val coroutineScope: CoroutineScope
 ) {
@@ -17,6 +18,9 @@ class TopologyContext(
 
     fun startAdvertising() = onAdvertisingChanged(true)
     fun stopAdvertising() = onAdvertisingChanged(false)
+
+    fun startScan() = onScanChanged(true)
+    fun stopScan() = onScanChanged(false)
 
     fun notifyRoleChanged(role: TopologyStrategy.Role) = onRoleChanged(role)
 
