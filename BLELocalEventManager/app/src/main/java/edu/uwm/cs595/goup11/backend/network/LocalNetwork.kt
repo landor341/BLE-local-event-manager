@@ -1,5 +1,6 @@
 package edu.uwm.cs595.goup11.backend.network
 import androidx.annotation.VisibleForTesting
+import edu.uwm.cs595.goup11.backend.network.LocalNetwork.InMemoryNetworks.InMemoryNetworkPeer
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.util.collections.setValue
@@ -60,6 +61,8 @@ class LocalNetwork() : Network {
     /** replyTo waiters: requestMessageId -> deferred(replyMessage) */
     private val replyWaiters = ConcurrentHashMap<String, CompletableDeferred<Message>>()
 
+    private val inMemPeer: InMemoryNetworkPeer? = null
+
     override fun init(client: Client, config: Network.Config) {
 
         this.client = client
@@ -100,23 +103,24 @@ class LocalNetwork() : Network {
     override suspend fun startScan() {
         logger.debug { "${client?.id} started scan" }
         isScanning = true
+
         _state.value = NetworkState.Scanning
 
-        // Emit current networks immediately
-        InMemoryNetworks.listNetworkIds().forEach { id ->
-            if(!InMemoryNetworks.getNetworkById(id)!!.advertisedBy.isEmpty()) {
-                logger.debug { "${client?.id} found network. Id=${id}" }
-                _discoveredNetworks.tryEmit(id)
+        InMemoryNetworkHolder.Nodes.forEach { node ->
+            if(node.isAdvertising) {
+                logger.debug {"Found ${node.endpointId}"}
+                _discoveredNetworks.tryEmit(node.endpointId)
             }
         }
+
 
         // Optional: keep polling while scanning so new networks appear
         while (isScanning) {
             delay(750)
-            InMemoryNetworks.listNetworkIds().forEach { id ->
-                if(!InMemoryNetworks.getNetworkById(id)!!.advertisedBy.isEmpty()) {
-                    logger.debug { "${client?.id} found network. Id=${id}" }
-                    _discoveredNetworks.tryEmit(id)
+            InMemoryNetworkHolder.Nodes.forEach { node ->
+                if(node.isAdvertising) {
+                    logger.debug {"Found ${node.endpointId}"}
+                    _discoveredNetworks.tryEmit(node.endpointId)
                 }
             }
         }
@@ -138,27 +142,14 @@ class LocalNetwork() : Network {
     override suspend fun join(sessionId: String): Peer {
 
         val c = requireClient()
-        logger.debug { "${c.id} is attempting to join $sessionId" }
-        val net = InMemoryNetworks.getNetworkById(sessionId)
-            ?: throw Error("Network '$sessionId' not found")
+        logger.debug { "${c.id} is attempting to connect to $sessionId" }
+
 
         _state.value = NetworkState.Joining(sessionId)
-        //TODO: This is not right, it should be connecting to the client matching the sessionId not peers
-        val r = net.connectedClients.filter { c -> c.value.client.type == ClientType.ROUTER }
-        val router = net.connectedClients[r.keys.random()]
-        val routerPeer = Peer(
-            router!!.client.id,
-            router.client.id
-        )
 
-        logger.debug { "${c.id} is attempting to attach to ${routerPeer.endpointId}" }
+        val connectTo = requireNode(sessionId, requireAdv = Pair(true, true))
 
-        // Register this client in the network, connecting to master/router by default
-        net.addClient(
-            client = c,
-            network = this,
-            routerPeer
-        )
+
 
         _currentSessionId.value = sessionId
 
@@ -168,6 +159,7 @@ class LocalNetwork() : Network {
         logger.debug { "${c.id} joined network ${net.id} through ${routerPeer.endpointId}" }
         return routerPeer
     }
+
 
     /**
      * Gracefully disconnects from all currently connected peers.
@@ -503,7 +495,103 @@ class LocalNetwork() : Network {
 
     }
 
+
+
     // ------------------ In Memory Networks ------------------
+
+
+    data class InMemoryNetworkPeer(
+        val endpointId: String,
+        var isAdvertising: Boolean,
+        var isDiscovering: Boolean,
+        val connections: MutableList<String>,
+        val network: Network
+    )
+
+    /**
+     * Static object holding all peers
+     */
+    private object InMemoryNetworkHolder {
+        val Nodes = mutableListOf<InMemoryNetworkPeer>()
+    }
+
+    fun getALlNetworkPeers(): List<InMemoryNetworkPeer> {
+        return InMemoryNetworkHolder.Nodes
+    }
+
+    fun connectToNode(self: String, connectTo: String) {
+        // Verify the connect to exists and is advertising
+        val connectTo = requireNode(connectTo,
+            requireAdv = Pair(true, true))
+
+        // Self node does not have to exist at this point
+
+    }
+
+
+    private fun getNode(endpointId: String): InMemoryNetworkPeer? {
+        return InMemoryNetworkHolder.Nodes.find { n -> n.endpointId == endpointId }
+    }
+
+    /**
+     * Returns a [InMemoryNetworkPeer] and throws an error if that peer does not exist.
+     *
+     * This can also check if the node is advertising or discovering
+     *
+     * Pass a [Pair] of ([Boolean], [Boolean]) for both [requireAdv] and [requireDisc].
+     * The first input is if it should check, and the second is the required state.
+     *
+     * Example:
+     * If we wanted to make sure a node is not advertising, we would pass
+     * ```
+     * val node = requireNode("test", requireAdv = Pair(true, false))
+     * ```
+     */
+    private fun requireNode(endpointId: String,
+                            requireAdv: Pair<Boolean, Boolean> = Pair(false, false),
+                            requireDisc: Pair<Boolean, Boolean> = Pair(false, false),
+                            connectionsDomain: Pair<Int, Int> = Pair(0,0)) : InMemoryNetworkPeer {
+        val node = getNode(endpointId) ?: throw IllegalStateException("Missing required node $endpointId")
+
+        // Check params
+        if(requireAdv.first) {
+            if(node.isAdvertising != requireAdv.second)
+                throw IllegalStateException("Node $endpointId required to " +
+                        "${if (requireAdv.second) "be" else "not be"} advertising")
+        }
+
+        if(requireDisc.first) {
+            if(node.isDiscovering != requireDisc.second)
+                throw IllegalStateException("Node $endpointId required to " +
+                        "${if (requireAdv.second) "be" else "not be"} discovering")
+        }
+
+        // Verify connections is within the domain
+        if(node.connections.size < connectionsDomain.first || node.connections.size > connectionsDomain.second) {
+            throw IllegalStateException("Node $endpointId required to be within the range " +
+                    "(${connectionsDomain.first}, ${connectionsDomain.second})")
+        }
+
+        return node
+    }
+
+    private fun addSelf(): InMemoryNetworkPeer {
+        val peer = InMemoryNetworkPeer(
+            endpointId=currentSessionId.value ?: throw IllegalStateException("EndpointID is required before adding peer"),
+            isAdvertising = false,
+            isDiscovering = false,
+            connections = mutableListOf<String>(),
+            network = this
+        )
+
+        InMemoryNetworkHolder.Nodes.add(peer)
+
+        return peer
+    }
+
+
+
+
 
     //TODO: This is wrong, Nearby Connections works off of peer-to-peer connections, not networks
     // - with names, this should instead just be a collection of peers that we can connect to
@@ -511,153 +599,246 @@ class LocalNetwork() : Network {
     // mutableListOf<Pair<Peer, mutableListOf<String>>() to show connections, and a separate
     // mutableListOf<Peer>() to show peers that are advertising. Any network name configurations
     // should be handled client side
-    private object InMemoryNetworks {
-
-        private val networks = mutableMapOf<String, InMemoryNetwork>()
-
-        fun listNetworkIds(): List<String> = networks.keys.toList()
-
-        fun getNetworkById(id: String): InMemoryNetwork? = networks[id]
-
-        /**
-         * Creates a network with the [id] and a [masterClient] as the user who created it
-         *
-         * @return the [InMemoryNetwork] instance with ONLY the [masterClient]
-         */
-        fun createNetwork(id: String, masterClient: Client, masterNetwork: LocalNetwork): InMemoryNetwork {
-            if (networks.containsKey(id)) throw Error("Network '$id' already exists")
-            val net = InMemoryNetwork(id, masterClient)
-            networks[id] = net
-
-            // Add master as connected client (self)
-            net.connectedClients[masterClient.id] = InMemoryNetwork.ConnectedClient(masterClient, masterNetwork)
-            return net
-        }
-
-        /**
-         * Deletes the network with the [id]
-         */
-        fun deleteNetwork(id: String) {
-            networks.remove(id)
-        }
-
-        /**
-         * This method will destroy all instances of [InMemoryNetwork]. If other [Client]'s are
-         * created, this will not purge them
-         */
-        fun purgeNetworks() {
-            networks.clear()
-        }
-
-        class InMemoryNetwork(
-            val id: String,
-            val masterClient: Client
-        ) {
-            /**
-             * List of users that are advertising this network
-             */
-            val advertisedBy = mutableListOf<Peer>()
-            data class ConnectedClient(
-                val client: Client,
-                val network: LocalNetwork,
-                val connectedTo: MutableSet<String> = mutableSetOf()
-            )
-
-            val connectedClients = mutableMapOf<String, ConnectedClient>()
-
-            /**
-             * Adds a [client] and attaches it to a [peer]
-             */
-            fun addClient(client: Client, network: LocalNetwork, peer: Peer) {
-                if (connectedClients.containsKey(client.id)) return
-
-                if (!connectedClients.containsKey(peer.endpointId)) {
-                    throw Error("Peer does not exist on the network")
-                }
-                val peerConnected = connectedClients[peer.endpointId]
-
-                // In order for Nearby Connections to init a connection, the peer MUST be advertising
-                if(!advertisedBy.contains(peer)) {
-                    throw IllegalStateException("Attempted to connect to ${peer.endpointId} but" +
-                            " that peer is not advertising on this network!")
-                }
-                val cc = ConnectedClient(client = client, network = network)
-                connectedClients[client.id] = cc
-
-                // Connect to peer
-                peerConnected!!.connectedTo.add(cc.client.id)
-                connectedClients[client.id]?.connectedTo?.add(peerConnected.client.id)
-
-                // Call event on the connected client
-                peerConnected.network.onPeerConnect(Peer(client.id, client.id))
-
-            }
-
-            /**
-             * Removes a client via the [clientId] from the network
-             *
-             * This will emmit a [NetworkEvent.PeerDisconnected] on the client
-             */
-            fun removeClient(clientId: String) {
-                val removed = connectedClients.remove(clientId) ?: return
-
-                // Remove edges pointing to this client
-                connectedClients.values.forEach { it.connectedTo.remove(clientId) }
-
-                // Notify owner/client via events if desired
-                removed.network._events.tryEmit(NetworkEvent.PeerDisconnected(clientId))
-            }
-
-            /**
-             * Returns True if the [fromId] client is connected to the [toId] client
-             */
-            fun isConnected(fromId: String, toId: String): Boolean {
-                val from = connectedClients[fromId] ?: return false
-                return from.connectedTo.contains(toId) || fromId == toId
-            }
-
-            /**
-             * Sends a [message] to the [toClientId] client.
-             *
-             * @exception Error when [isConnected] returns false
-             */
-            fun sendMessage(fromClientId: String, toClientId: String, message: Message) {
-                // Only deliver if connected in this emulation model
-                if (!isConnected(fromClientId, toClientId)) {
-                    throw Error("$fromClientId is not connected to $toClientId")
-                }
-
-                val target = connectedClients[toClientId] ?: return
-                target.network.onReceive(message)
-            }
-
-            /**
-             * Starts advertising this network. This method will NOT throw an error if the user
-             * is already advertising
-             */
-            fun startAdvertising(peer: Peer) {
-                // Check if user is already advertising
-                if(advertisedBy.any { p -> p == peer }) {
-                    return;
-                }
-
-                advertisedBy.add(peer)
-            }
-
-            /**
-             * Stops advertising this network. This method will NOT throw an error if the user
-             * is not advertising
-             */
-            fun stopAdvertising(peer: Peer) {
-                // Check if user is not advertising
-                if(!advertisedBy.any { p -> p == peer }) {
-                    return;
-                }
-
-                // Remove
-                advertisedBy.removeIf { p -> p == peer }
-
-            }
-        }
-    }
+//    class InMemoryNetworks {
+//
+//        data class InMemoryNetworkPeer(
+//            val endpointId: String,
+//            var isAdvertising: Boolean,
+//            var isDiscovering: Boolean,
+//            val connections: MutableList<String>,
+//            val network: Network
+//        )
+//
+//        fun getALlNetworkPeers(): List<InMemoryNetworkPeer> {
+//            return InMemoryNetworkHolder.Nodes
+//        }
+//
+//        fun connectToNode(self: String, connectTo: String) {
+//            // Verify the connect to exists and is advertising
+//            val connectTo = requireNode(connectTo,
+//                requireAdv = Pair(true, true))
+//
+//            // Verify that self exists and is advertising
+//            val selfNode = requireNode(self, requireDisc = Pair(true, true))
+//        }
+//
+//        fun startAdvertising(self: String) {
+//            // Attempt to get node
+//            var node = getNode(self);
+//
+//            if(node == null) {
+//                // Create node
+//                node = createNode(self)
+//            }
+//
+//            node.isAdvertising = true
+//        }
+//
+//        private fun getNode(endpointId: String): InMemoryNetworkPeer? {
+//            return InMemoryNetworkHolder.Nodes.find { n -> n.endpointId == endpointId }
+//        }
+//
+//        /**
+//         * Returns a [InMemoryNetworkPeer] and throws an error if that peer does not exist.
+//         *
+//         * This can also check if the node is advertising or discovering
+//         *
+//         * Pass a [Pair] of ([Boolean], [Boolean]) for both [requireAdv] and [requireDisc].
+//         * The first input is if it should check, and the second is the required state.
+//         *
+//         * Example:
+//         * If we wanted to make sure a node is not advertising, we would pass
+//         * ```
+//         * val node = requireNode("test", requireAdv = Pair(true, false))
+//         * ```
+//         */
+//        private fun requireNode(endpointId: String,
+//                                requireAdv: Pair<Boolean, Boolean> = Pair(false, false),
+//                                requireDisc: Pair<Boolean, Boolean> = Pair(false, false)) : InMemoryNetworkPeer {
+//            val node = getNode(endpointId) ?: throw IllegalStateException("Missing required node $endpointId")
+//
+//            // Check params
+//            if(requireAdv.first) {
+//                if(node.isAdvertising != requireAdv.second)
+//                    throw IllegalStateException("Node $endpointId required to " +
+//                            "${if (requireAdv.second) "be" else "not be"} advertising")
+//            }
+//
+//            if(requireDisc.first) {
+//                if(node.isDiscovering != requireDisc.second)
+//                    throw IllegalStateException("Node $endpointId required to " +
+//                        "${if (requireAdv.second) "be" else "not be"} discovering")
+//            }
+//
+//            return node
+//        }
+//
+//        private fun addSelf(): InMemoryNetworkPeer {
+//            val peer = InMemoryNetworkPeer(
+//                endpointId=currentSessionId,
+//                isAdvertising = false,
+//                isDiscovering = false,
+//                connections = mutableListOf<String>()
+//            )
+//
+//            Nodes.add(peer)
+//
+//            return peer
+//        }
+//
+//
+//        private object InMemoryNetworkHolder {
+//
+//
+//            val Nodes = mutableListOf<InMemoryNetworkPeer>()
+//
+//
+//        }
+//        private val networks = mutableMapOf<String, InMemoryNetwork>()
+//
+//        fun listNetworkIds(): List<String> = networks.keys.toList()
+//
+//        fun getNetworkById(id: String): InMemoryNetwork? = networks[id]
+//
+//        /**
+//         * Creates a network with the [id] and a [masterClient] as the user who created it
+//         *
+//         * @return the [InMemoryNetwork] instance with ONLY the [masterClient]
+//         */
+//        fun createNetwork(id: String, masterClient: Client, masterNetwork: LocalNetwork): InMemoryNetwork {
+//            if (networks.containsKey(id)) throw Error("Network '$id' already exists")
+//            val net = InMemoryNetwork(id, masterClient)
+//            networks[id] = net
+//
+//            // Add master as connected client (self)
+//            net.connectedClients[masterClient.id] = InMemoryNetwork.ConnectedClient(masterClient, masterNetwork)
+//            return net
+//        }
+//
+//        /**
+//         * Deletes the network with the [id]
+//         */
+//        fun deleteNetwork(id: String) {
+//            networks.remove(id)
+//        }
+//
+//        /**
+//         * This method will destroy all instances of [InMemoryNetwork]. If other [Client]'s are
+//         * created, this will not purge them
+//         */
+//        fun purgeNetworks() {
+//            networks.clear()
+//        }
+//
+//        class InMemoryNetwork(
+//            val id: String,
+//            val masterClient: Client
+//        ) {
+//            /**
+//             * List of users that are advertising this network
+//             */
+//            val advertisedBy = mutableListOf<Peer>()
+//            data class ConnectedClient(
+//                val client: Client,
+//                val network: LocalNetwork,
+//                val connectedTo: MutableSet<String> = mutableSetOf()
+//            )
+//
+//            val connectedClients = mutableMapOf<String, ConnectedClient>()
+//
+//            /**
+//             * Adds a [client] and attaches it to a [peer]
+//             */
+//            fun addClient(client: Client, network: LocalNetwork, peer: Peer) {
+//                if (connectedClients.containsKey(client.id)) return
+//
+//                if (!connectedClients.containsKey(peer.endpointId)) {
+//                    throw Error("Peer does not exist on the network")
+//                }
+//                val peerConnected = connectedClients[peer.endpointId]
+//
+//                // In order for Nearby Connections to init a connection, the peer MUST be advertising
+//                if(!advertisedBy.contains(peer)) {
+//                    throw IllegalStateException("Attempted to connect to ${peer.endpointId} but" +
+//                            " that peer is not advertising on this network!")
+//                }
+//                val cc = ConnectedClient(client = client, network = network)
+//                connectedClients[client.id] = cc
+//
+//                // Connect to peer
+//                peerConnected!!.connectedTo.add(cc.client.id)
+//                connectedClients[client.id]?.connectedTo?.add(peerConnected.client.id)
+//
+//                // Call event on the connected client
+//                peerConnected.network.onPeerConnect(Peer(client.id, client.id))
+//
+//            }
+//
+//            /**
+//             * Removes a client via the [clientId] from the network
+//             *
+//             * This will emmit a [NetworkEvent.PeerDisconnected] on the client
+//             */
+//            fun removeClient(clientId: String) {
+//                val removed = connectedClients.remove(clientId) ?: return
+//
+//                // Remove edges pointing to this client
+//                connectedClients.values.forEach { it.connectedTo.remove(clientId) }
+//
+//                // Notify owner/client via events if desired
+//                removed.network._events.tryEmit(NetworkEvent.PeerDisconnected(clientId))
+//            }
+//
+//            /**
+//             * Returns True if the [fromId] client is connected to the [toId] client
+//             */
+//            fun isConnected(fromId: String, toId: String): Boolean {
+//                val from = connectedClients[fromId] ?: return false
+//                return from.connectedTo.contains(toId) || fromId == toId
+//            }
+//
+//            /**
+//             * Sends a [message] to the [toClientId] client.
+//             *
+//             * @exception Error when [isConnected] returns false
+//             */
+//            fun sendMessage(fromClientId: String, toClientId: String, message: Message) {
+//                // Only deliver if connected in this emulation model
+//                if (!isConnected(fromClientId, toClientId)) {
+//                    throw Error("$fromClientId is not connected to $toClientId")
+//                }
+//
+//                val target = connectedClients[toClientId] ?: return
+//                target.network.onReceive(message)
+//            }
+//
+//            /**
+//             * Starts advertising this network. This method will NOT throw an error if the user
+//             * is already advertising
+//             */
+//            fun startAdvertising(peer: Peer) {
+//                // Check if user is already advertising
+//                if(advertisedBy.any { p -> p == peer }) {
+//                    return;
+//                }
+//
+//                advertisedBy.add(peer)
+//            }
+//
+//            /**
+//             * Stops advertising this network. This method will NOT throw an error if the user
+//             * is not advertising
+//             */
+//            fun stopAdvertising(peer: Peer) {
+//                // Check if user is not advertising
+//                if(!advertisedBy.any { p -> p == peer }) {
+//                    return;
+//                }
+//
+//                // Remove
+//                advertisedBy.removeIf { p -> p == peer }
+//
+//            }
+//        }
+//    }
 }

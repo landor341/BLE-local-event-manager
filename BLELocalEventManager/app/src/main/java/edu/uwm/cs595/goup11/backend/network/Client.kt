@@ -1,7 +1,10 @@
 package edu.uwm.cs595.goup11.backend.network
 
 import SnakeTopology
+import edu.uwm.cs595.goup11.backend.network.topology.HubAndSpokeTopology
+import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyContext
+import edu.uwm.cs595.goup11.backend.network.topology.TopologyPeer
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CompletableDeferred
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import java.security.InvalidParameterException
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.reflect.typeOf
 
@@ -40,12 +44,12 @@ class Client(
      * Defines the topology of the client. By default this is snake, but it should update depending
      * on the network
      */
-    private val topology: TopologyStrategy = SnakeTopology(),
+    private var topology: TopologyStrategy = SnakeTopology(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
 
     private val logger = KotlinLogging.logger {}
-    private var currentSessionId: String? = null
+    private var networkId: String? = null
     private val replyWaiters =
         ConcurrentHashMap<String, CompletableDeferred<Message>>() // requestId -> deferred reply
 
@@ -150,22 +154,10 @@ class Client(
         val p = n.join(sessionId)
 
         listenToEvents()
-
-        //TODO: Everything below should be removed. Logic has been moved to TOPOLOGY
-        attachedRouter = p
-        attachedPeers.add(p)
+        
 
         // Listen to network events
         manuallyListenToEvents()
-        // TODO: This should attempt to find best router, if our topology is a router mesh
-
-        // Send a HELLO message
-        sendMessageAndWait(p.endpointId, Message(
-            to=p.endpointId,
-            from=id,
-            type= MessageType.HELLO,
-            ttl=1 // Should only send direct
-        ))
 
         return p
     }
@@ -427,6 +419,96 @@ class Client(
                 }
             }
         }
+    }
+
+    private fun modifyTopology(newTopology: TopologyStrategy) {
+        // Update
+        topology.stop()
+
+        topology = newTopology
+
+        topology.start(topologyContext)
+    }
+    private fun configureFromNetworkId(fromId: String) {
+        val regex = Regex("""EVT:([^|]+)\|TOP:([^|]+)\|TYP:([^|]+)\|N:(.+)""")
+        val match = regex.find(fromId)
+        if (match != null) {
+            val (eventName, topology, type, name) = match.destructured
+
+            // Checks
+            val validTopos: Array<String> = arrayOf("hub", "snk", "msh")
+            if(!validTopos.contains(topology)) {
+                throw InvalidParameterException("Invalid topology type. Expected one of" +
+                        " $validTopos. Got: $topology")
+            }
+
+            val validType: Array<String> = arrayOf("l", "r", "a", "p")
+            if(!validType.contains(type)) {
+                throw InvalidParameterException("Invalid peer type. Expected one of" +
+                        " $validType. Got: $type")
+            }
+
+
+            // Configure this client
+            when(topology) {
+                "hub" -> {
+                    if(topology::class != HubAndSpokeTopology::class) {
+                        modifyTopology(HubAndSpokeTopology(localRole =
+                            TopologyStrategy.Role.LEAF))
+                    }
+                }
+                "snk" -> {
+                    if(topology::class != SnakeTopology::class) {
+                        modifyTopology(SnakeTopology())
+                    }
+                }
+                "msh" -> {
+                    if(topology::class != MeshTopology::class) {
+                        modifyTopology(MeshTopology(maxPeerCount = 5, TopologyStrategy.Role.PEER))
+                    }
+                }
+            }
+
+
+
+        } else {
+            throw InvalidParameterException("Expected input to match regex: EVT:([^|]+)\\|TOP:([^|]+)\\|TYP:([^|]+)\\|N:(.+)")
+        }
+    }
+
+    private fun generateNetworkId(eventName: String): String {
+        return "EVT:$eventName|TOP:${
+            when(topology::class) {
+                SnakeTopology::class -> {
+                    "snk"
+                }
+
+                MeshTopology::class -> {
+                    "msh"
+                }
+
+                HubAndSpokeTopology::class -> {
+                    "hub"
+                }
+                else -> {
+                    throw IllegalStateException("Class not found for topology")
+                }
+            }
+        }|TYP:${
+            when(topology.localRole) {
+                TopologyStrategy.Role.LEAF -> {
+                    "l"
+                }
+                
+                TopologyStrategy.Role.PEER -> {
+                    "p"
+                }
+                
+                TopologyStrategy.Role.ROUTER -> {
+                    "r"
+                }
+            }
+        }|N:${id}"
     }
 
     private fun requireNetwork(): Network {
