@@ -143,8 +143,7 @@ class LocalNetwork() : Network {
             ?: throw Error("Network '$sessionId' not found")
 
         _state.value = NetworkState.Joining(sessionId)
-
-        // Pick random router to connect to
+        //TODO: This is not right, it should be connecting to the client matching the sessionId not peers
         val r = net.connectedClients.filter { c -> c.value.client.type == ClientType.ROUTER }
         val router = net.connectedClients[r.keys.random()]
         val routerPeer = Peer(
@@ -211,7 +210,8 @@ class LocalNetwork() : Network {
     override suspend fun deleteNetwork() {
         val c = requireClient()
         val net = requireNet()
-
+        //TODO: Refactor with new InMemoryNetwork type. Technically deleting the network would require
+        // sending a message to all nodes with a ADMIN_NETWORK-DELETED message
         if (net.masterClient.id != c.id) {
             throw Error("Only the network owner can delete the network")
         }
@@ -505,6 +505,12 @@ class LocalNetwork() : Network {
 
     // ------------------ In Memory Networks ------------------
 
+    //TODO: This is wrong, Nearby Connections works off of peer-to-peer connections, not networks
+    // - with names, this should instead just be a collection of peers that we can connect to
+    // - Fix: Remove InMemoryNetwork and just replace it with a
+    // mutableListOf<Pair<Peer, mutableListOf<String>>() to show connections, and a separate
+    // mutableListOf<Peer>() to show peers that are advertising. Any network name configurations
+    // should be handled client side
     private object InMemoryNetworks {
 
         private val networks = mutableMapOf<String, InMemoryNetwork>()
@@ -570,6 +576,11 @@ class LocalNetwork() : Network {
                 }
                 val peerConnected = connectedClients[peer.endpointId]
 
+                // In order for Nearby Connections to init a connection, the peer MUST be advertising
+                if(!advertisedBy.contains(peer)) {
+                    throw IllegalStateException("Attempted to connect to ${peer.endpointId} but" +
+                            " that peer is not advertising on this network!")
+                }
                 val cc = ConnectedClient(client = client, network = network)
                 connectedClients[client.id] = cc
 

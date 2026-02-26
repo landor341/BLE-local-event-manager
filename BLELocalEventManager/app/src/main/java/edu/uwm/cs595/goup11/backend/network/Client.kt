@@ -31,7 +31,10 @@ import kotlin.reflect.typeOf
  */
 class Client(
     val id: String,
-    val type: ClientType,
+    /**
+     * TODO: This has been moved to the topology. The client should not know what type of node it is
+     */
+    val type: ClientType = ClientType.LEAF,
     var network: Network? = null,
     /**
      * Defines the topology of the client. By default this is snake, but it should update depending
