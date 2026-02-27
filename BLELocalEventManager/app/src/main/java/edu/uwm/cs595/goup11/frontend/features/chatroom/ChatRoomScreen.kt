@@ -41,10 +41,7 @@ fun ChatRoomScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(
-                    text = presentationName,
-                    style = MaterialTheme.typography.titleLarge
-                ) },
+                title = { Text(text = presentationName) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")

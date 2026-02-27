@@ -7,5 +7,7 @@ enum class Destinations {
     HOME,
     EXPLORE,
     EVENT_DETAIL,
+    CHAT_LOBBY,
+    CHAT_ROOM,
     PROFILE
 }

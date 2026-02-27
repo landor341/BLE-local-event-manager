@@ -26,6 +26,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import edu.uwm.cs595.goup11.frontend.features.chatroom.ChatLobbyScreen
+import edu.uwm.cs595.goup11.frontend.features.chatroom.ChatRoomScreen
+import edu.uwm.cs595.goup11.frontend.features.chatroom.MessageMockData
+import edu.uwm.cs595.goup11.frontend.features.chatroom.PresentationMockData
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventMockData
 import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
@@ -35,8 +39,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavigation() {
-    var currentDestination by remember { mutableStateOf(Destinations.EVENT_DETAIL) }
-
+    var currentDestination by remember { mutableStateOf(Destinations.CHAT_LOBBY) }
+    var selectedPresentationName by remember { mutableStateOf("") }
     when (currentDestination) {
         Destinations.HOME ->
             HomeScreen(onExploreClick = {
@@ -52,10 +56,31 @@ fun AppNavigation() {
             val mockEvent = EventMockData.events().first()
             EventDetailScreen(
                 event = mockEvent,
+                onOpenChat = { currentDestination = Destinations.CHAT_LOBBY },
                 onBack = { currentDestination = Destinations.EXPLORE }
             )
         }
-
+        Destinations.CHAT_LOBBY -> {
+            ChatLobbyScreen(
+                presentations = PresentationMockData.presentations(),
+                onJoinChat = { presentation ->
+                    selectedPresentationName = presentation.name
+                    currentDestination = Destinations.CHAT_ROOM
+                },
+                onBack = { currentDestination = Destinations.EVENT_DETAIL }
+            )
+        }
+        Destinations.CHAT_ROOM -> {
+            ChatRoomScreen(
+                presentationName = selectedPresentationName,
+                messages = MessageMockData.messages(),
+                onSendMessage = {  },
+                onNavigateToDetail = {
+                    currentDestination = Destinations.EVENT_DETAIL
+                },
+                onBack = { currentDestination = Destinations.CHAT_LOBBY }
+            )
+        }
         Destinations.PROFILE ->
             ProfileScreen()
     }
