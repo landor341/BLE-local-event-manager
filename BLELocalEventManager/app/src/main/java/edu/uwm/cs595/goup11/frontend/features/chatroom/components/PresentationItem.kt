@@ -40,7 +40,7 @@ fun PresentationItem(
                 )
             }
 
-            // right side
+            // right side >
             Icon(
                 imageVector = Icons.Default.KeyboardArrowRight,
                 contentDescription = "Enter Chat Room",
