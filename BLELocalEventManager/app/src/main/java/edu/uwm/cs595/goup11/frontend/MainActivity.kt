@@ -8,25 +8,40 @@ import edu.uwm.cs595.goup11.frontend.core.navigation.AppNavigation
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
 
 /**
- * MainActivity
+ * MainActivity — Application Entry Point (UI Shell Only)
  *
- * Entry point of the Android application.
- * This activity is intentionally minimal.
  *
- * Responsibilities:
- * - Sets up the Compose content
- * - Applies global app theme
- * - Delegates navigation to AppNavigation
+ * PURPOSE:
+ * This activity is intentionally minimal and must remain minimal.
+ * It acts only as a container for Jetpack Compose content.
  *
- * All navigation logic, screen logic, and state handling
- * must live outside of this file.
+ * RESPONSIBILITIES:
+ * - Initialize Compose
+ * - Apply global theme
+ * - Attach AppNavigation()
+ *
+ * STRICT RULES:
+ * - Do NOT put business logic here
+ * - Do NOT start Bluetooth/networking here
+ * - Do NOT initialize backend Client/Network here
+ * - Do NOT hold application state here
+ *
+ * All logic must live in:
+ * - ViewModels (application logic)
+ * - MeshGateway (backend bridge)
+ * - backend/network (mesh implementation)
+ *
+ * If you need global initialization logic,
+ * create a dedicated AppInitializer or use Application class.
+ *
+ * This file should remain under ~60 lines.
  */
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        enableEdgeToEdge()
+        edu.uwm.cs595.goup11.frontend.core.AppContainer.init(this)
 
         setContent {
             BLELocalEventManagerTheme {
