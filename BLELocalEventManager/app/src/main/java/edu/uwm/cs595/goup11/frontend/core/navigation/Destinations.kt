@@ -7,5 +7,7 @@ enum class Destinations {
     HOME,
     EXPLORE,
     EVENT_DETAIL,
-    PROFILE
+    PROFILE,
+    CREATE_EVENT,
+
 }

@@ -26,6 +26,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHost
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.rememberNavController
+import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventMockData
 import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
@@ -35,7 +39,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun AppNavigation() {
-    var currentDestination by remember { mutableStateOf(Destinations.EVENT_DETAIL) }
+    var currentDestination by remember { mutableStateOf(Destinations.CREATE_EVENT) }
 
     when (currentDestination) {
         Destinations.HOME ->
@@ -55,148 +59,12 @@ fun AppNavigation() {
                 onBack = { currentDestination = Destinations.EXPLORE }
             )
         }
+        Destinations.CREATE_EVENT -> {
+            CreateEventScreen(onBack = {currentDestination = Destinations.EVENT_DETAIL})
+
+        }
 
         Destinations.PROFILE ->
             ProfileScreen()
     }
 }
-
-/*
-* val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-
-
-
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
-                Column(
-                    modifier = Modifier.padding(15.dp),
-                    horizontalAlignment = Alignment.Start,
-                    verticalArrangement = Arrangement.Top
-
-                ) {
-                    Text("Navigation", modifier = Modifier.padding(16.dp))
-                    HorizontalDivider()
-                    NavigationDrawerItem(
-                        label = { Text(text = "Test item") },
-                        selected = false,
-                        onClick = {
-
-                        }
-                    )
-                    NavigationDrawerItem(
-                        label = { Text(text = "Explore")},
-                        selected = false,
-                        onClick = onExploreClick
-
-                    )
-                }
-            }
-        },
-
-
-        ) {
-
-
-        Scaffold() { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(innerPadding),
-                verticalArrangement = Arrangement.Top,
-                horizontalAlignment = Alignment.Start
-            ){
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.TopStart
-                ) {
-
-                    FloatingActionButton(
-                        onClick = {
-                            scope.launch {
-                                drawerState.apply {
-                                    if (isClosed) open() else close()
-                                }
-                            } },
-                    ){
-                        Icon(Icons.Filled.Add, "Navigation")
-                    }
-
-                }
-            }
-        }
-    }val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-
-
-
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
-                Column(
-                    modifier = Modifier.padding(15.dp),
-                    horizontalAlignment = Alignment.Start,
-                    verticalArrangement = Arrangement.Top
-
-                ) {
-                    Text("Navigation", modifier = Modifier.padding(16.dp))
-                    HorizontalDivider()
-                    NavigationDrawerItem(
-                        label = { Text(text = "Test item") },
-                        selected = false,
-                        onClick = {
-
-                        }
-                    )
-                    NavigationDrawerItem(
-                        label = { Text(text = "Explore")},
-                        selected = false,
-                        onClick = onExploreClick
-
-                    )
-                }
-            }
-        },
-
-
-        ) {
-
-
-        Scaffold() { innerPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(innerPadding),
-                verticalArrangement = Arrangement.Top,
-                horizontalAlignment = Alignment.Start
-            ){
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.TopStart
-                ) {
-
-                    FloatingActionButton(
-                        onClick = {
-                            scope.launch {
-                                drawerState.apply {
-                                    if (isClosed) open() else close()
-                                }
-                            } },
-                    ){
-                        Icon(Icons.Filled.Add, "Navigation")
-                    }
-
-                }
-            }
-        }
-    }
-    * */

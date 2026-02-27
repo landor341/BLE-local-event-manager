@@ -13,7 +13,7 @@ object HomeMockData {
         Presentation("a123", "Unraveling the Mysteries of Jupiter",
             LocalDateTime.of(2026, 3, 8, 10, 0,0),
             "UWM Planetarium", "Dr. Galaxy" ),
-        Presentation("b456", "Cooking on a Budjet",
+        Presentation("b456", "Cooking on a Budget",
             LocalDateTime.of(2026, 4, 2, 12, 0, 0),
             "Culinary Building W 352", "Rosemary Bacon")
 
