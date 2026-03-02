@@ -42,7 +42,7 @@ data class TopologyPeer(
                 }
 
                 return TopologyPeer(
-                    peer=Peer(endpointName, endpointName),
+                    peer=Peer.generatePeer(endpointName),
                     name=name,
                     role = when(type) {
                         "r" -> TopologyStrategy.Role.ROUTER

@@ -26,6 +26,10 @@ sealed class NetworkEvent {
     data class PeerConnected(val peer: Peer) : NetworkEvent()
     data class PeerDisconnected(val endpointId: String) : NetworkEvent()
     data class MessageReceived(val message: Message) : NetworkEvent()
+
+    data class PeerRequestConnection(val endpointId: String) : NetworkEvent()
+
+    data class PeerRequestRejectedConnection(val endpointId: String) : NetworkEvent()
 }
 
 /**
@@ -51,6 +55,7 @@ interface Network {
 
     /** id */
     val currentSessionId: StateFlow<String?>
+
 
     /**
      * Initializes the network

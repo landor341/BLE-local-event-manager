@@ -1,6 +1,5 @@
 package edu.uwm.cs595.goup11.backend.network
 import androidx.annotation.VisibleForTesting
-import edu.uwm.cs595.goup11.backend.network.LocalNetwork.InMemoryNetworks.InMemoryNetworkPeer
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.util.collections.setValue
@@ -27,6 +26,7 @@ class LocalNetwork() : Network {
         logger.warn { "WARNING. a LocalNetwork class has been created. If this is for a unit" +
                 " test or local debugging this log can be ignored" }
     }
+
 
     private val _currentSessionId = MutableStateFlow<String?>(null)
     override val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
@@ -61,7 +61,7 @@ class LocalNetwork() : Network {
     /** replyTo waiters: requestMessageId -> deferred(replyMessage) */
     private val replyWaiters = ConcurrentHashMap<String, CompletableDeferred<Message>>()
 
-    private val inMemPeer: InMemoryNetworkPeer? = null
+    private var inMemPeer: InMemoryNetworkPeer? = null
 
     override fun init(client: Client, config: Network.Config) {
 
@@ -142,6 +142,9 @@ class LocalNetwork() : Network {
     override suspend fun join(sessionId: String): Peer {
 
         val c = requireClient()
+        val cPeer = c.requireClientPeer()
+        _currentSessionId.value = cPeer.endpointId
+
         logger.debug { "${c.id} is attempting to connect to $sessionId" }
 
 
@@ -149,9 +152,11 @@ class LocalNetwork() : Network {
 
         val connectTo = requireNode(sessionId, requireAdv = Pair(true, true))
 
+        val self = addSelf()
 
 
-        _currentSessionId.value = sessionId
+
+
 
         _state.value = NetworkState.Joined(sessionId, routerPeer)
         _events.tryEmit(NetworkEvent.Joined(sessionId, routerPeer))
@@ -519,13 +524,19 @@ class LocalNetwork() : Network {
         return InMemoryNetworkHolder.Nodes
     }
 
-    fun connectToNode(self: String, connectTo: String) {
+    fun connectToNode(connectTo: String) {
         // Verify the connect to exists and is advertising
         val connectTo = requireNode(connectTo,
             requireAdv = Pair(true, true))
 
         // Self node does not have to exist at this point
+        if(inMemPeer == null) {
+            addSelf()
+        }
 
+        //Attach both
+        connectTo.connections.add(inMemPeer!!.endpointId)
+        inMemPeer!!.connections.add(connectTo.endpointId)
     }
 
 
@@ -585,7 +596,7 @@ class LocalNetwork() : Network {
         )
 
         InMemoryNetworkHolder.Nodes.add(peer)
-
+        inMemPeer = peer
         return peer
     }
 

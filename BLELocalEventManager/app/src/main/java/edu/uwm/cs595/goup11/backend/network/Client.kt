@@ -49,7 +49,12 @@ class Client(
 ) {
 
     private val logger = KotlinLogging.logger {}
-    private var networkId: String? = null
+
+    /**
+     * Represents the client. This peer will only be non-null when advertising, or in a network
+     */
+    var clientPeer: Peer? = null
+
     private val replyWaiters =
         ConcurrentHashMap<String, CompletableDeferred<Message>>() // requestId -> deferred reply
 
@@ -95,6 +100,7 @@ class Client(
             coroutineScope = scope
         )
     }
+
 
     /**
      * Attach a Network implementation (LocalNetwork or ConnectNetwork).
@@ -145,16 +151,27 @@ class Client(
     }
 
     /**
-     * Join a network with the [sessionId] and return the router Peer.
+     * Join a network with the [nodePeer]
+     *
+     * TODO: This should handle rejection
      */
-    suspend fun joinNetwork(sessionId: String): Peer {
+    suspend fun joinNetwork(nodePeer: Peer): Peer {
         val n = requireNetwork()
 
+        configureFromNetworkId(nodePeer.endpointId)
+
+        clientPeer = Peer.generatePeer(
+            eventName = nodePeer.eventName,
+            topologyType=nodePeer.topologyType,
+            clientType = TopologyStrategy.Role.PEER,
+            name=id
+        )
+
         // Join Network
-        val p = n.join(sessionId)
+        val p = n.join(nodePeer.endpointId)
 
         listenToEvents()
-        
+
 
         // Listen to network events
         manuallyListenToEvents()
@@ -358,6 +375,9 @@ class Client(
         handleMessage(message)
     }
 
+    fun requireClientPeer(): Peer {
+        return clientPeer ?: throw IllegalStateException("Peer is required for this action")
+    }
     /**
      * Main message handling method. This method should handle all message routing and parsing.
      *
@@ -429,6 +449,7 @@ class Client(
 
         topology.start(topologyContext)
     }
+
     private fun configureFromNetworkId(fromId: String) {
         val regex = Regex("""EVT:([^|]+)\|TOP:([^|]+)\|TYP:([^|]+)\|N:(.+)""")
         val match = regex.find(fromId)
