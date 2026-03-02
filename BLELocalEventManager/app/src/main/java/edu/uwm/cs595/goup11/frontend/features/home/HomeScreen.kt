@@ -30,7 +30,7 @@ import java.time.format.DateTimeFormatter
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun HomeScreen(onExploreClick: () -> Unit) {
+fun HomeScreen() {
 
     var allPres = remember {HomeMockData.presentations() }
 

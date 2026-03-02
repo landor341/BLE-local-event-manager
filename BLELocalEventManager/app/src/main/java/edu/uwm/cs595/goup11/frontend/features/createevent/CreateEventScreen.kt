@@ -128,7 +128,7 @@ fun CreateEventScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Button(onClick)
+            //Button(onClick)
 
         }
 

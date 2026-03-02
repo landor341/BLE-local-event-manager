@@ -10,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import edu.uwm.cs595.goup11.frontend.domain.models.Event
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.tooling.preview.Preview
 import edu.uwm.cs595.goup11.frontend.features.explore.components.EventCard
