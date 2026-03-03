@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,35 +19,57 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import edu.uwm.cs595.goup11.frontend.domain.models.Event
 import edu.uwm.cs595.goup11.R
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
+import edu.uwm.cs595.goup11.frontend.domain.models.Event
 
 /**
- * EventDetailScreen
+ * ==========================================================
+ * EventDetailScreen — Sprint 3 Navigation + UI
+ * ==========================================================
  *
- * TODO: Implement full event detail UI.
+ * MINIMAL CHANGE GOAL (Sprint 3):
+ * - This screen must be navigable from Explore using ONLY a sessionId string.
+ * - Do NOT require an Event object from navigation (that breaks mesh integration).
  *
- * This screen should display:
- * - Event name
- * - Host information
- * - Presentation list
- * - Join / Leave event button
- * - Chat access
- * - Mesh status indicators
+ * CURRENT STATE:
+ * - UI is mostly built already (image, title, description, join/leave buttons).
+ * - For now we still display mock details by mapping sessionId -> mock Event (if present).
  *
- * Ownership: (Assign teammate name here)
+ * NEXT (mesh integration):
+ * - Replace mock lookup with MeshGateway.joinEvent(sessionId) result.
+ * - Hook chat button to the real chat screen once created.
+ *
+ * TEAM RULES:
+ * - Do NOT import backend.network.* in this file.
+ * - Do NOT create Client/Network here.
+ *
+ * PRIMARY MAINTAINER: Frontend Integration
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EventDetailScreen(
-    event: Event,
+    sessionId: String,
     onBack: () -> Unit,
     isJoined: Boolean = true,
-    onOpenChat: () -> Unit ={},
-    onJoin: () -> Unit ={},
-    onLeave: () -> Unit ={},
+    onOpenChat: (String) -> Unit = {},
+    onJoin: () -> Unit = {},
+    onLeave: () -> Unit = {},
 ) {
+    // Sprint 3 temporary: show mock event details if the id matches; otherwise show placeholders.
+    // Later this should come from: MeshGateway.joinEvent(sessionId)
+    val event: Event = remember(sessionId) {
+        EventMockData.events().firstOrNull { it.id == sessionId } ?: Event(
+            id = sessionId,
+            name = sessionId,
+            hostName = "Unknown Host",
+            time = "Unknown time",
+            location = "Unknown location",
+            description = "Event details will be provided after joining the mesh session.",
+            participantCount = 0
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -67,7 +90,7 @@ fun EventDetailScreen(
                 .padding(24.dp),
             horizontalAlignment = Alignment.Start,
         ) {
-            // Map photo
+            // Map photo (placeholder)
             Image(
                 painter = painterResource(id = R.drawable.map_sample),
                 contentDescription = "Event Map",
@@ -83,15 +106,22 @@ fun EventDetailScreen(
                 text = event.name,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary // change color
+                color = MaterialTheme.colorScheme.primary
             )
 
             Spacer(Modifier.height(8.dp))
 
-            // Some event detail
             Text(text = "Host: ${event.hostName}", style = MaterialTheme.typography.bodyLarge)
-            Text(text = "Time: ${event.time}", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-            Text(text = "Location: ${event.location}", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Text(
+                text = "Time: ${event.time}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
+            )
+            Text(
+                text = "Location: ${event.location}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
+            )
 
             Text(
                 text = "${event.participantCount} joined",
@@ -101,11 +131,14 @@ fun EventDetailScreen(
             )
 
             Spacer(Modifier.height(24.dp))
-            HorizontalDivider(thickness = 0.5.dp) // a line to separate
+            HorizontalDivider(thickness = 0.5.dp)
             Spacer(Modifier.height(24.dp))
 
-            // Description
-            Text(text = "Description", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                text = "Description",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
             Spacer(Modifier.height(8.dp))
             Text(
                 text = event.description,
@@ -115,17 +148,24 @@ fun EventDetailScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            // Presentation List
-            Text(text = "Presentation List", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text("No presentations available yet.", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Text(
+                text = "Presentation List",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "No presentations available yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
+            )
 
             Spacer(Modifier.height(40.dp))
 
-            // Button (join or leave event/ chat access button if join)
+            // Sprint 3: keep the same join/leave/chat controls.
+            // Later: isJoined should come from MeshUiState + join result.
             if (isJoined) {
-                // a button to open chat
                 Button(
-                    onClick = onOpenChat,
+                    onClick = { onOpenChat(event.name)},
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
@@ -133,9 +173,9 @@ fun EventDetailScreen(
                 ) {
                     Text("Open Chat")
                 }
+
                 Spacer(Modifier.height(16.dp))
 
-                // a button to leave event
                 Button(
                     onClick = onLeave,
                     modifier = Modifier
@@ -148,9 +188,7 @@ fun EventDetailScreen(
                 ) {
                     Text("Leave Event")
                 }
-
             } else {
-
                 Button(
                     onClick = onJoin,
                     modifier = Modifier
@@ -160,22 +198,19 @@ fun EventDetailScreen(
                 ) {
                     Text("Join Event")
                 }
-
             }
-
         }
     }
 }
-
 
 @Preview(showBackground = true)
 @Composable
 fun EventDetailPreview() {
     BLELocalEventManagerTheme {
         EventDetailScreen(
-            event = EventMockData.events().first(),
+            sessionId = EventMockData.events().first().id,
             isJoined = true,
-            onOpenChat= {},
+            onOpenChat = {},
             onJoin = {},
             onLeave = {},
             onBack = {}
