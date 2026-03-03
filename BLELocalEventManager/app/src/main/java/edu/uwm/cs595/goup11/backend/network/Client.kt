@@ -184,6 +184,9 @@ class Client(
      */
     suspend fun joinNetwork(eventName: String) {
         val net = requireNetwork()
+
+        val tempId = "joining_${displayName}_${eventName}"
+        net.init(tempId, Network.Config(defaultTtl = 5))
         net.startDiscovery()
 
         net.events

@@ -412,7 +412,7 @@ class MeshTopologyUnitTest {
     }
 
     @Test fun `at max stops both advertising and scan`() = runBlocking {
-        val topo = makeTopo(max = 2, target = 1, discoveryMs = 50)
+        val topo = makeTopo(max = 2, target = 1, discoveryMs = 50, timeoutMs = Long.MAX_VALUE)
         val tc   = makeCtx("A")
         topo.start(tc.ctx)
         delay(100)
@@ -422,7 +422,7 @@ class MeshTopologyUnitTest {
         topo.stop()
 
         // Last advertising entry should be stopAdvertising
-        assertTrue(tc.advLog.lastOrNull()?.first == false, "Should stop advertising at max")
+        assertEquals(false,tc.advLog.lastOrNull()?.first, "Should stop advertising at max")
     }
 
     @Test fun `dropping from max back to target zone resumes advertising only`() = runBlocking {
@@ -589,7 +589,7 @@ class MeshTopologyUnitTest {
 
     @Test fun `discovery loop stops scanning at target not max`() = runBlocking {
         // target=2, max=4 — fill to target, scan should stop but advertising continues
-        val topo = makeTopo(max = 4, target = 2, discoveryMs = 50)
+        val topo = makeTopo(max = 4, target = 2, discoveryMs = 50, timeoutMs = Long.MAX_VALUE)
         val tc   = makeCtx("A")
         topo.start(tc.ctx)
         delay(100)
@@ -614,8 +614,7 @@ class MeshTopologyUnitTest {
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         topo.onPeerConnected(tc.ctx, "C", aName("C"))
         delay(200)
-        assertTrue(tc.advLog.lastOrNull()?.first == false,
-            "Advertising should stop at max")
+        assertEquals(false,tc.advLog.lastOrNull()?.first, "Advertising should stop at max")
         topo.stop()
     }
 

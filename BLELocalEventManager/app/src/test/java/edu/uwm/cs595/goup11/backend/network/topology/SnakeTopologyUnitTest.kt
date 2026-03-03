@@ -278,9 +278,9 @@ class SnakeTopologyUnitTest {
         assertFalse(topo.onMessage(tc.ctx, msg("A", "B", MessageType.TEXT_MESSAGE)))
     }
 
-    @Test fun `HELLO is not consumed`() {
+    @Test fun `HELLO is consumed`() {
         val topo = makeTopo(); val tc = makeCtx("A")
-        assertFalse(topo.onMessage(tc.ctx, msg("A", "B", MessageType.HELLO)))
+        assertTrue(topo.onMessage(tc.ctx, msg("A", "B", MessageType.HELLO)))
     }
 
     // =========================================================================
@@ -397,6 +397,7 @@ class SnakeTopologyUnitTest {
             delay(40)
             topo.onMessage(tc.ctx, msg("A", "GOOD", MessageType.PONG))
         }
+        //delay(200)
         assertEquals(1, topo.peerCount())
         assertNotNull(topo.peerById("GOOD"))
         topo.stop()
@@ -416,14 +417,14 @@ class SnakeTopologyUnitTest {
     }
 
     @Test fun `discovery loop stops when max peers reached`() = runBlocking {
-        val topo = makeTopo(max = 2, discoveryMs = 50, timeoutMs = Long.MAX_VALUE)
+        val topo = makeTopo(max = 2, discoveryMs = 50)
         val tc   = makeCtx("A")
         topo.start(tc.ctx)
         delay(100)
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         topo.onPeerConnected(tc.ctx, "C", aName("C"))
-        delay(200)
-        assertEquals( false, tc.advLog.lastOrNull()?.first)
+        //delay(200)
+        assertEquals(false, tc.advLog.lastOrNull()?.first)
         topo.stop()
     }
 
@@ -568,6 +569,116 @@ class SnakeTopologyUnitTest {
         topo.onPeerDisconnected(tc.ctx, "B")
         assertTrue(topo.resolveNextHop(tc.ctx, msg("C", "A")).isEmpty())
     }
+
+    // =========================================================================
+// 12. Ring prevention
+// =========================================================================
+
+    @Test fun `third peer already in chain is rejected to prevent ring`() = runBlocking {
+        // A connects to B, B connects to C.
+        // C then tries to connect back to A — A should reject because
+        // it received a HELLO from B that included C in the chain.
+        val topoA = makeTopo(max = 2); val tcA = makeCtx("A")
+        val topoB = makeTopo(max = 2); val tcB = makeCtx("B")
+
+        topoA.start(tcA.ctx)
+        topoB.start(tcB.ctx)
+
+        // A ↔ B
+        topoA.onPeerConnected(tcA.ctx, "B", aName("B"))
+        topoB.onPeerConnected(tcB.ctx, "A", aName("A"))
+
+        // B also connects to C — B broadcasts HELLO including C to A
+        topoB.onPeerConnected(tcB.ctx, "C", aName("C"))
+        // Simulate A receiving the HELLO from B that lists C
+        val helloToA = Message(
+            to   = "A",
+            from = "B",
+            type = MessageType.HELLO,
+            ttl  = 3,
+            data = "A,B,C".toByteArray(Charsets.UTF_8)
+        )
+        topoA.onMessage(tcA.ctx, helloToA)
+
+        // Now C tries to connect to A — A must reject (ring guard)
+        assertFalse(
+            topoA.shouldAcceptConnection(tcA.ctx, "C", aName("C")),
+            "A must reject C to prevent ring A↔B↔C↔A"
+        )
+
+        topoA.stop(); topoB.stop()
+    }
+
+    @Test fun `self-connection is always rejected`() = runBlocking {
+        val topo = makeTopo(max = 2); val tc = makeCtx("A")
+        topo.start(tc.ctx)
+        // A node should never accept a connection from itself
+        assertFalse(
+            topo.shouldAcceptConnection(tc.ctx, "A", aName("A")),
+            "Self-connection must always be rejected"
+        )
+        topo.stop()
+    }
+
+    @Test fun `chain member set resets after peer disconnects`() = runBlocking {
+        // After B disconnects, A should no longer block C from joining —
+        // the chain is broken so C is in a separate segment and not a ring risk.
+        val topo = makeTopo(max = 2); val tc = makeCtx("A")
+        topo.start(tc.ctx)
+
+        // A learns about C through B's HELLO
+        topo.onPeerConnected(tc.ctx, "B", aName("B"))
+        val hello = Message(
+            to   = "A",
+            from = "B",
+            type = MessageType.HELLO,
+            ttl  = 3,
+            data = "A,B,C".toByteArray(Charsets.UTF_8)
+        )
+        topo.onMessage(tc.ctx, hello)
+        assertFalse(
+            topo.shouldAcceptConnection(tc.ctx, "C", aName("C")),
+            "C should be blocked while B is connected"
+        )
+
+        // B disconnects — chain breaks, membership resets
+        topo.onPeerDisconnected(tc.ctx, "B")
+        assertTrue(
+            topo.shouldAcceptConnection(tc.ctx, "C", aName("C")),
+            "C should be accepted after B disconnects — they are now separate segments"
+        )
+        topo.stop()
+    }
+
+    @Test fun `HELLO message merges chain members and propagates to other peers`() = runBlocking {
+        val topo = makeTopo(max = 2); val tc = makeCtx("B")
+        topo.start(tc.ctx)
+
+        // B knows A and C as direct peers
+        topo.onPeerConnected(tc.ctx, "A", aName("A"))
+        topo.onPeerConnected(tc.ctx, "C", aName("C"))
+
+        // A sends a HELLO introducing D (new node at the far end of the chain)
+        val hello = Message(
+            to   = "B",
+            from = "A",
+            type = MessageType.HELLO,
+            ttl  = 3,
+            data = "A,B,D".toByteArray(Charsets.UTF_8)
+        )
+        val consumed = topo.onMessage(tc.ctx, hello)
+        assertTrue(consumed, "HELLO should be consumed by topology")
+
+        // B should have forwarded a HELLO to C (not back to A) that includes D
+        val helloWithD = tc.net.sentTo("C")
+            .filter { it.type == MessageType.HELLO }
+            .firstOrNull { msg ->
+                msg.data?.toString(Charsets.UTF_8)?.split(",")?.contains("D") == true
+            }
+        assertNotNull(helloWithD, "B should forward a HELLO to C that includes newly learned member D")
+
+        topo.stop()
+    }
 }
 
 // =============================================================================
@@ -590,3 +701,4 @@ fun SnakeTopology.peerById(id: String): TopologyPeer? {
     @Suppress("UNCHECKED_CAST")
     return (f.get(this) as ConcurrentHashMap<String, TopologyPeer>)[id]
 }
+
