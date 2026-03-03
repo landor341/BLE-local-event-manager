@@ -1,80 +1,51 @@
 package edu.uwm.cs595.goup11.backend.network.topology
 
+import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
-import edu.uwm.cs595.goup11.backend.network.Peer
-import java.security.InvalidParameterException
 
+/**
+ * A peer as known by the topology layer.
+ *
+ * Created from a raw (endpointId, AdvertisedName) pair the moment a connection
+ * is established. The topology layer never works with raw strings or the old
+ * Peer class directly.
+ *
+ * Owns only what the topology actually needs:
+ *  - The endpoint ID for sending messages via Network
+ *  - The parsed identity (role, event, topology, display name) via AdvertisedName
+ *  - Liveness state for keepalive tracking
+ *  - A pending message queue for messages that arrive before the connection is fully ready
+ */
 data class TopologyPeer(
-    val peer: Peer,
-    var name: String,
-    var role: TopologyStrategy.Role = TopologyStrategy.Role.PEER,
-    var eventName: String,
-    var topologyType: String,
-    var connectedPeerCount: Int = 0,
-    var maxPeerCount: Int = 0,
-    var handshakeComplete: Boolean = false,
-    var lastPongAt: Long = System.currentTimeMillis(),  // for keepalive tracking
-    val pendingMessages: ArrayDeque<Message> = ArrayDeque() // queued until handshake done
+    /**
+     * The opaque ID used to address this peer when calling Network.sendMessage().
+     * In real Nearby Connections this is a hardware-assigned short string.
+     * In LocalNetwork this is the encoded advertised name string.
+     */
+    val endpointId: String,
+
+    /**
+     * Parsed identity of this peer — decoded from the advertised name string
+     * at connection time by Client, then passed into the topology.
+     */
+    val advertisedName: AdvertisedName,
+
+    /**
+     * Timestamp of the last PONG received from this peer.
+     * Updated by the topology's onMessage handler whenever a PONG arrives.
+     * Used by the keepalive loop to detect dead peers.
+     */
+    var lastPongAt: Long = System.currentTimeMillis(),
+
+    /**
+     * Messages queued while waiting for a connection to be fully ready.
+     * Flushed once the peer is considered live.
+     */
+    val pendingMessages: ArrayDeque<Message> = ArrayDeque()
 ) {
-
-    fun encodeToEndpointId(): String {
-        return "EVE:$eventName|TOP:$topologyType|TYP:$role|N:$name"
-    }
-
-    companion object {
-        fun decodeToTopologyPeer(endpointName: String): TopologyPeer {
-            val regex = Regex("""EVT:([^|]+)\|TOP:([^|]+)\|TYP:([^|]+)\|N:(.+)""")
-            val match = regex.find(endpointName)
-            if (match != null) {
-                val (eventName, topology, type, name) = match.destructured
-
-                // Checks
-                val validTopos: Array<String> = arrayOf("hub", "snk", "msh")
-                if(!validTopos.contains(topology)) {
-                    throw InvalidParameterException("Invalid topology type. Expected one of" +
-                            " $validTopos. Got: $topology")
-                }
-
-                val validType: Array<String> = arrayOf("l", "r", "a", "p")
-                if(!validType.contains(type)) {
-                    throw InvalidParameterException("Invalid peer type. Expected one of" +
-                            " $validType. Got: $type")
-                }
-
-                return TopologyPeer(
-                    peer=Peer.generatePeer(endpointName),
-                    name=name,
-                    role = when(type) {
-                        "r" -> TopologyStrategy.Role.ROUTER
-                        "l" -> TopologyStrategy.Role.LEAF
-                        "a" -> TopologyStrategy.Role.PEER
-                        "p" -> TopologyStrategy.Role.PEER
-                        else -> TopologyStrategy.Role.PEER
-                    },
-                    eventName=eventName,
-                    topologyType = topology
-                    )
-            } else {
-                throw InvalidParameterException("Expected input to match regex: EVT:([^|]+)\\|TOP:([^|]+)\\|TYP:([^|]+)\\|N:(.+)")
-            }
-
-        }
-
-        private fun parseFieldPipeColon(raw: String, key: String): String? {
-            //TODO: This should probably be in its own Object so all methods and classes can use it
-            val token = "$key:"
-            val start = raw.indexOf(token)
-            if (start == -1) return null
-
-            val after = start + token.length
-            val end = raw.indexOf('|', after).let { if (it == -1) raw.length else it }
-
-            val value = raw.substring(after, end).trim()
-            return value.takeIf { it.isNotEmpty() }
-        }
-
-        fun createTopologyPeer() {
-
-        }
-    }
+    // Convenience accessors — so callers don't need to drill into advertisedName
+    val role:         TopologyStrategy.Role get() = advertisedName.role
+    val displayName:  String                get() = advertisedName.displayName
+    val eventName:    String                get() = advertisedName.eventName
+    val topologyCode: String                get() = advertisedName.topologyCode
 }

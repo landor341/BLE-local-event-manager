@@ -1,9 +1,8 @@
+package edu.uwm.cs595.goup11.backend.network.topology
+
+import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
-import edu.uwm.cs595.goup11.backend.network.Peer
-import edu.uwm.cs595.goup11.backend.network.topology.TopologyContext
-import edu.uwm.cs595.goup11.backend.network.topology.TopologyPeer
-import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -13,14 +12,17 @@ class SnakeTopology(
     override val maxPeerCount: Int = 2,
     private val discoveryIntervalMs: Long = 5_000,
     private val keepaliveIntervalMs: Long = 5_000,
-    private val keepaliveTimeoutMs: Long = 15_000
+    private val keepaliveTimeoutMs:  Long = 15_000
 ) : TopologyStrategy {
 
-    override val localRole: TopologyStrategy.Role = TopologyStrategy.Role.PEER // Everyone is equal in a snake
+    override val topologyCode: String = "snk"
+
+    // Everyone is equal in a snake — no routers or leaves
+    override val localRole: TopologyStrategy.Role = TopologyStrategy.Role.PEER
 
     private val peers = ConcurrentHashMap<String, TopologyPeer>()
-    private var keepaliveJob: Job? = null
-    private var discoveryJob: Job? = null
+    private var keepaliveJob:  Job? = null
+    private var discoveryJob:  Job? = null
     private val logger = KotlinLogging.logger {}
 
     // -------------------------------------------------------------------------
@@ -44,7 +46,7 @@ class SnakeTopology(
 
     private fun startKeepalive(context: TopologyContext) {
         keepaliveJob = context.launchJob {
-            while(true) {
+            while (true) {
                 delay(keepaliveIntervalMs)
                 tickKeepalive(context)
             }
@@ -57,17 +59,17 @@ class SnakeTopology(
         peers.values.forEach { topoPeer ->
             val timeSinceLastPong = now - topoPeer.lastPongAt
 
-            if(timeSinceLastPong > keepaliveTimeoutMs) {
-                logger.warn { "Peer ${topoPeer.peer.endpointId} timed out" }
-                onPeerDisconnected(context, topoPeer.peer.endpointId)
+            if (timeSinceLastPong > keepaliveTimeoutMs) {
+                logger.warn { "Peer ${topoPeer.endpointId} timed out — removing" }
+                onPeerDisconnected(context, topoPeer.endpointId)
             } else {
                 context.sendMessage(
-                    topoPeer.peer.endpointId,
+                    topoPeer.endpointId,
                     Message(
-                        to = topoPeer.peer.endpointId,
-                        from = context.localId,
+                        to   = topoPeer.endpointId,
+                        from = context.endpointId,
                         type = MessageType.PING,
-                        ttl = 1
+                        ttl  = 1
                     )
                 )
             }
@@ -75,40 +77,37 @@ class SnakeTopology(
     }
 
     // -------------------------------------------------------------------------
-    // Health check — the core of the snake logic
+    // Health — the core of the snake logic
     // -------------------------------------------------------------------------
 
     private fun evaluateHealth(context: TopologyContext) {
-        val currentCount = peers.size
-
-        if(currentCount < maxPeerCount) {
-            logger.info { "Below max peers ($currentCount/$maxPeerCount), starting discovery" }
+        if (peers.size < maxPeerCount) {
+            logger.info { "Below max peers (${peers.size}/$maxPeerCount) — starting discovery" }
             startDiscovery(context)
         } else {
-            logger.info { "At max peers, stopping discovery" }
+            logger.info { "At max peers — stopping discovery" }
             stopDiscovery(context)
         }
     }
 
     private fun startDiscovery(context: TopologyContext) {
-        // Don't start a second loop if one is already running
-        if(discoveryJob?.isActive == true) return
+        if (discoveryJob?.isActive == true) return
 
         discoveryJob = context.launchJob {
-            while(peers.size < maxPeerCount) {
-                context.startAdvertising()
+            while (peers.size < maxPeerCount) {
+                // Advertise with our current encoded name so others can find us
+                context.startAdvertising(context.encodedName())
                 context.startScan()
 
                 delay(discoveryIntervalMs)
 
-                // If we still haven't found anyone, stop and retry next interval
                 context.stopScan()
             }
 
-            // Reached max peers — clean up
+            // Reached max peers — stop advertising and scanning
             context.stopScan()
             context.stopAdvertising()
-            logger.info { "Snake slot filled, discovery stopped" }
+            logger.info { "Snake slots filled — discovery stopped" }
         }
     }
 
@@ -123,12 +122,26 @@ class SnakeTopology(
     // Connection events
     // -------------------------------------------------------------------------
 
-    override fun onPeerConnected(context: TopologyContext, peer: Peer) {
-        val info = TopologyPeer.decodeToTopologyPeer(peer.name)
+    override suspend fun shouldAcceptConnection(
+        context: TopologyContext,
+        endpointId: String,
+        advertisedName: AdvertisedName
+    ): Boolean {
+        // Only accept if we have an open slot
+        return peers.size < maxPeerCount
+    }
 
-        peers[peer.endpointId] = info
+    override fun onPeerConnected(
+        context: TopologyContext,
+        endpointId: String,
+        advertisedName: AdvertisedName
+    ) {
+        peers[endpointId] = TopologyPeer(
+            endpointId     = endpointId,
+            advertisedName = advertisedName
+        )
 
-        logger.info { "Snake peer connected: ${peer.endpointId} (${peers.size}/$maxPeerCount)" }
+        logger.info { "Snake peer connected: $endpointId (${peers.size}/$maxPeerCount)" }
 
         evaluateHealth(context)
     }
@@ -138,7 +151,7 @@ class SnakeTopology(
 
         logger.info { "Snake peer disconnected: $endpointId (${peers.size}/$maxPeerCount)" }
 
-        // Link is broken — start looking for a new neighbor
+        // Chain is broken — look for a replacement neighbor
         evaluateHealth(context)
     }
 
@@ -147,16 +160,16 @@ class SnakeTopology(
     // -------------------------------------------------------------------------
 
     override fun onMessage(context: TopologyContext, message: Message): Boolean {
-        return when(message.type) {
+        return when (message.type) {
             MessageType.PING -> {
                 context.sendMessage(
                     message.from,
                     Message(
-                        to = message.from,
-                        from = context.localId,
-                        type = MessageType.PONG,
+                        to      = message.from,
+                        from    = context.endpointId,
+                        type    = MessageType.PONG,
                         replyTo = message.id,
-                        ttl = 1
+                        ttl     = 1
                     )
                 )
                 true
@@ -174,17 +187,16 @@ class SnakeTopology(
     // -------------------------------------------------------------------------
 
     override fun resolveNextHop(context: TopologyContext, message: Message): List<String> {
-        // Direct delivery
-        if(peers.containsKey(message.to)) {
+        // Direct delivery if destination is a neighbor
+        if (peers.containsKey(message.to)) {
             return listOf(message.to)
         }
 
-        // Forward to all neighbors except whoever sent it (to avoid bouncing)
+        // Flood to all neighbors except whoever sent the message
+        // TTL on the Message prevents infinite loops
         return peers.keys
             .filter { it != message.from }
-            .also {
-                if(it.isEmpty()) logger.warn { "No route found for message to ${message.to}" }
-            }
+            .also { if (it.isEmpty()) logger.warn { "No route to ${message.to}" } }
     }
 
     // -------------------------------------------------------------------------

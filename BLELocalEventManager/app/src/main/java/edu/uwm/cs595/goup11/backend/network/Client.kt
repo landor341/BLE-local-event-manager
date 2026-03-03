@@ -1,543 +1,370 @@
 package edu.uwm.cs595.goup11.backend.network
 
-import SnakeTopology
-import edu.uwm.cs595.goup11.backend.network.topology.HubAndSpokeTopology
-import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyContext
-import edu.uwm.cs595.goup11.backend.network.topology.TopologyPeer
+import edu.uwm.cs595.goup11.backend.network.topology.TopologyFactory
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
-import java.security.InvalidParameterException
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.filterIsInstance
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.reflect.typeOf
-
 
 /**
- * Represents a client on the network.
+ * The application layer of the mesh network stack.
  *
- * IMPORTANT (per refactor):
- * - This class should NOT handle message logic here (no processing, no listeners, no send/receive).
- * - This class should react to network state/events for lifecycle setup (join/leave/scan/etc.).
+ * Client is responsible for:
+ *  - Network lifecycle (creating/joining/leaving a network)
+ *  - Decoding raw AdvertisedName strings from the network boundary
+ *  - Delegating structural decisions to the topology strategy
+ *  - Handling application-layer messages (TEXT_MESSAGE, HELLO, etc.)
+ *  - Managing the reply-waiter queue for request/response flows
+ *  - Re-advertising when this node's role changes
  *
- * When passing the [network], DO NOT call init() externally; the client will handle that.
+ * Client is NOT responsible for:
+ *  - Peer lists or connection tracking (topology owns those)
+ *  - Routing decisions (topology owns those)
+ *  - Keepalive / PING-PONG (topology owns those)
+ *  - Raw transport (network owns that)
+ *
+ * OSI analogy: Network ≈ layers 1-2, Topology ≈ layer 3, Client ≈ layers 4-7.
  */
 class Client(
-    val id: String,
-    /**
-     * TODO: This has been moved to the topology. The client should not know what type of node it is
-     */
-    val type: ClientType = ClientType.LEAF,
+    /** Human-readable display name for this user e.g. "Alice" */
+    val displayName: String,
+
     var network: Network? = null,
-    /**
-     * Defines the topology of the client. By default this is snake, but it should update depending
-     * on the network
-     */
-    private var topology: TopologyStrategy = SnakeTopology(),
+
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
-
     private val logger = KotlinLogging.logger {}
 
+    // -------------------------------------------------------------------------
+    // Identity
+    // -------------------------------------------------------------------------
+
     /**
-     * Represents the client. This peer will only be non-null when advertising, or in a network
+     * The current topology strategy. Null when not on a network.
+     * Set by createNetwork() (caller chooses topology) or joinNetwork()
+     * (topology is inferred from the discovered advertised name).
      */
-    var clientPeer: Peer? = null
-
-    private val replyWaiters =
-        ConcurrentHashMap<String, CompletableDeferred<Message>>() // requestId -> deferred reply
+    private var topology: TopologyStrategy? = null
 
     /**
-     * The router peer this client joined through (if applicable).
-     * This is returned by Network.join(sessionId).
-     * TODO: DEPRECATED. MOVED TO TOPOLOGY
-     */
-    private var attachedRouter: Peer? = null
-    /**
-    * TODO: DEPRECATED. MOVED TO TOPOLOGY
-    */
-    private var attachedPeers = mutableListOf<Peer>();
-
-    /**
-     * Used if [type] == [ClientType.ROUTER]
+     * The encoded advertised name this node is currently using.
+     * Null when not on a network.
      *
-     * TODO: DEPRECATED. MOVED TO TOPOLOGY
+     * This changes when:
+     *  - We join or create a network (new event/topology/role)
+     *  - Our role changes (topology promotes/demotes us)
+     *  - We leave a network (set to null)
      */
-    private var attachedRouters = mutableListOf<Peer>()
-
+    private var currentAdvertisedName: AdvertisedName? = null
 
     /**
-     * Topology setup
+     * This node's current endpoint ID — the encoded advertised name string.
+     *
+     * In LocalNetwork this also doubles as our address.
+     * In real Nearby Connections the OS assigns a separate opaque hardware ID,
+     * but we still use the encoded name as our logical identity in message headers.
      */
+    val endpointId: String?
+        get() = currentAdvertisedName?.encode()
+
+    // -------------------------------------------------------------------------
+    // Reply-waiter queue
+    // -------------------------------------------------------------------------
+
+    /**
+     * Pending request/response waiters.
+     * Key = message ID of the outbound request.
+     * Value = deferred that completes when the reply arrives.
+     */
+    private val replyWaiters = ConcurrentHashMap<String, CompletableDeferred<Message>>()
+
+    // -------------------------------------------------------------------------
+    // Message listeners (application layer callbacks)
+    // -------------------------------------------------------------------------
+
+    private val messageListeners = mutableListOf<(Message) -> Unit>()
+
+    fun addMessageListener(listener: (Message) -> Unit) {
+        messageListeners.add(listener)
+    }
+
+    // -------------------------------------------------------------------------
+    // TopologyContext — the bridge between Client and TopologyStrategy
+    // -------------------------------------------------------------------------
+
     private val topologyContext by lazy {
         TopologyContext(
-            localId = id,
-            network = requireNetwork(),
-            onAdvertisingChanged = { advertising ->
-                if (advertising) requireNetwork().startAdvertising()
-                else requireNetwork().stopAdvertising()
+            localEndpointId      = { endpointId ?: error("Not on a network") },
+            localEncodedName     = { currentAdvertisedName?.encode() ?: error("Not on a network") },
+            network              = requireNetwork(),
+            onAdvertisingChanged = { advertising, encodedName ->
+                if (advertising && encodedName != null)
+                    requireNetwork().startAdvertising(encodedName)
+                else
+                    requireNetwork().stopAdvertising()
             },
-            onScanChanged = { scanning ->
+            onScanChanged        = { scanning ->
                 scope.launch {
-                    if (scanning) requireNetwork().startScan()
-                    else requireNetwork().stopScan()
+                    if (scanning) requireNetwork().startDiscovery()
+                    else          requireNetwork().stopDiscovery()
                 }
             },
-            onRoleChanged = { role ->
-                logger.info { "Role changed to $role" }
-            },
-            coroutineScope = scope
+            onRoleChanged        = { role -> handleRoleChange(role) },
+            coroutineScope       = scope
         )
     }
 
+    // -------------------------------------------------------------------------
+    // Network attachment
+    // -------------------------------------------------------------------------
 
     /**
-     * Attach a Network implementation (LocalNetwork or ConnectNetwork).
-     * Client should call network.init(this, config) internally.
+     * Attach a Network implementation and wire up listeners.
+     * Must be called before any other method.
      */
     fun attachNetwork(network: Network, config: Network.Config) {
-
         this.network = network
-        this.network!!.init(this, config)
 
-        // Attach listeners
-        this.network!!.addListener { message ->  onMessageReceived(message) }
+        // Wire up the connection-request callback — topology decides accept/reject
+        network.onConnectionRequest = { endpointId, encodedName ->
+            val advertisedName = AdvertisedName.decode(encodedName)
+            if (advertisedName == null) {
+                logger.warn { "Rejecting connection from $endpointId — unparseable name: $encodedName" }
+                false
+            } else {
+                topology?.shouldAcceptConnection(topologyContext, endpointId, advertisedName)
+                    ?: false // reject everything if no topology is configured yet
+            }
+        }
 
-        topology.start(topologyContext)
+        network.addListener { message -> onMessageReceived(message) }
+        listenToNetworkEvents()
     }
 
-    /**
-     * Expose network state for UI / orchestration.
-     * (Idle, Scanning, Joining, Joined, Hosting, Error)
-     */
-    fun networkState(): StateFlow<NetworkState> {
-        TODO("Not implemented")
-    }
+    // -------------------------------------------------------------------------
+    // Network lifecycle
+    // -------------------------------------------------------------------------
 
     /**
-     * Expose network events for one-time reactions.
-     * (Joined, PeerConnected, PeerDisconnected, etc.)
-     */
-    fun networkEvents(): SharedFlow<NetworkEvent> {
-        TODO("Not implemented")
-    }
-
-    /**
-     * Start scanning for networks and return the discovery flow
-     */
-    suspend fun scanNetworks(): Flow<String> {
-        val n = requireNetwork()
-        n.startScan()
-        return n.discoveredNetworks
-    }
-
-    /**
-     * Stop scanning for networks.
-     */
-    suspend fun stopScan() {
-        val n = requireNetwork()
-        n.stopScan()
-    }
-
-    /**
-     * Join a network with the [nodePeer]
+     * Create a new network with this node as the initial advertiser.
      *
-     * TODO: This should handle rejection
+     * [eventName] — human-readable event identifier e.g. "TechConf2024"
+     * [topo]      — the topology strategy for this network (creator chooses)
      */
-    suspend fun joinNetwork(nodePeer: Peer): Peer {
-        val n = requireNetwork()
+    suspend fun createNetwork(eventName: String, topo: TopologyStrategy) {
+        topology = topo
 
-        configureFromNetworkId(nodePeer.endpointId)
-
-        clientPeer = Peer.generatePeer(
-            eventName = nodePeer.eventName,
-            topologyType=nodePeer.topologyType,
-            clientType = TopologyStrategy.Role.PEER,
-            name=id
+        currentAdvertisedName = AdvertisedName(
+            eventName    = eventName,
+            topologyCode = topo.topologyCode,
+            role         = topo.localRole,
+            displayName  = displayName
         )
 
-        // Join Network
-        val p = n.join(nodePeer.endpointId)
+        // Re-initialise network with our new encoded identity
+        requireNetwork().init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
+        requireNetwork().startAdvertising(currentAdvertisedName!!.encode())
 
-        listenToEvents()
+        topo.start(topologyContext)
 
-
-        // Listen to network events
-        manuallyListenToEvents()
-
-        return p
+        logger.info { "$displayName created network '$eventName' with topology ${topo.topologyCode}" }
     }
 
-    private fun listenToEvents() {
+    /**
+     * Join an existing network by event name.
+     *
+     * Starts discovery, waits for an endpoint advertising the matching event name,
+     * infers the topology from its advertised name, then requests a connection.
+     *
+     * The connection result (accepted or rejected) arrives asynchronously via
+     * NetworkEvent.EndpointConnected or NetworkEvent.ConnectionRejected on the
+     * events flow, which listenToNetworkEvents() handles.
+     */
+    suspend fun joinNetwork(eventName: String) {
+        val net = requireNetwork()
+        net.startDiscovery()
+
+        net.events
+            .filterIsInstance<NetworkEvent.EndpointDiscovered>()
+            .collect { ev ->
+                val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@collect
+                if (advertisedName.eventName != eventName) return@collect
+
+                currentAdvertisedName = AdvertisedName(
+                    eventName    = eventName,
+                    topologyCode = advertisedName.topologyCode,
+                    role         = TopologyStrategy.Role.PEER,
+                    displayName  = displayName
+                )
+
+                // Create and start topology as separate statements — avoids the
+                // scope inference issue with .also{}
+                val topo = TopologyFactory.create(advertisedName)
+                topology = topo
+                topo.start(topologyContext)
+
+                net.init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
+                net.connect(ev.endpointId)
+            }
+    }
+    /**
+     * Leave the current network gracefully.
+     * Stops advertising, stops topology background jobs, and resets identity.
+     */
+    fun leaveNetwork() {
+        topology?.stop()
+        topology = null
+        currentAdvertisedName = null
+
+        requireNetwork().stopAdvertising()
+
+        // stopDiscovery is suspend so it must be launched in a coroutine
+        scope.launch { requireNetwork().stopDiscovery() }
+
+        logger.info { "$displayName left the network" }
+    }
+
+    // -------------------------------------------------------------------------
+    // Role change — re-encode identity and re-advertise
+    // -------------------------------------------------------------------------
+
+    /**
+     * Called by TopologyContext when the topology promotes or demotes this node.
+     * Updates the encoded advertised name and re-advertises so future joiners
+     * see the correct role.
+     */
+    private fun handleRoleChange(newRole: TopologyStrategy.Role) {
+        val current = currentAdvertisedName ?: return
+        currentAdvertisedName = current.copy(role = newRole)
+
+        val net = requireNetwork()
+        net.stopAdvertising()
+
+        if (topology?.shouldAdvertise(topologyContext) == true) {
+            net.startAdvertising(currentAdvertisedName!!.encode())
+        }
+
+        logger.info { "$displayName changed role to $newRole, re-advertising as ${currentAdvertisedName!!.encode()}" }
+    }
+
+    // -------------------------------------------------------------------------
+    // Network event listener
+    // -------------------------------------------------------------------------
+
+    private fun listenToNetworkEvents() {
         scope.launch {
             requireNetwork().events.collect { ev ->
                 when (ev) {
-                    is NetworkEvent.PeerConnected -> topology.onPeerConnected(topologyContext, ev.peer)
-                    is NetworkEvent.PeerDisconnected -> topology.onPeerDisconnected(topologyContext, ev.endpointId)
+                    is NetworkEvent.EndpointConnected -> {
+                        val advertisedName = AdvertisedName.decode(ev.encodedName)
+                        if (advertisedName != null) {
+                            topology?.onPeerConnected(topologyContext, ev.endpointId, advertisedName)
+                        } else {
+                            logger.warn { "Connected to ${ ev.endpointId} but could not decode name: ${ev.encodedName}" }
+                        }
+                    }
+
+                    is NetworkEvent.EndpointDisconnected -> {
+                        topology?.onPeerDisconnected(topologyContext, ev.endpointId)
+                    }
+
+                    is NetworkEvent.ConnectionRejected -> {
+                        // Topology may want to try a different advertiser
+                        logger.info { "Connection to ${ev.endpointId} was rejected" }
+                        // TODO: expose this to topology so it can retry or adjust
+                    }
+
                     else -> Unit
                 }
             }
         }
     }
 
-    /**
-     * Leave the current network.
-     */
-    fun leaveNetwork() {
-        TODO("Not implemented")
-    }
+    // -------------------------------------------------------------------------
+    // Messaging
+    // -------------------------------------------------------------------------
 
     /**
-     * Create/host a new network.
-     */
-    suspend fun createNetwork(networkName: String) {
-        val n = requireNetwork()
-        n.create(networkName);
-
-        n.startAdvertising()
-    }
-
-    /**
-     * Delete the currently hosted network.
-     */
-    suspend fun deleteNetwork() {
-        TODO("Not implemented")
-    }
-
-    /**
-     * Shutdown and cleanup.
-     */
-    fun shutdown() {
-        topology.stop()
-        TODO("Not implemented")
-    }
-
-    /** Manual additions (FOR UNIT TESTING ONLY) */
-
-    /**
-     * Sends a [message] to the [to] peer.
-     *
-     * If this user is not within the [attachedPeers] list, this will throw an error.
-     * This method also bypasses the [attachedRouter]
-     */
-    fun sendMessage(to: String, message: Message) {
-        val net = requireNetwork()
-        val inPeerList = attachedPeers.any { peer -> peer.endpointId == message.to }
-
-        if(!inPeerList) {
-            throw Error("${to} is not within the peer list")
-        }
-
-        net.sendMessage(to, message)
-    }
-
-    fun manuallyAddPeer(peer: Peer, isRouter: Boolean = false) {
-        if(isRouter) {
-            attachedRouter = peer
-
-            if(type == ClientType.ROUTER) {
-                attachedRouters.add(peer)
-            }
-        }
-
-        attachedPeers.add(peer)
-    }
-
-    fun manuallyRemovePeer(peer: Peer) {
-        if(attachedRouter == peer) {
-            attachedRouter = null
-        }
-
-        attachedRouters.removeIf {p -> p == peer}
-        attachedPeers.removeIf {p -> p == peer}
-    }
-
-    fun manuallyListenToEvents() {
-        scope.launch {
-            requireNetwork().events.collect { ev ->
-                when(ev) {
-                    is NetworkEvent.Joined -> {
-                        attachedPeers.add(ev.router)
-                    }
-                    is NetworkEvent.PeerConnected -> {
-                        //TODO: A message should be sent to get the type of peer that this is
-                        attachedPeers.add(ev.peer)
-                    }
-                    is NetworkEvent.PeerDisconnected -> {
-                        attachedPeers.removeIf {p -> p.endpointId == ev.endpointId}
-                    }
-                    else -> Unit
-                }
-            }
-        }
-    }
-    /**
-     * Sends a [message] depending on the [topology] that has been selected for this
-     * network
+     * Send a message, routing it through the topology.
+     * The topology resolves which endpoint(s) to actually deliver to.
      */
     fun sendMessage(message: Message) {
-        val net = requireNetwork()
-        // Check if peer is in our list of peers
-        val nextHops = topology.resolveNextHop(topologyContext, message)
+        val net  = requireNetwork()
+        val hops = requireTopology().resolveNextHop(topologyContext, message)
 
-        if (nextHops.isEmpty()) {
+        if (hops.isEmpty()) {
             logger.warn { "No route found for message to ${message.to}" }
             return
         }
 
-        nextHops.forEach { hop -> net.sendMessage(hop, message) }
+        hops.forEach { hop -> net.sendMessage(hop, message) }
     }
 
     /**
-     * Sends a [message] to the [to] peer and waits [timeoutMillis] for a response
-     *
-     * @see [sendMessage]
+     * Send a message and suspend until a reply arrives or [timeoutMillis] elapses.
+     * Returns null on timeout.
      */
     suspend fun sendMessageAndWait(
-        to: String,
         message: Message,
         timeoutMillis: Long = 10_000
     ): Message? {
-        // 1) create waiter and register BEFORE sending
         val deferred = CompletableDeferred<Message>()
         val previous = replyWaiters.put(message.id, deferred)
         require(previous == null) { "Duplicate message id registered: ${message.id}" }
 
-        try {
-            // 2) send the request
-            sendMessage(to, message)
-
-            // 3) wait for reply
-            return withTimeout(timeoutMillis) { deferred.await() }
-        } catch (_: TimeoutCancellationException) {
-            return null
-        } finally {
-            // 4) cleanup in all cases
-            replyWaiters.remove(message.id, deferred)
-        }
-    }
-
-    /**
-     * Sends a message using the [sendMessage] (with only message) and waits [timeoutMillis] long
-     * for a response.
-     */
-    suspend fun sendMessageAndWait(message: Message, timeoutMillis: Long = 10_000): Message? {
-        // 1) create waiter and register BEFORE sending
-        val deferred = CompletableDeferred<Message>()
-        val previous = replyWaiters.put(message.id, deferred)
-        require(previous == null) { "Duplicate message id registered: ${message.id}" }
-
-        try {
-            // 2) send the request
+        return try {
             sendMessage(message)
-
-            // 3) wait for reply
-            return withTimeout(timeoutMillis) { deferred.await() }
+            withTimeout(timeoutMillis) { deferred.await() }
         } catch (_: TimeoutCancellationException) {
-            return null
+            null
         } finally {
-            // 4) cleanup in all cases
             replyWaiters.remove(message.id, deferred)
         }
     }
 
-
-
     /**
-     * Add a listener that runs whenever a message is received by this client.
-     */
-    fun addMessageListener(listener: (Message) -> Unit) {
-        TODO("Not implemented")
-    }
-
-    /**
-     * Called by the Network implementation (LocalNetwork / ConnectNetwork) when a message arrives.
+     * Called by the Network implementation when a message arrives.
+     * Completes any reply waiters, then routes to topology or application handlers.
      */
     fun onMessageReceived(message: Message) {
-        // Check if this message is a reply to a message in the queue
+        // Unblock any sendMessageAndWait() calls waiting for this reply
         val replyTo = message.replyTo
-        if(!replyTo.isNullOrBlank()) {
+        if (!replyTo.isNullOrBlank()) {
             replyWaiters.remove(replyTo)?.let { deferred ->
-                if(!deferred.isCompleted) deferred.complete(message)
+                if (!deferred.isCompleted) deferred.complete(message)
             }
         }
         handleMessage(message)
     }
 
-    fun requireClientPeer(): Peer {
-        return clientPeer ?: throw IllegalStateException("Peer is required for this action")
-    }
     /**
-     * Main message handling method. This method should handle all message routing and parsing.
-     *
-     * For UI events this should call listeners
-     *
-     * This method SHOULD NOT handle any responses for:
-     * - [MessageType.TEXT_MESSAGE]
-
+     * Route an inbound message to the topology or application layer.
+     * Topology gets first refusal — if it returns true the message is consumed.
      */
     private fun handleMessage(message: Message) {
+        val consumed = topology?.onMessage(topologyContext, message) ?: false
+        if (consumed) return
 
-        val consumed = topology.onMessage(topologyContext, message)
-        if (consumed) return;
-
-        //TODO: Below is deprecated. All routing messages have been moved to the topology
-        when(type) {
-            ClientType.ROUTER -> {
-                when(message.type){
-                    MessageType.PING -> {
-                        // Reply with pong
-                        sendMessage(Message(
-                            to=message.from,
-                            from=id,
-                            replyTo = message.id,
-                            type = MessageType.PONG,
-                            ttl = 5
-                        ))
-                    }
-
-                    MessageType.PONG -> {
-                        // Log this
-                    }
-
-                    else -> {
-
-                    }
-                }
-            }
-            ClientType.LEAF -> {
-                when(message.type){
-                    MessageType.PING -> {
-                        // Reply with pong
-                        sendMessage(Message(
-                            to=message.from,
-                            from=id,
-                            replyTo = message.id,
-                            type = MessageType.PONG,
-                            ttl = 5
-                        ))
-                    }
-
-                    MessageType.PONG -> {
-                        // Log this
-                    }
-
-                    else -> {
-
-                    }
-                }
-            }
+        // Application-layer messages
+        when (message.type) {
+            MessageType.TEXT_MESSAGE -> messageListeners.forEach { it(message) }
+            MessageType.HELLO        -> logger.info { "HELLO from ${message.from}" }
+            else                     -> logger.warn { "Unhandled message type: ${message.type}" }
         }
     }
 
-    private fun modifyTopology(newTopology: TopologyStrategy) {
-        // Update
-        topology.stop()
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
 
-        topology = newTopology
+    fun isConnected(): Boolean = currentAdvertisedName != null
 
-        topology.start(topologyContext)
-    }
+    // -------------------------------------------------------------------------
+    // Guards
+    // -------------------------------------------------------------------------
 
-    private fun configureFromNetworkId(fromId: String) {
-        val regex = Regex("""EVT:([^|]+)\|TOP:([^|]+)\|TYP:([^|]+)\|N:(.+)""")
-        val match = regex.find(fromId)
-        if (match != null) {
-            val (eventName, topology, type, name) = match.destructured
-
-            // Checks
-            val validTopos: Array<String> = arrayOf("hub", "snk", "msh")
-            if(!validTopos.contains(topology)) {
-                throw InvalidParameterException("Invalid topology type. Expected one of" +
-                        " $validTopos. Got: $topology")
-            }
-
-            val validType: Array<String> = arrayOf("l", "r", "a", "p")
-            if(!validType.contains(type)) {
-                throw InvalidParameterException("Invalid peer type. Expected one of" +
-                        " $validType. Got: $type")
-            }
-
-
-            // Configure this client
-            when(topology) {
-                "hub" -> {
-                    if(topology::class != HubAndSpokeTopology::class) {
-                        modifyTopology(HubAndSpokeTopology(localRole =
-                            TopologyStrategy.Role.LEAF))
-                    }
-                }
-                "snk" -> {
-                    if(topology::class != SnakeTopology::class) {
-                        modifyTopology(SnakeTopology())
-                    }
-                }
-                "msh" -> {
-                    if(topology::class != MeshTopology::class) {
-                        modifyTopology(MeshTopology(maxPeerCount = 5, TopologyStrategy.Role.PEER))
-                    }
-                }
-            }
-
-
-
-        } else {
-            throw InvalidParameterException("Expected input to match regex: EVT:([^|]+)\\|TOP:([^|]+)\\|TYP:([^|]+)\\|N:(.+)")
-        }
-    }
-
-    private fun generateNetworkId(eventName: String): String {
-        return "EVT:$eventName|TOP:${
-            when(topology::class) {
-                SnakeTopology::class -> {
-                    "snk"
-                }
-
-                MeshTopology::class -> {
-                    "msh"
-                }
-
-                HubAndSpokeTopology::class -> {
-                    "hub"
-                }
-                else -> {
-                    throw IllegalStateException("Class not found for topology")
-                }
-            }
-        }|TYP:${
-            when(topology.localRole) {
-                TopologyStrategy.Role.LEAF -> {
-                    "l"
-                }
-                
-                TopologyStrategy.Role.PEER -> {
-                    "p"
-                }
-                
-                TopologyStrategy.Role.ROUTER -> {
-                    "r"
-                }
-            }
-        }|N:${id}"
-    }
-
-    private fun requireNetwork(): Network {
-        return network ?: error("Network is not attached")
-    }
-
-    private fun requireJoinedRouter(): Peer {
-        return attachedRouter ?: error("Client is not joined to a network")
-    }
-
+    private fun requireNetwork()  = network  ?: error("Network is not attached")
+    private fun requireTopology() = topology ?: error("Topology is not configured — join or create a network first")
 }
