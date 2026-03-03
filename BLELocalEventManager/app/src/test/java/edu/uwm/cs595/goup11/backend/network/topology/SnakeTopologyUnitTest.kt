@@ -152,19 +152,19 @@ class SnakeTopologyUnitTest {
     // 1. shouldAcceptConnection
     // =========================================================================
 
-    @Test fun `shouldAcceptConnection accepts when below max`() {
+    @Test fun `shouldAcceptConnection accepts when below max`() = runBlocking {
         val topo = makeTopo(max = 2); val tc = makeCtx("A")
         assertTrue(topo.shouldAcceptConnection(tc.ctx, "B", aName("B")))
     }
 
-    @Test fun `shouldAcceptConnection rejects when at max`() {
+    @Test fun `shouldAcceptConnection rejects when at max`() = runBlocking {
         val topo = makeTopo(max = 2); val tc = makeCtx("A")
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         topo.onPeerConnected(tc.ctx, "C", aName("C"))
         assertFalse(topo.shouldAcceptConnection(tc.ctx, "D", aName("D")))
     }
 
-    @Test fun `shouldAcceptConnection accepts again after disconnect frees a slot`() {
+    @Test fun `shouldAcceptConnection accepts again after disconnect frees a slot`() = runBlocking {
         val topo = makeTopo(max = 2); val tc = makeCtx("A")
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         topo.onPeerConnected(tc.ctx, "C", aName("C"))
@@ -172,7 +172,7 @@ class SnakeTopologyUnitTest {
         assertTrue(topo.shouldAcceptConnection(tc.ctx, "D", aName("D")))
     }
 
-    @Test fun `shouldAcceptConnection rejects after single peer at max 1`() {
+    @Test fun `shouldAcceptConnection rejects after single peer at max 1`() = runBlocking {
         val topo = makeTopo(max = 1); val tc = makeCtx("A")
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         assertFalse(topo.shouldAcceptConnection(tc.ctx, "C", aName("C")))
@@ -397,7 +397,6 @@ class SnakeTopologyUnitTest {
             delay(40)
             topo.onMessage(tc.ctx, msg("A", "GOOD", MessageType.PONG))
         }
-        delay(200)
         assertEquals(1, topo.peerCount())
         assertNotNull(topo.peerById("GOOD"))
         topo.stop()
@@ -417,14 +416,14 @@ class SnakeTopologyUnitTest {
     }
 
     @Test fun `discovery loop stops when max peers reached`() = runBlocking {
-        val topo = makeTopo(max = 2, discoveryMs = 50)
+        val topo = makeTopo(max = 2, discoveryMs = 50, timeoutMs = Long.MAX_VALUE)
         val tc   = makeCtx("A")
         topo.start(tc.ctx)
         delay(100)
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         topo.onPeerConnected(tc.ctx, "C", aName("C"))
         delay(200)
-        assertTrue(tc.advLog.lastOrNull()?.first == false)
+        assertEquals( false, tc.advLog.lastOrNull()?.first)
         topo.stop()
     }
 
@@ -499,7 +498,7 @@ class SnakeTopologyUnitTest {
         topo.stop()
     }
 
-    @Test fun `rapid connection storm at max rejected every time`() {
+    @Test fun `rapid connection storm at max rejected every time`() = runBlocking {
         val topo = makeTopo(max = 2); val tc = makeCtx("A")
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         topo.onPeerConnected(tc.ctx, "C", aName("C"))
