@@ -59,7 +59,8 @@ fun ChatScreen(
                     value = input,
                     onValueChange = { input = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type a message...") }
+                    placeholder = { Text("Type a message...") },
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
                 )
 
                 Spacer(Modifier.width(8.dp))
@@ -111,7 +112,8 @@ private fun ChatBubble(message: ChatMessage) {
         ) {
             Text(
                 text = message.text,
-                modifier = Modifier.padding(12.dp)
+                modifier = Modifier.padding(12.dp),
+                color = Color.Black
             )
         }
       }
