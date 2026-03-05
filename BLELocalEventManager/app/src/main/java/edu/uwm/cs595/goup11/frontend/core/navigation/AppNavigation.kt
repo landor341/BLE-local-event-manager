@@ -60,7 +60,11 @@ fun AppNavigation() {
         }
 
         Destinations.PROFILE ->
-            ProfileScreen()
+            ProfileScreen(
+                username = "Luca",
+                onBack = { currentDestination = Destinations.HOME },
+                onEdit = { currentDestination = Destinations.PROFILE }
+            )
     }
 }
 

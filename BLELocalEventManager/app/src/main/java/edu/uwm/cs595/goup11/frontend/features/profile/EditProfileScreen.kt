@@ -1,7 +1,6 @@
-// ProfileScreen.kt
-// Displays user profile and mesh-related identity information.
-
 package edu.uwm.cs595.goup11.frontend.features.profile
+
+// EditProfileScreen.kt
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Alignment
@@ -33,11 +33,10 @@ import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(
-    username: String,
-    onBack: () -> Unit,
-    onEdit: () -> Unit
-
+fun EditProfileScreen(
+    username: String,    onBack: () -> Unit,
+    onSave: () -> Unit,
+    onAdd: () -> Unit
 ) {
     // TODO: Implement profile UI
     Scaffold(
@@ -64,11 +63,11 @@ fun ProfileScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ){
                 Image(
-                painter = painterResource(id = R.drawable.profile_picture),
-                contentDescription = null,
-                modifier = Modifier
-                    .size(150.dp)
-                    .clip(CircleShape)
+                    painter = painterResource(id = R.drawable.profile_picture),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(150.dp)
+                        .clip(CircleShape)
                 )
 
                 Spacer(Modifier.height(20.dp))
@@ -79,6 +78,8 @@ fun ProfileScreen(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
+
+
             }
 
             Spacer(Modifier.height(24.dp))
@@ -99,18 +100,21 @@ fun ProfileScreen(
                 InterestCard("Coding")
                 InterestCard("Cooking")
                 InterestCard("Photography")
+
+            }
+            IconButton(onClick = onAdd) {
+                Icon(Icons.Default.Add, contentDescription = "Add")
             }
             Spacer(Modifier.height(20.dp))
             Button(
-                onClick = onEdit,
+                onClick = onSave,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
                 shape = RoundedCornerShape(20.dp)
             ) {
-                Text("Edit Personal Information")
+                Text("Save Personal Information")
             }
-
         }
     }
 
@@ -120,7 +124,8 @@ fun ProfileScreen(
 private fun InterestCard(text: String) {
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+        modifier = Modifier.padding(end = 8.dp, bottom = 8.dp)
     ) {
         Text(
             text = text,
@@ -136,12 +141,13 @@ private fun InterestCard(text: String) {
 
 @Preview
 @Composable
-fun PreviewProfileScreen() {
+fun PreviewEditProfileScreen() {
     BLELocalEventManagerTheme {
-        ProfileScreen(
+        EditProfileScreen(
             username = "Luca",
             onBack = {},
-            onEdit = {}
+            onSave = {},
+            onAdd = {}
         )
     }
 }
