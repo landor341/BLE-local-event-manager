@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,15 +33,16 @@ import edu.uwm.cs595.goup11.R
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
 
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ProfileScreen(
-    username: String,
+    viewModel: UserViewModel,
     onBack: () -> Unit,
     onEdit: () -> Unit
 
 ) {
-    // TODO: Implement profile UI
+    val userState by viewModel.user.collectAsState()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -74,7 +77,7 @@ fun ProfileScreen(
                 Spacer(Modifier.height(20.dp))
 
                 Text(
-                    text = username,
+                    text = userState.username,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -88,17 +91,24 @@ fun ProfileScreen(
                 style = MaterialTheme.typography.titleLarge,
             )
             Spacer(Modifier.height(12.dp))
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Start,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                maxItemsInEachRow = 4
-            ){
-                InterestCard("Music")
-                InterestCard("Travel")
-                InterestCard("Coding")
-                InterestCard("Cooking")
-                InterestCard("Photography")
+            if (userState.interests.isEmpty()) {
+                Text(
+                    text = "No interests added yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = androidx.compose.ui.graphics.Color.Gray,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            } else {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    maxItemsInEachRow = 4
+                ){
+                    for (interest in userState.interests) {
+                        InterestCard(text = interest)
+                    }
+                }
             }
             Spacer(Modifier.height(20.dp))
             Button(
@@ -139,7 +149,7 @@ private fun InterestCard(text: String) {
 fun PreviewProfileScreen() {
     BLELocalEventManagerTheme {
         ProfileScreen(
-            username = "Luca",
+            viewModel = UserViewModel(),
             onBack = {},
             onEdit = {}
         )

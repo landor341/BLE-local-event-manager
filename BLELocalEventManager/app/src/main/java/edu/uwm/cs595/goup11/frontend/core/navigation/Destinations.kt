@@ -11,6 +11,7 @@ object Destinations {
     const val HOME = "home"
     const val EXPLORE = "explore"
     const val PROFILE = "profile"
+    const val EDIT_PROFILE = "edit_profile"
     const val CHAT = "chat"
     const val EVENT_DETAIL = "event_detail"
     const val EVENT_DETAIL_ROUTE = "$EVENT_DETAIL/{sessionId}"

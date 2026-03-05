@@ -18,11 +18,14 @@ import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
 import androidx.compose.runtime.remember
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatViewModel
+import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
+
 @Composable
 fun AppNavigation() {
     var currentDestination by remember { mutableStateOf(Destinations.HOME) }
     var selectedSessionId by remember { mutableStateOf<String?>(null) }
     val exploreVm = remember { ExploreViewModel(AppContainer.meshGateway) }
+    val userVm = remember { UserViewModel() }
 
     when (currentDestination) {
         Destinations.HOME ->
@@ -61,9 +64,10 @@ fun AppNavigation() {
 
         Destinations.PROFILE ->
             ProfileScreen(
-                username = "Luca",
+                viewModel = userVm,
                 onBack = { currentDestination = Destinations.HOME },
-                onEdit = { currentDestination = Destinations.PROFILE }
+                onEdit = { currentDestination = Destinations.EDIT_PROFILE },
+
             )
     }
 }
