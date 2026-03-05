@@ -25,6 +25,7 @@ import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 @Composable
 fun HomeScreen(
     onExploreClick: () -> Unit,
+    onProfileClick: () -> Unit,
     mesh: MeshGateway? = null
 ) {
     // Start mesh once when this screen first appears.
@@ -77,6 +78,15 @@ fun HomeScreen(
                     .height(52.dp)
             ) {
                 Text("Host an event (coming soon)")
+            }
+
+            Button(
+                onClick = onProfileClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Text("View Personal Information")
             }
         }
     }
