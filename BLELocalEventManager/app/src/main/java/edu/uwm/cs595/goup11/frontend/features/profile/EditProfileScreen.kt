@@ -2,12 +2,15 @@ package edu.uwm.cs595.goup11.frontend.features.profile
 
 // EditProfileScreen.kt
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.foundation.Image
+import coil3.compose.AsyncImage
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.R
@@ -50,6 +52,12 @@ fun EditProfileScreen(
 
     var addDialog by remember { mutableStateOf(false) }
     var newInterest by remember { mutableStateOf("") }
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri ->
+            uri?.let { viewModel.updateProfileImage(it.toString()) }
+        }
+    )
 
     Scaffold(
         topBar = {
@@ -74,12 +82,17 @@ fun EditProfileScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ){
-                Image(
-                    painter = painterResource(id = R.drawable.profile_picture),
-                    contentDescription = null,
+                AsyncImage(
+                    model = userState.profileImageUri ?: R.drawable.profile_picture,
+                    contentDescription = "Profile Picture",
                     modifier = Modifier
                         .size(150.dp)
                         .clip(CircleShape)
+                        .clickable {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
                 )
 
                 Spacer(Modifier.height(20.dp))
