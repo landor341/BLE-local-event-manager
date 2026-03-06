@@ -1,12 +1,16 @@
 package edu.uwm.cs595.goup11.frontend.features.createevent
 
 import android.R.attr.onClick
+import android.app.AlertDialog
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.InputTransformation.Companion.keyboardOptions
@@ -26,12 +30,16 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
 import edu.uwm.cs595.goup11.frontend.domain.models.Event
 
 
@@ -55,6 +63,9 @@ fun CreateEventScreen(
     var participantCount by rememberSaveable{ mutableStateOf(0) }
     var time             by rememberSaveable{ mutableStateOf("")}
     var location         by rememberSaveable{ mutableStateOf("")}
+
+    //temporary pop-up window variable
+    var showPopup by remember{mutableStateOf(false)}
 
     Scaffold(
         topBar = {
@@ -128,7 +139,46 @@ fun CreateEventScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            //Button(onClick)
+            var myEvent = Event("TEST",eventName,
+                eventDesc, hostName,
+                participantCount, time, location)
+
+
+            //temporary popup box
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                onClick = {
+                    if(!showPopup){
+                        showPopup = true
+                    }
+                }
+            ) {Text("Submit")}
+            if (showPopup){
+                Popup(
+                    alignment = Alignment.Center,
+                    onDismissRequest = {showPopup = false}
+                ){
+                    Column(
+                        modifier = Modifier
+                            .background(Color.Gray)
+                            .clip(RoundedCornerShape(4.dp))
+                    ) {
+                        Text(
+                            "Event name: " + myEvent.name +
+                                    "\nEvent description: " + myEvent.description +
+                                    "\nHost name: " + myEvent.hostName +
+                                    "\nParticipant count: " + myEvent.participantCount.toString() +
+                                    "\nLocation of event: " + myEvent.location
+                        )
+                        Button(onClick = {showPopup = false},
+                            modifier = Modifier.fillMaxWidth()){
+                            Text("Dismiss")
+                        }
+                    }
+                }
+            }
 
         }
 
@@ -136,4 +186,5 @@ fun CreateEventScreen(
 
 
 }
+
 
