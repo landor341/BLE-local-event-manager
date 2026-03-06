@@ -1,20 +1,36 @@
+// Destinations.kt
+// Defines top-level navigation destinations for the app.
+
 package edu.uwm.cs595.goup11.frontend.core.navigation
 
-/**
- * Destinations / Routes
- *
- * RULES:
- * - Routes must be stable strings (do not rename casually).
- * - EventDetail requires a sessionId argument.
- */
-object Destinations {
-    const val HOME = "home"
-    const val EXPLORE = "explore"
-    const val PROFILE = "profile"
-    const val EDIT_PROFILE = "edit_profile"
-    const val CHAT = "chat"
-    const val EVENT_DETAIL = "event_detail"
-    const val EVENT_DETAIL_ROUTE = "$EVENT_DETAIL/{sessionId}"
+import kotlinx.serialization.Serializable
 
-    fun eventDetail(sessionId: String) = "$EVENT_DETAIL/$sessionId"
+
+enum class Destinations {
+    HOME,
+    EXPLORE,
+    EVENT_DETAIL,
+    PROFILE,
+    EDIT_PROFILE,
+    CREATE_EVENT,
+    CHAT
+}
+
+//sealed class will make it easier to pass information between screens when needed
+@Serializable
+sealed class SealedDestinations(val route: String) {
+    @Serializable
+    object HOME: SealedDestinations("HOME")
+    @Serializable
+    object EXPLORE: SealedDestinations("EXPLORE")
+    @Serializable
+    object EVENT_DETAIL: SealedDestinations("EVENT_DETAIL")
+    @Serializable
+    object PROFILE: SealedDestinations("PROFILE")
+    @Serializable
+    object EDIT_PROFILE : SealedDestinations("EDIT_PROFILE")
+    @Serializable
+    object CREATE_EVENT: SealedDestinations("CREATE_EVENT")
+    @Serializable
+    object CHAT: SealedDestinations("CHAT")
 }
