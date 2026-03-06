@@ -1,6 +1,3 @@
-// Destinations.kt
-// Defines top-level navigation destinations for the app.
-
 package edu.uwm.cs595.goup11.frontend.core.navigation
 
 import kotlinx.serialization.Serializable

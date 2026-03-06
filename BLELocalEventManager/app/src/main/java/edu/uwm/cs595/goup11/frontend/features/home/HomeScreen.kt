@@ -1,80 +1,106 @@
 package edu.uwm.cs595.goup11.frontend.features.home
 
-import android.os.Build
-import androidx.annotation.RequiresApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.modifier.modifierLocalOf
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
-import kotlinx.coroutines.launch
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
+import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
+import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 
-
-//Home screen: initial screen users encounter on standard startup
-//provides navigation to other screens such as Explore
-//nearby presentation will also be listed here
-
-@RequiresApi(Build.VERSION_CODES.O)
+/**
+ * HomeScreen — Sprint 3
+ *
+ * PURPOSE:
+ * - Give the user the next obvious action: Discover events.
+ * - Show current mesh status (Idle/Scanning/Joined/Hosting).
+ *
+ * IMPORTANT:
+ * AppContainer.init(...) only CONSTRUCTS the gateway.
+ * The gateway will remain Idle until you call mesh.start().
+ */
 @Composable
-fun HomeScreen() {
-
+fun HomeScreen(
+    onExploreClick: () -> Unit,
+    mesh: MeshGateway? = null
+) { 
     var allPres = remember {HomeMockData.presentations() }
+    // Start mesh once when this screen first appears.
+    // Safe to call multiple times, but we only want it once.
+    LaunchedEffect(mesh) {
+        mesh?.start()
+    }
 
-    val cornerSize = 10.dp
-    val padSize = 16.dp
-    val header = 24.sp
-    val mini = 12.sp
-    val myFormat = DateTimeFormatter.ofPattern("HH:mm")
-    Column(modifier = Modifier
-        .padding(padSize)
-        .offset(y = padSize),
-        verticalArrangement = Arrangement.spacedBy(padSize/2),
 
-    ){
-        Text("Welcome back User!", modifier = Modifier
-            .align(Alignment.CenterHorizontally)
-            , fontSize = header)
-        Text("Recommended presentations", modifier = Modifier
-            .align(Alignment.CenterHorizontally))
+    // Correct way to read StateFlow in Compose:
+    // collectAsState will recompose when the state changes.
+    val uiState: MeshUiState = if (mesh == null) {
+        MeshUiState.Idle
+    } else {
+        val s by mesh.state.collectAsState()
+        s
+    }
 
-        allPres.forEach {Presentation ->
-            Column(modifier = Modifier
-                .background(Color.LightGray, RoundedCornerShape(topStart = cornerSize,
-                    topEnd = cornerSize, bottomEnd = cornerSize,
-                    bottomStart = cornerSize)),
+    Scaffold { inner ->
+        Column(
+            modifier = Modifier
+                .padding(inner)
+                .fillMaxSize()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "BLE Local Event Manager",
+                style = MaterialTheme.typography.headlineMedium
+            )
+            Text(
+                text = "Discover and join nearby events over Bluetooth.",
+                style = MaterialTheme.typography.bodyLarge
+            )
 
-            ){
-                Text(Presentation.name)
-                Text(Presentation.speaker, fontSize = mini)
-                Row(modifier = Modifier.fillMaxWidth()
-                    ){
-                    var postScript = ""
-                    if(Presentation.time.hour < 12){
-                        postScript = "am"
-                    }else{
-                        postScript = "pm"
-                    }
+            StatusCard(state = uiState)
 
-                    Text(Presentation.location, fontSize = mini)
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(Presentation.time.format(myFormat) + " " + postScript, fontSize = mini)
-                }
+            Button(
+                onClick = onExploreClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Text("Discover nearby events")
+            }
+
+            OutlinedButton(
+                onClick = { /* Sprint 3 optional: later navigate to Host screen */ },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Text("Host an event (coming soon)")
             }
         }
     }
+}
 
+@Composable
+private fun StatusCard(state: MeshUiState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Mesh status", style = MaterialTheme.typography.titleMedium)
+
+            val line = when (state) {
+                MeshUiState.Idle -> "Idle"
+                MeshUiState.Scanning -> "Scanning for nearby events…"
+                is MeshUiState.Joining -> "Joining: ${state.sessionId}"
+                is MeshUiState.InEvent -> "Joined event: ${state.sessionId}"
+                is MeshUiState.Hosting -> "Hosting event: ${state.sessionId}"
+                is MeshUiState.Error -> "Error: ${state.reason}"
+            }
+
+            Spacer(Modifier.height(6.dp))
+            Text(line, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
 }
