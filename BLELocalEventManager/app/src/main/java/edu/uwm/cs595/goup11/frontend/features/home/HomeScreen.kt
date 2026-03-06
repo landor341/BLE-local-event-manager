@@ -26,14 +26,12 @@ import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 fun HomeScreen(
     onExploreClick: () -> Unit,
     mesh: MeshGateway? = null
-) { 
-    var allPres = remember {HomeMockData.presentations() }
+) {
     // Start mesh once when this screen first appears.
     // Safe to call multiple times, but we only want it once.
     LaunchedEffect(mesh) {
         mesh?.start()
     }
-
 
     // Correct way to read StateFlow in Compose:
     // collectAsState will recompose when the state changes.
