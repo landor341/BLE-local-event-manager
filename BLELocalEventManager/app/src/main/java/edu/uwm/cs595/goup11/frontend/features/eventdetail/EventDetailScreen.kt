@@ -52,7 +52,7 @@ fun EventDetailScreen(
     sessionId: String,
     onBack: () -> Unit,
     isJoined: Boolean = true,
-    onOpenChat: () -> Unit = {},
+    onOpenChat: (String) -> Unit = {},
     onJoin: () -> Unit = {},
     onLeave: () -> Unit = {},
 ) {
@@ -165,7 +165,7 @@ fun EventDetailScreen(
             // Later: isJoined should come from MeshUiState + join result.
             if (isJoined) {
                 Button(
-                    onClick = onOpenChat,
+                    onClick = { onOpenChat(event.name)},
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),

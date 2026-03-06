@@ -4,14 +4,10 @@
 
 package edu.uwm.cs595.goup11.frontend.core.navigation
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
-import edu.uwm.cs595.goup11.frontend.features.explore.ExploreScreen
 import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
+import edu.uwm.cs595.goup11.frontend.features.explore.ExploreScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.core.AppContainer
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
@@ -24,6 +20,7 @@ import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
 fun AppNavigation() {
     var currentDestination by remember { mutableStateOf(Destinations.HOME) }
     var selectedSessionId by remember { mutableStateOf<String?>(null) }
+    var selectedEventName by remember { mutableStateOf("") }
     val exploreVm = remember { ExploreViewModel(AppContainer.meshGateway) }
     val userVm = remember { UserViewModel() }
 
@@ -51,7 +48,9 @@ fun AppNavigation() {
             EventDetailScreen(
                 sessionId = sessionId,
                 onBack = { currentDestination = Destinations.EXPLORE },
-                onOpenChat = { currentDestination = Destinations.CHAT }
+                onOpenChat = { name ->
+                    selectedEventName = name
+                    currentDestination = Destinations.CHAT }
 
             )
         }
@@ -59,6 +58,7 @@ fun AppNavigation() {
             val chatVm = remember { ChatViewModel(AppContainer.meshGateway) }
             ChatScreen(
                 viewModel = chatVm,
+                eventName = selectedEventName,
                 onBack = { currentDestination = Destinations.EVENT_DETAIL }
             )
         }
