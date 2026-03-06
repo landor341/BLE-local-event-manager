@@ -15,19 +15,23 @@ import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.core.AppContainer
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
-import androidx.compose.runtime.remember
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatViewModel
+import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
+import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
+
 @Composable
 fun AppNavigation() {
     var currentDestination by remember { mutableStateOf(Destinations.HOME) }
     var selectedSessionId by remember { mutableStateOf<String?>(null) }
     val exploreVm = remember { ExploreViewModel(AppContainer.meshGateway) }
+    val userVm = remember { UserViewModel() }
 
     when (currentDestination) {
         Destinations.HOME ->
             HomeScreen(
                 onExploreClick = { currentDestination = Destinations.EXPLORE },
+                onProfileClick = {currentDestination = Destinations.PROFILE},
                 mesh = AppContainer.meshGateway
             )
 
@@ -60,7 +64,19 @@ fun AppNavigation() {
         }
 
         Destinations.PROFILE ->
-            ProfileScreen()
+            ProfileScreen(
+                viewModel = userVm,
+                onBack = { currentDestination = Destinations.HOME },
+                onEdit = { currentDestination = Destinations.EDIT_PROFILE },
+
+            )
+
+        Destinations.EDIT_PROFILE ->
+            EditProfileScreen(
+                viewModel = userVm,
+                onBack = { currentDestination = Destinations.PROFILE },
+                onSave = { currentDestination = Destinations.PROFILE },
+            )
     }
 }
 
