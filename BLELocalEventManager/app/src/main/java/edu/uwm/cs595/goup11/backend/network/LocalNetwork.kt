@@ -159,43 +159,55 @@ class LocalNetwork(
     // -------------------------------------------------------------------------
 
     override suspend fun startDiscovery() {
-        val id = requireLocalEndpointId()
+        if (isScanning) return
+        // Discovery is a passive listen — we do not need a local identity to
+        // observe what others are advertising. localEndpointId may be null here
+        // if joinNetwork() calls us before init() (which is the correct order:
+        // discover first, then adopt an identity once we know the topology).
+        val id = localEndpointId   // nullable — used only for self-exclusion
         isScanning = true
 
-        // Register ourselves as discovering if not already in holder
-        val existing = InMemoryNetworkHolder.getNode(id)
-        if (existing != null) {
-            existing.isDiscovering = true
-        } else {
-            InMemoryNetworkHolder.addNode(
-                InMemoryNetworkPeer(
-                    endpointId    = id,
-                    encodedName   = id,
-                    isAdvertising = false,
-                    isDiscovering = true,
-                    connections   = mutableListOf(),
-                    network       = this
+        // Register ourselves in the holder only if we already have an identity,
+        // so the isDiscovering flag is visible to other nodes if needed.
+        if (id != null) {
+            val existing = InMemoryNetworkHolder.getNode(id)
+            if (existing != null) {
+                existing.isDiscovering = true
+            } else {
+                InMemoryNetworkHolder.addNode(
+                    InMemoryNetworkPeer(
+                        endpointId    = id,
+                        encodedName   = id,
+                        isAdvertising = false,
+                        isDiscovering = true,
+                        connections   = mutableListOf(),
+                        network       = this
+                    )
                 )
-            )
+            }
         }
 
         _state.value = NetworkState.Discovering
 
-        // Emit currently advertising nodes immediately
+        // Emit currently advertising nodes immediately, excluding ourselves
+        // if we have an identity (avoids self-discovery after init is called).
         InMemoryNetworkHolder.allNodes()
             .filter { it.isAdvertising && it.endpointId != id }
             .forEach { node ->
-                logger.debug { "$id discovered ${node.endpointId}" }
+                logger.debug { "${id ?: "unidentified"} discovered ${node.endpointId}" }
                 _events.tryEmit(
                     NetworkEvent.EndpointDiscovered(node.endpointId, node.encodedName)
                 )
             }
 
-        // Keep polling so newly advertising nodes are also discovered
+        // Keep polling so newly advertising nodes are also discovered.
+        // Re-read localEndpointId on each tick — it may have been set by
+        // init() while we were already scanning.
         while (isScanning) {
             delay(750)
+            val currentId = localEndpointId
             InMemoryNetworkHolder.allNodes()
-                .filter { it.isAdvertising && it.endpointId != id }
+                .filter { it.isAdvertising && it.endpointId != currentId }
                 .forEach { node ->
                     _events.tryEmit(
                         NetworkEvent.EndpointDiscovered(node.endpointId, node.encodedName)
@@ -205,14 +217,16 @@ class LocalNetwork(
     }
 
     override suspend fun stopDiscovery() {
-        val id = localEndpointId ?: return
+        val id = localEndpointId
         isScanning = false
-        InMemoryNetworkHolder.getNode(id)?.isDiscovering = false
+        if (id != null) {
+            InMemoryNetworkHolder.getNode(id)?.isDiscovering = false
+        }
 
         if (_state.value is NetworkState.Discovering) {
             _state.value = NetworkState.Idle
         }
-        logger.debug { "$id stopped discovery" }
+        logger.debug { "${id ?: "unidentified"} stopped discovery" }
     }
 
     // -------------------------------------------------------------------------

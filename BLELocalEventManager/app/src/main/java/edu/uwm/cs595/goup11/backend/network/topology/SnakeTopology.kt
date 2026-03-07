@@ -63,7 +63,12 @@ class SnakeTopology(
     // -------------------------------------------------------------------------
 
     override fun start(context: TopologyContext) {
-        // Seed chainMembers with our own ID so we always reject self-connections
+        // Cleanup
+        keepaliveJob?.cancel()
+        keepaliveJob = null
+        discoveryJob?.cancel()
+        discoveryJob = null
+
         chainMembers.add(context.endpointId)
         startKeepalive(context)
         evaluateHealth(context)
@@ -129,19 +134,19 @@ class SnakeTopology(
     private fun startDiscovery(context: TopologyContext) {
         if (discoveryJob?.isActive == true) return
 
+        context.startAdvertising(context.encodedName())
+        context.startScan()
+
         discoveryJob = context.launchJob {
             while (peers.size < maxPeerCount) {
-                context.startAdvertising(context.encodedName())
-                context.startScan()
                 delay(discoveryIntervalMs)
-                context.stopScan()
             }
+            // Slots filled — stop
             context.stopScan()
             context.stopAdvertising()
             logger.info { "Snake slots filled — discovery stopped" }
         }
     }
-
     private fun stopDiscovery(context: TopologyContext) {
         discoveryJob?.cancel()
         discoveryJob = null

@@ -184,16 +184,17 @@ class Client(
      */
     suspend fun joinNetwork(eventName: String) {
         val net = requireNetwork()
+        val discoveryJob = scope.launch { net.startDiscovery() }
 
-        val tempId = "joining_${displayName}_${eventName}"
-        net.init(tempId, Network.Config(defaultTtl = 5))
-        net.startDiscovery()
+
 
         net.events
             .filterIsInstance<NetworkEvent.EndpointDiscovered>()
             .collect { ev ->
                 val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@collect
                 if (advertisedName.eventName != eventName) return@collect
+
+                discoveryJob.cancel()
 
                 currentAdvertisedName = AdvertisedName(
                     eventName    = eventName,
@@ -202,13 +203,10 @@ class Client(
                     displayName  = displayName
                 )
 
-                // Create and start topology as separate statements — avoids the
-                // scope inference issue with .also{}
                 val topo = TopologyFactory.create(advertisedName)
                 topology = topo
-                topo.start(topologyContext)
-
                 net.init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
+                topo.start(topologyContext)
                 net.connect(ev.endpointId)
             }
     }
