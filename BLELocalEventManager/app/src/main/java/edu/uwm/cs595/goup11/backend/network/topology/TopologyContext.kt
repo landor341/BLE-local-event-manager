@@ -2,8 +2,10 @@ package edu.uwm.cs595.goup11.backend.network.topology
 
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.Network
+import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 
 
@@ -33,7 +35,11 @@ class TopologyContext(
 
     private val onRoleChanged: (TopologyStrategy.Role) -> Unit,
 
-    private val coroutineScope: CoroutineScope
+    private val coroutineScope: CoroutineScope,
+
+    private val onConnect: suspend (endpointId: String) -> Unit,
+
+    private val networkEvents: SharedFlow<NetworkEvent>
 ) {
     /** This node's current endpoint ID */
     val endpointId: String get() = localEndpointId()
@@ -56,6 +62,9 @@ class TopologyContext(
 
     fun launchJob(block: suspend CoroutineScope.() -> Unit): Job =
         coroutineScope.launch(block = block)
+
+    suspend fun connect(endpointId: String) = onConnect(endpointId)
+    val events: SharedFlow<NetworkEvent> get() = networkEvents
 }
 
 

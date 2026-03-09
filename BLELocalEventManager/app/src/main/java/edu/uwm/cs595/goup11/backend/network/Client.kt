@@ -112,7 +112,9 @@ class Client(
                 }
             },
             onRoleChanged        = { role -> handleRoleChange(role) },
-            coroutineScope       = scope
+            coroutineScope       = scope,
+            onConnect = {endpointId -> requireNetwork().connect(endpointId)},
+            networkEvents = requireNetwork().events
         )
     }
 
@@ -129,6 +131,7 @@ class Client(
 
         // Wire up the connection-request callback — topology decides accept/reject
         network.onConnectionRequest = { endpointId, encodedName ->
+            //TODO: Should reject based off of topo type and event name (if currently connected)
             val advertisedName = AdvertisedName.decode(encodedName)
             if (advertisedName == null) {
                 logger.warn { "Rejecting connection from $endpointId — unparseable name: $encodedName" }

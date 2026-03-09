@@ -136,7 +136,7 @@ class SnakeTopology(
 
         context.startAdvertising(context.encodedName())
         context.startScan()
-
+        //TODO: Scanning is difficult and can be resource intensive
         discoveryJob = context.launchJob {
             while (peers.size < maxPeerCount) {
                 delay(discoveryIntervalMs)
