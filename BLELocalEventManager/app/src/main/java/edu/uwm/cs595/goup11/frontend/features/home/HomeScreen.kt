@@ -1,15 +1,21 @@
 package edu.uwm.cs595.goup11.frontend.features.home
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
+import java.time.format.DateTimeFormatter
 
 /**
  * HomeScreen — Sprint 3
@@ -22,6 +28,7 @@ import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
  * AppContainer.init(...) only CONSTRUCTS the gateway.
  * The gateway will remain Idle until you call mesh.start().
  */
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun HomeScreen(
     onExploreClick: () -> Unit,
@@ -43,12 +50,16 @@ fun HomeScreen(
         s
     }
 
+    val allPres = remember { HomeMockData.presentations() }
+    val myFormat = DateTimeFormatter.ofPattern("HH:mm")
+
     Scaffold { inner ->
         Column(
             modifier = Modifier
                 .padding(inner)
                 .fillMaxSize()
-                .padding(20.dp),
+                .padding(20.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(

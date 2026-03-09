@@ -1,9 +1,11 @@
 package edu.uwm.cs595.goup11.frontend
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.RequiresApi
 import edu.uwm.cs595.goup11.frontend.core.navigation.AppNavigation
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
 
@@ -38,6 +40,7 @@ import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
  */
 class MainActivity : ComponentActivity() {
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
