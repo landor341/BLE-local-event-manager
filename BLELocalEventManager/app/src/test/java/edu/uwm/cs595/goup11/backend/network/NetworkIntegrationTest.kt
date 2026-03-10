@@ -73,8 +73,8 @@ class NetworkIntegrationTest {
 
     private fun snake(
         max:       Int  = 2,
-        keepMs:    Long = 50,
-        timeoutMs: Long = 200,
+        keepMs:    Long = 500,
+        timeoutMs: Long = 2_000,
         discMs:    Long = 50
     ) = SnakeTopology(
         maxPeerCount        = max,
@@ -83,11 +83,20 @@ class NetworkIntegrationTest {
         discoveryIntervalMs = discMs
     )
 
+    /**
+     * A snake topology for an end-node (max = 1).
+     * Use this for the node that creates the network in 3-node chain tests so it
+     * stops advertising after the first peer joins, forcing a linear A↔B↔C topology
+     * rather than a star where everyone connects directly to the creator.
+     */
+    private fun snakeEnd(keepMs: Long = 500, timeoutMs: Long = 2_000, discMs: Long = 50) =
+        snake(max = 1, keepMs = keepMs, timeoutMs = timeoutMs, discMs = discMs)
+
     private fun mesh(
         max:       Int  = 6,
         target:    Int  = 3,
-        keepMs:    Long = 50,
-        timeoutMs: Long = 200,
+        keepMs:    Long = 500,
+        timeoutMs: Long = 2_000,
         discMs:    Long = 50
     ) = MeshTopology(
         maxPeerCount        = max,
@@ -99,6 +108,24 @@ class NetworkIntegrationTest {
 
     private fun text(to: String, from: String, body: String = "hello") =
         Message(to = to, from = from, type = MessageType.TEXT_MESSAGE, ttl = 5, data = body.toByteArray(Charsets.UTF_8))
+
+    /**
+     * Join a network and return as soon as the client is connected, or give up
+     * after [timeoutMs]. Unlike [withTimeoutOrNull] wrapping [joinNetwork] directly,
+     * this does not burn the full timeout — it polls until connected then returns.
+     */
+    private suspend fun Client.joinAndWait(
+        eventName:  String,
+        timeoutMs:  Long = 2_000,
+        pollMs:     Long = 20
+    ) {
+        val job = kotlinx.coroutines.GlobalScope.launch { joinNetwork(eventName) }
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (!isConnected() && System.currentTimeMillis() < deadline) {
+            delay(pollMs)
+        }
+        job.cancel()
+    }
 
     /**
      * Launch a collector for [NetworkEvent]s of a specific type while [block]
@@ -190,8 +217,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
         assertTrue(alice.isConnected())
         assertTrue(bob.isConnected())
     }
@@ -201,8 +228,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("Fest", mesh())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
         assertTrue(alice.isConnected())
         assertTrue(bob.isConnected())
     }
@@ -212,8 +239,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("MyFest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("MyFest") }
-        delay(400)
+        bob.joinAndWait("MyFest")
+        delay(100)
         assertNotNull(bob.endpointId)
         assertTrue(bob.endpointId!!.contains("MyFest"))
         assertTrue(bob.endpointId!!.contains("Bob"))
@@ -224,7 +251,7 @@ class NetworkIntegrationTest {
         alice.createNetwork("EventA", snake())
         delay(100)
         val (bob, _) = makeClient("Bob")
-        withTimeoutOrNull(500) { bob.joinNetwork("EventB") }
+        bob.joinAndWait("EventB", timeoutMs = 500)
         assertFalse(bob.isConnected(), "Bob should not connect to a non-existent event")
     }
 
@@ -237,8 +264,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
 
         val received = mutableListOf<Message>()
         bob.addMessageListener { received.add(it) }
@@ -255,8 +282,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
 
         val received = mutableListOf<Message>()
         alice.addMessageListener { received.add(it) }
@@ -273,8 +300,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
 
         val received = mutableListOf<Message>()
         bob.addMessageListener { received.add(it) }
@@ -293,8 +320,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
 
         val received = mutableListOf<Message>()
         bob.addMessageListener { received.add(it) }
@@ -314,8 +341,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
 
         // Bob echoes every TEXT_MESSAGE back as a reply
         bob.addMessageListener { incoming ->
@@ -342,8 +369,8 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
 
         // Bob never replies
         val reply = alice.sendMessageAndWait(
@@ -363,10 +390,12 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
-        alice.createNetwork("Fest", snake(max = 2))
+        // Alice is an end-node (max=1) so she stops advertising after Bob joins,
+        // forcing Carol to connect to Bob and form the linear chain Alice↔Bob↔Carol.
+        alice.createNetwork("Fest", snakeEnd())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") };   delay(400)
-        withTimeoutOrNull(2_000) { carol.joinNetwork("Fest") }; delay(400)
+        bob.joinAndWait("Fest"); delay(100)
+        carol.joinAndWait("Fest"); delay(100)
 
         val carolReceived = mutableListOf<Message>()
         carol.addMessageListener { carolReceived.add(it) }
@@ -383,10 +412,10 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
-        alice.createNetwork("Fest", snake(max = 2))
+        alice.createNetwork("Fest", snakeEnd())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") };   delay(400)
-        withTimeoutOrNull(2_000) { carol.joinNetwork("Fest") }; delay(400)
+        bob.joinAndWait("Fest"); delay(100)
+        carol.joinAndWait("Fest"); delay(100)
 
         val aliceReceived = mutableListOf<Message>()
         alice.addMessageListener { aliceReceived.add(it) }
@@ -403,10 +432,10 @@ class NetworkIntegrationTest {
         val (bob,   _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
-        alice.createNetwork("Fest", snake(max = 2))
+        alice.createNetwork("Fest", snakeEnd())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") };   delay(400)
-        withTimeoutOrNull(2_000) { carol.joinNetwork("Fest") }; delay(400)
+        bob.joinAndWait("Fest"); delay(100)
+        carol.joinAndWait("Fest"); delay(100)
 
         val aliceReceived = mutableListOf<Message>()
         val carolReceived = mutableListOf<Message>()
@@ -434,8 +463,8 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("Fest", mesh(max = 6, target = 2))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") };   delay(400)
-        withTimeoutOrNull(2_000) { carol.joinNetwork("Fest") }; delay(400)
+        bob.joinAndWait("Fest"); delay(100)
+        carol.joinAndWait("Fest"); delay(100)
 
         val bobRx   = mutableListOf<Message>()
         val carolRx = mutableListOf<Message>()
@@ -457,8 +486,8 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("Fest", mesh(max = 6, target = 2))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") };   delay(400)
-        withTimeoutOrNull(2_000) { carol.joinNetwork("Fest") }; delay(400)
+        bob.joinAndWait("Fest"); delay(100)
+        carol.joinAndWait("Fest"); delay(100)
 
         val bobRx   = mutableListOf<Message>()
         val carolRx = mutableListOf<Message>()
@@ -484,8 +513,8 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
 
         val disconnects = mutableListOf<NetworkEvent.EndpointDisconnected>()
         val job = aliceScope.launch {
@@ -509,16 +538,16 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
         assertTrue(bob.isConnected())
 
         bob.leaveNetwork()
         delay(200)
         assertFalse(bob.isConnected())
 
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
         assertTrue(bob.isConnected(), "Bob should reconnect successfully")
 
         val received = mutableListOf<Message>()
@@ -536,15 +565,15 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("Fest", snake(max = 1))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
         assertTrue(bob.isConnected())
 
         bob.leaveNetwork()
         delay(300)
 
-        withTimeoutOrNull(2_000) { carol.joinNetwork("Fest") }
-        delay(400)
+        carol.joinAndWait("Fest")
+        delay(100)
         assertTrue(carol.isConnected(), "Carol should fill the slot Bob vacated")
     }
 
@@ -560,8 +589,8 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("Fest", snake(max = 2))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") };   delay(400)
-        withTimeoutOrNull(2_000) { carol.joinNetwork("Fest") }; delay(400)
+        bob.joinAndWait("Fest"); delay(100)
+        carol.joinAndWait("Fest"); delay(100)
 
         val rejections = mutableListOf<NetworkEvent.ConnectionRejected>()
         val job = davScope.launch {
@@ -570,8 +599,8 @@ class NetworkIntegrationTest {
                 .collect { rejections.add(it) }
         }
 
-        withTimeoutOrNull(2_000) { dave.joinNetwork("Fest") }
-        delay(400)
+        dave.joinAndWait("Fest")
+        delay(100)
         job.cancel()
 
         assertTrue(rejections.isNotEmpty() || !dave.isConnected(),
@@ -587,8 +616,8 @@ class NetworkIntegrationTest {
         val (c2, _) = makeClient("C2")
         val (c3, c3Scope) = makeClient("C3")
 
-        withTimeoutOrNull(2_000) { c1.joinNetwork("Fest") }; delay(400)
-        withTimeoutOrNull(2_000) { c2.joinNetwork("Fest") }; delay(400)
+        c1.joinAndWait("Fest"); delay(100)
+        c2.joinAndWait("Fest"); delay(100)
 
         val rejections = mutableListOf<NetworkEvent.ConnectionRejected>()
         val job = c3Scope.launch {
@@ -597,8 +626,8 @@ class NetworkIntegrationTest {
                 .collect { rejections.add(it) }
         }
 
-        withTimeoutOrNull(2_000) { c3.joinNetwork("Fest") }
-        delay(400)
+        c3.joinAndWait("Fest")
+        delay(100)
         job.cancel()
 
         assertTrue(rejections.isNotEmpty() || !c3.isConnected(),
@@ -613,8 +642,8 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("Fest", mesh(max = 4, target = 2))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") };   delay(400)
-        withTimeoutOrNull(2_000) { carol.joinNetwork("Fest") }; delay(400)
+        bob.joinAndWait("Fest"); delay(100)
+        carol.joinAndWait("Fest"); delay(100)
 
         // Both bob and carol should have connected — we're at target but below max
         assertTrue(bob.isConnected(),   "Bob should connect (below max)")
@@ -627,18 +656,24 @@ class NetworkIntegrationTest {
 
     @Test fun `alice sends PING messages to bob via keepalive`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, bobScope) = makeClient("Bob")
 
         // Long timeout — no eviction — just observe PINGs reaching Bob
-        alice.createNetwork("Fest", snake(keepMs = 50, timeoutMs = 10_000))
+        alice.createNetwork("Fest", snake(keepMs = 200, timeoutMs = 60_000))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
 
+        // Listen on the raw network events flow — PINGs are consumed by the topology
+        // before they reach addMessageListener, so we must observe them here instead.
         val pingsAtBob = mutableListOf<Message>()
-        bob.addMessageListener { if (it.type == MessageType.PING) pingsAtBob.add(it) }
+        val job = bobScope.launch {
+            bob.network!!.events
+                .filterIsInstance<NetworkEvent.MessageReceived>()
+                .collect { if (it.message.type == MessageType.PING) pingsAtBob.add(it.message) }
+        }
 
-        delay(300) // let a few keepalive ticks fire
+        delay(600) // 3 keepalive ticks at 200 ms each
+        job.cancel()
 
         assertTrue(pingsAtBob.isNotEmpty(),
             "Bob should receive PING messages from Alice's keepalive loop")
@@ -648,16 +683,17 @@ class NetworkIntegrationTest {
         val (alice, _) = makeClient("Alice")
         val (bob,   _) = makeClient("Bob")
 
-        alice.createNetwork("Fest", snake(keepMs = 50, timeoutMs = 120))
+        // keepMs=200, timeoutMs=500 — Bob will be evicted ~500 ms after going silent
+        alice.createNetwork("Fest", snake(keepMs = 200, timeoutMs = 500))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(200)
 
         val bobId = bob.endpointId!!
 
         // Kill Bob's network silently so he can no longer respond to PINGs
         bob.network!!.shutdown()
-        delay(600) // Alice's keepalive should evict Bob
+        delay(1_200) // Alice's keepalive should evict Bob (500 ms timeout + headroom)
 
         val aliceNode = LocalNetwork.InMemoryNetworkHolder.getNode(alice.endpointId!!)
         val bobStillConnected = aliceNode?.connections?.contains(bobId) ?: false
@@ -669,14 +705,14 @@ class NetworkIntegrationTest {
         val (alice, _) = makeClient("Alice")
         val (bob,   _) = makeClient("Bob")
 
-        alice.createNetwork("Fest", snake(keepMs = 50, timeoutMs = 120, discMs = 50))
+        alice.createNetwork("Fest", snake(keepMs = 200, timeoutMs = 500, discMs = 50))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(200)
 
         // Kill Bob
         bob.network!!.shutdown()
-        delay(600)
+        delay(1_200) // wait for eviction + discovery restart
 
         // Alice should have re-entered the discovery/advertising state
         val aliceNode = LocalNetwork.InMemoryNetworkHolder.getNode(alice.endpointId!!)
@@ -695,8 +731,8 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("Fest", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("Fest") }
-        delay(400)
+        bob.joinAndWait("Fest")
+        delay(100)
 
         val goneId = bob.endpointId!!
         bob.leaveNetwork()
@@ -719,12 +755,12 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("EventA", snake())
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("EventA") }
-        delay(400)
+        bob.joinAndWait("EventA")
+        delay(100)
 
         // Carol joins EventB which nobody is hosting
         val (carol, _) = makeClient("Carol")
-        withTimeoutOrNull(500) { carol.joinNetwork("EventB") }
+        carol.joinAndWait("EventB", timeoutMs = 500)
 
         assertFalse(carol.isConnected(),
             "Carol should not connect to EventA when she is looking for EventB")
@@ -742,16 +778,16 @@ class NetworkIntegrationTest {
 
         alice.createNetwork("EventA", mesh(max = 4, target = 2))
         delay(100)
-        withTimeoutOrNull(2_000) { bob.joinNetwork("EventA") }
-        delay(400)
+        bob.joinAndWait("EventA")
+        delay(100)
 
         bob.leaveNetwork()
         delay(300)
 
         // Alice should still be running and accepting new connections
         val (carol, _) = makeClient("Carol")
-        withTimeoutOrNull(2_000) { carol.joinNetwork("EventA") }
-        delay(400)
+        carol.joinAndWait("EventA")
+        delay(100)
 
         val received = mutableListOf<Message>()
         carol.addMessageListener { received.add(it) }
@@ -759,5 +795,24 @@ class NetworkIntegrationTest {
         delay(200)
 
         assertEquals(1, received.size, "Carol should receive Alice's message after Bob left")
+    }
+
+    @Test fun `large networks`() = runBlocking {
+        val (master, _) = makeClient("Master")
+
+        master.createNetwork("Test", snake())
+        delay(100)
+        var i = 0
+        repeat(100) {
+            val (c, _) = makeClient("User${i}")
+            c.joinAndWait("Test")
+            i++
+        }
+
+        delay(100)
+
+        // Send a message all the way through the graph
+
+        LocalNetwork.displayNetworkGraph()
     }
 }

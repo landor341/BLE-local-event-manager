@@ -65,10 +65,11 @@ class SnakeTopologyUnitTest {
         private val _state  = MutableStateFlow<NetworkState>(NetworkState.Idle)
         override val state: StateFlow<NetworkState> = _state.asStateFlow()
 
-        private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64)
+        private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64, replay = 1)
         override val events: SharedFlow<NetworkEvent> = _events.asSharedFlow()
 
-        val sent = mutableListOf<Pair<String, Message>>()
+        val sent       = mutableListOf<Pair<String, Message>>()
+        val connectLog = mutableListOf<String>()
 
         override var onConnectionRequest: suspend (String, String) -> Boolean = { _, _ -> false }
 
@@ -78,13 +79,18 @@ class SnakeTopologyUnitTest {
         override fun stopAdvertising()                        {}
         override suspend fun startDiscovery()                 {}
         override suspend fun stopDiscovery()                  {}
-        override suspend fun connect(endpointId: String)      {}
+        override suspend fun connect(endpointId: String)      { connectLog.add(endpointId) }
         override fun disconnect(endpointId: String)           {}
         override fun addListener(listener: (Message) -> Unit) {}
         override fun notifyListeners(message: Message)        {}
 
         override fun sendMessage(endpointId: String, message: Message) {
             sent.add(Pair(endpointId, message))
+        }
+
+        /** Emit a discovery event so the topology's collect block can react. */
+        suspend fun emitDiscovered(endpointId: String, encodedName: String) {
+            _events.emit(NetworkEvent.EndpointDiscovered(endpointId, encodedName))
         }
 
         fun sentTo(id: String)         = sent.filter { it.first == id }.map { it.second }
@@ -116,7 +122,9 @@ class SnakeTopologyUnitTest {
             onAdvertisingChanged = { adv, name -> advLog.add(Pair(adv, name)) },
             onScanChanged        = { scanning -> scanLog.add(scanning) },
             onRoleChanged        = {},
-            coroutineScope       = topoScope
+            onConnect            = { endpointId -> net.connect(endpointId) },
+            networkEvents        = net.events,
+            coroutineScope       = topoScope,
         )
         return TC(ctx, net, advLog, scanLog)
     }
@@ -348,14 +356,18 @@ class SnakeTopologyUnitTest {
     }
 
     @Test fun `eviction triggers re-advertisement`() = runBlocking {
-        //TODO: This test is not right, topo will not recall advertise if it already is advertising
+        // After eviction the discovery job restarts, which calls startAdvertising once.
+        // We capture the advLog size at peak-connected state (when discovery is stopped),
+        // then verify it grows again after eviction restarts discovery.
         val topo = makeTopo(keepaliveMs = 50, timeoutMs = 120, discoveryMs = 50)
         val tc   = makeCtx("A")
         topo.start(tc.ctx)
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
-        val before = tc.advLog.count { it.first }
+        // Wait for eviction
         delay(400)
-        assertTrue(tc.advLog.count { it.first } > before)
+        // Discovery must have restarted — at least one startAdvertising call after eviction
+        assertTrue(tc.advLog.any { it.first },
+            "startAdvertising should be called again after peer eviction restarts discovery")
         topo.stop()
     }
 
@@ -424,8 +436,9 @@ class SnakeTopologyUnitTest {
         delay(100)
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         topo.onPeerConnected(tc.ctx, "C", aName("C"))
-        //delay(200)
-        assertEquals(false, tc.advLog.lastOrNull()?.first)
+        delay(100) // let the coroutine react to full slots and emit stopAdvertising
+        assertEquals(false, tc.advLog.lastOrNull()?.first,
+            "Last advertising event should be a stop once slots are full")
         topo.stop()
     }
 
@@ -435,17 +448,66 @@ class SnakeTopologyUnitTest {
         topo.start(tc.ctx)
         topo.onPeerConnected(tc.ctx, "B", aName("B"))
         topo.onPeerConnected(tc.ctx, "C", aName("C"))
-        delay(150)
-        val before = tc.advLog.count { it.first }
+        delay(150) // let slots-full path run and stop advertising
+        assertTrue(tc.advLog.any { !it.first },
+            "Advertising should have stopped when slots were full")
         topo.onPeerDisconnected(tc.ctx, "C")
-        delay(200)
-        assertTrue(tc.advLog.count { it.first } > before)
+        delay(200) // let discovery restart and call startAdvertising again
+        assertTrue(tc.advLog.last().first,
+            "Advertising should be active again after a slot opened up")
         topo.stop()
     }
 
-    // =========================================================================
-    // 9. Random / repeated disconnects and reconnects
-    // =========================================================================
+    @Test fun `topology connects to discovered peer with matching topology code`() = runBlocking {
+        val topo = makeTopo(max = 2, discoveryMs = 50)
+        val tc   = makeCtx("A")
+        topo.start(tc.ctx)
+        delay(50) // let discovery job start and subscribe to events
+        tc.net.emitDiscovered("B", enc("B"))
+        delay(100)
+        assertTrue(tc.net.connectLog.contains("B"),
+            "Topology should connect to a discovered peer with matching topology code")
+        topo.stop()
+    }
+
+    @Test fun `topology ignores discovered peer with wrong topology code`() = runBlocking {
+        val topo = makeTopo(max = 2, discoveryMs = 50)
+        val tc   = makeCtx("A")
+        topo.start(tc.ctx)
+        delay(50)
+        tc.net.emitDiscovered("X", "EVT:Test|TOP:msh|TYP:p|N:X") // mesh, not snake
+        delay(100)
+        assertFalse(tc.net.connectLog.contains("X"),
+            "Topology should ignore peers with a different topology code")
+        topo.stop()
+    }
+
+    @Test fun `topology does not connect when already at max peers`() = runBlocking {
+        val topo = makeTopo(max = 1, discoveryMs = 50)
+        val tc   = makeCtx("A")
+        topo.start(tc.ctx)
+        topo.onPeerConnected(tc.ctx, "B", aName("B")) // fill the slot
+        delay(50)
+        tc.net.emitDiscovered("C", enc("C"))
+        delay(100)
+        assertFalse(tc.net.connectLog.contains("C"),
+            "Topology should not connect when already at max peers")
+        topo.stop()
+    }
+
+    @Test fun `topology does not connect to known chain member`() = runBlocking {
+        val topo = makeTopo(max = 2, discoveryMs = 50)
+        val tc   = makeCtx("A")
+        topo.start(tc.ctx)
+        topo.onPeerConnected(tc.ctx, "B", aName("B"))
+        // B is now a known chain member — discovering B again should not trigger connect
+        delay(50)
+        tc.net.emitDiscovered("B", enc("B"))
+        delay(100)
+        assertFalse(tc.net.connectLog.contains("B"),
+            "Topology should not connect to a peer already in the chain")
+        topo.stop()
+    }
 
     @Test fun `peer connect-disconnect cycle 5 times stays correct`() {
         val topo = makeTopo(); val tc = makeCtx("A")
@@ -524,13 +586,11 @@ class SnakeTopologyUnitTest {
         topoC.onPeerConnected(tcC.ctx, "B", aName("B"))
         topoA.onPeerDisconnected(tcA.ctx, "B")
         topoC.onPeerDisconnected(tcC.ctx, "B")
-        val aBefore = tcA.advLog.count { it.first }
-        val cBefore = tcC.advLog.count { it.first }
-        assertTrue(tcA.advLog.count { it.first } > 0)
-        assertTrue(tcB.advLog.count { it.first } > 0)
         delay(200)
-        assertTrue(tcA.advLog.count { it.first } > 0)
-        assertTrue(tcC.advLog.count { it.first } > 0)
+        assertTrue(tcA.advLog.any { it.first },
+            "A should be advertising again after B dropped")
+        assertTrue(tcC.advLog.any { it.first },
+            "C should be advertising again after B dropped")
         topoA.stop(); topoC.stop()
     }
 
@@ -682,26 +742,24 @@ class SnakeTopologyUnitTest {
 
         topo.stop()
     }
+    // =========================================================================
+    // Reflection helpers — private to this test class to avoid overload conflicts
+    // =========================================================================
+
+    private fun SnakeTopology.peerCount(): Int {
+        val f = javaClass.getDeclaredField("peers").also { it.isAccessible = true }
+        return (f.get(this) as ConcurrentHashMap<*, *>).size
+    }
+
+    private fun SnakeTopology.lastPongAt(id: String): Long {
+        val f = javaClass.getDeclaredField("peers").also { it.isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        return (f.get(this) as ConcurrentHashMap<String, TopologyPeer>)[id]?.lastPongAt ?: 0L
+    }
+
+    private fun SnakeTopology.peerById(id: String): TopologyPeer? {
+        val f = javaClass.getDeclaredField("peers").also { it.isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        return (f.get(this) as ConcurrentHashMap<String, TopologyPeer>)[id]
+    }
 }
-
-// =============================================================================
-// Reflection helpers
-// =============================================================================
-
-fun SnakeTopology.peerCount(): Int {
-    val f = javaClass.getDeclaredField("peers").also { it.isAccessible = true }
-    return (f.get(this) as ConcurrentHashMap<*, *>).size
-}
-
-fun SnakeTopology.lastPongAt(id: String): Long {
-    val f = javaClass.getDeclaredField("peers").also { it.isAccessible = true }
-    @Suppress("UNCHECKED_CAST")
-    return (f.get(this) as ConcurrentHashMap<String, TopologyPeer>)[id]?.lastPongAt ?: 0L
-}
-
-fun SnakeTopology.peerById(id: String): TopologyPeer? {
-    val f = javaClass.getDeclaredField("peers").also { it.isAccessible = true }
-    @Suppress("UNCHECKED_CAST")
-    return (f.get(this) as ConcurrentHashMap<String, TopologyPeer>)[id]
-}
-

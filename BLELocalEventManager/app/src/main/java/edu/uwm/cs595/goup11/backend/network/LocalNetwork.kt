@@ -34,7 +34,14 @@ import kotlinx.coroutines.launch
  */
 class LocalNetwork(
     private val chaos: ChaosConfig = ChaosConfig.NONE,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+
+    /**
+     * Represents a list of messages to not log on receive. By default, PING, PONG, and HELLO are ignored
+     */
+    private val messageTypeLogIgnoreList: List<MessageType> = listOf<MessageType>(MessageType.PONG,
+        MessageType.PING, MessageType.HELLO
+    )
 ) : Network {
 
     override val logger: KLogger = KotlinLogging.logger {}
@@ -267,6 +274,9 @@ class LocalNetwork(
 
         // Wire up bidirectional connection in the shared holder
         val localNode = InMemoryNetworkHolder.getOrCreateNode(localId, this)
+
+        if (localNode.connections.contains(endpointId)) return
+
         localNode.connections.add(endpointId)
         remote.connections.add(localId)
 
@@ -335,15 +345,19 @@ class LocalNetwork(
         } else {
             remote.network.receiveMessage(message)
         }
-
-        logger.debug { "$localId sent ${message.type} to $endpointId (id=${message.id})" }
+        if(!messageTypeLogIgnoreList.contains(message.type)) {
+            logger.debug { "$localId sent ${message.type} to $endpointId (id=${message.id})" }
+        }
     }
 
     /**
      * Called internally when a message arrives at this node.
      */
     internal fun receiveMessage(message: Message) {
-        logger.debug { "$localEndpointId received ${message.type} from ${message.from}" }
+        // Ignore logs for certian message types
+        if(!messageTypeLogIgnoreList.contains(message.type)) {
+            logger.debug { "$localEndpointId received ${message.type} from ${message.from}" }
+        }
         notifyListeners(message)
         _events.tryEmit(NetworkEvent.MessageReceived(message))
     }
@@ -433,6 +447,64 @@ class LocalNetwork(
         fun purge() {
             logger.debug { "Purging InMemoryNetworkHolder" }
             InMemoryNetworkHolder.purge()
+        }
+
+
+        fun displayNetworkGraph() {
+            val nodes = InMemoryNetworkHolder.allNodes()
+
+            // Collect unique undirected edges — skip B→A if A→B already recorded
+            val seen  = mutableSetOf<Pair<String, String>>()
+            val edges = mutableListOf<Pair<String, String>>()
+            for (node in nodes) {
+                for (conn in node.connections) {
+                    val key = if (node.endpointId < conn)
+                        node.endpointId to conn else conn to node.endpointId
+                    if (seen.add(key)) edges.add(node.endpointId to conn)
+                }
+            }
+
+            // Extract short display name from encoded N: field, or fall back to full id
+            fun shortName(id: String): String =
+                Regex("N:([^|]+)").find(id)?.groupValues?.get(1) ?: id
+
+            val sb    = StringBuilder()
+            val width = 56
+
+            sb.appendLine("┌─ Network Graph (${nodes.size} nodes, ${edges.size} edges) ${"─".repeat(width)}".take(width + 2) + "┐")
+
+            // ── Nodes ──
+            sb.appendLine("│  Nodes")
+            if (nodes.isEmpty()) {
+                sb.appendLine("│    (none)")
+            } else {
+                for (node in nodes) {
+                    val flags = buildString {
+                        append(if (node.isAdvertising)          "A" else " ")
+                        append(if (node.isDiscovering)          "D" else " ")
+                        append(if (node.connections.isNotEmpty()) "C" else " ")
+                    }
+                    sb.appendLine("│    [$flags] ${node.endpointId}")
+                }
+            }
+
+            // ── Edges ──
+            sb.appendLine("│  Edges")
+            if (edges.isEmpty()) {
+                sb.appendLine("│    (none)")
+            } else {
+                val maxLen = edges.maxOf { shortName(it.first).length }
+                for ((a, b) in edges) {
+                    val left  = shortName(a).padEnd(maxLen)
+                    val right = shortName(b)
+                    sb.appendLine("│    $left  ↔  $right")
+                }
+            }
+
+            sb.append("└${"─".repeat(width + 1)}┘")
+
+            println(sb)
+            logger.debug { "\n$sb" }
         }
     }
 }

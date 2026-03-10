@@ -3,9 +3,11 @@ package edu.uwm.cs595.goup11.backend.network.topology
 import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
+import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterIsInstance
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -136,15 +138,30 @@ class SnakeTopology(
 
         context.startAdvertising(context.encodedName())
         context.startScan()
-        //TODO: Scanning is difficult and can be resource intensive
+
         discoveryJob = context.launchJob {
-            while (peers.size < maxPeerCount) {
-                delay(discoveryIntervalMs)
-            }
-            // Slots filled — stop
-            context.stopScan()
-            context.stopAdvertising()
-            logger.info { "Snake slots filled — discovery stopped" }
+            context.events
+                .filterIsInstance<NetworkEvent.EndpointDiscovered>()
+                .collect { ev ->
+                    if (peers.size >= maxPeerCount) {
+                        // Slots filled while we were waiting — shut down
+                        context.stopScan()
+                        context.stopAdvertising()
+                        discoveryJob?.cancel()
+                        return@collect
+                    }
+
+                    val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@collect
+
+                    // Only connect to nodes on the same event with the same topology
+                    if (advertisedName.topologyCode != topologyCode) return@collect
+
+                    // Ring guard — don't connect to known chain members
+                    if (chainMembers.contains(ev.endpointId)) return@collect
+
+                    context.connect(ev.endpointId)
+                    chainMembers.add(ev.endpointId)
+                }
         }
     }
     private fun stopDiscovery(context: TopologyContext) {

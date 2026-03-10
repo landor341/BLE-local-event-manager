@@ -134,11 +134,17 @@ class Client(
             //TODO: Should reject based off of topo type and event name (if currently connected)
             val advertisedName = AdvertisedName.decode(encodedName)
             if (advertisedName == null) {
-                logger.warn { "Rejecting connection from $endpointId — unparseable name: $encodedName" }
+                logger.warn { "Rejecting $endpointId — unparseable name: $encodedName" }
+                false
+            } else if (advertisedName.eventName != currentAdvertisedName?.eventName) {
+                logger.info { "Rejecting $endpointId — wrong event: ${advertisedName.eventName}" }
+                false
+            } else if (advertisedName.topologyCode != currentAdvertisedName?.topologyCode) {
+                logger.info { "Rejecting $endpointId — wrong topology: ${advertisedName.topologyCode}" }
                 false
             } else {
                 topology?.shouldAcceptConnection(topologyContext, endpointId, advertisedName)
-                    ?: false // reject everything if no topology is configured yet
+                    ?: false
             }
         }
 
@@ -352,10 +358,22 @@ class Client(
         if (consumed) return
 
         // Application-layer messages
+
         when (message.type) {
-            MessageType.TEXT_MESSAGE -> messageListeners.forEach { it(message) }
-            MessageType.HELLO        -> logger.info { "HELLO from ${message.from}" }
-            else                     -> logger.warn { "Unhandled message type: ${message.type}" }
+            MessageType.TEXT_MESSAGE -> {
+                if (message.to == endpointId) {
+                    // Addressed to us — deliver to application listeners
+                    messageListeners.forEach { it(message) }
+                } else if (message.ttl > 0) {
+                    // Not for us — forward it, decrementing TTL to prevent loops
+                    val forwarded = message.copy(ttl = message.ttl - 1)
+                    sendMessage(forwarded)
+                } else {
+                    logger.warn { "Dropping message ${message.id} — TTL exhausted" }
+                }
+            }
+            MessageType.HELLO -> logger.info { "HELLO from ${message.from}" }
+            else -> logger.warn { "Unhandled message type: ${message.type}" }
         }
     }
 
