@@ -223,6 +223,12 @@ class HubAndSpokeTopology(
         }
     }
 
+    override suspend fun disconnectFromAllNodes(context: TopologyContext) {
+        // Disconnect from all peers
+        peers.keys.forEach { endpointId ->
+            context.disconnect(endpointId)
+        }
+    }
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

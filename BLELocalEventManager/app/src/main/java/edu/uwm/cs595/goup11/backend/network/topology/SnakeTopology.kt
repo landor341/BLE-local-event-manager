@@ -79,6 +79,7 @@ class SnakeTopology(
     override fun stop() {
         keepaliveJob?.cancel()
         discoveryJob?.cancel()
+
         peers.clear()
         chainMembers.clear()
     }
@@ -359,5 +360,11 @@ class SnakeTopology(
 
     override fun shouldAdvertise(context: TopologyContext): Boolean {
         return peers.size < maxPeerCount
+    }
+
+    override suspend fun disconnectFromAllNodes(context: TopologyContext) {
+        peers.keys.forEach { peer ->
+            context.disconnect(peer)
+        }
     }
 }

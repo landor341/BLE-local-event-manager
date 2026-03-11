@@ -248,4 +248,11 @@ class MeshTopology(
         // Advertise whenever we have room for more peers
         return peers.size < maxPeerCount
     }
+
+    override suspend fun disconnectFromAllNodes(context: TopologyContext) {
+        // Disconnect from all peers
+        peers.keys.forEach { endpointId ->
+            context.disconnect(endpointId)
+        }
+    }
 }

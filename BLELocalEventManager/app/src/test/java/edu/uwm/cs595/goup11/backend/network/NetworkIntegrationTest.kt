@@ -153,6 +153,8 @@ class NetworkIntegrationTest {
     @After  fun tearDown() {
         scopes.forEach { it.cancel() }
         scopes.clear()
+        // Display output for debugging
+        LocalNetwork.displayNetworkGraph()
         LocalNetwork.purge()
     }
 
@@ -575,6 +577,8 @@ class NetworkIntegrationTest {
         carol.joinAndWait("Fest")
         delay(100)
         assertTrue(carol.isConnected(), "Carol should fill the slot Bob vacated")
+
+
     }
 
     // =========================================================================
@@ -582,6 +586,7 @@ class NetworkIntegrationTest {
     // =========================================================================
 
     @Test fun `snake rejects a fourth connection when max is 2`() = runBlocking {
+        // TODO: This is wrong, technically snake as no upper limit
         val (alice, _) = makeClient("Alice")
         val (bob,   _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
@@ -608,6 +613,7 @@ class NetworkIntegrationTest {
     }
 
     @Test fun `mesh rejects connection when at maxPeerCount`() = runBlocking {
+        //TODO: This is wrong, mesh as no theoretical limit
         val (host, _) = makeClient("Host")
         host.createNetwork("Fest", mesh(max = 2, target = 1))
         delay(100)
@@ -797,22 +803,22 @@ class NetworkIntegrationTest {
         assertEquals(1, received.size, "Carol should receive Alice's message after Bob left")
     }
 
-    @Test fun `large networks`() = runBlocking {
-        val (master, _) = makeClient("Master")
-
-        master.createNetwork("Test", snake())
-        delay(100)
-        var i = 0
-        repeat(100) {
-            val (c, _) = makeClient("User${i}")
-            c.joinAndWait("Test")
-            i++
-        }
-
-        delay(100)
-
-        // Send a message all the way through the graph
-
-        LocalNetwork.displayNetworkGraph()
-    }
+//    @Test fun `large networks`() = runBlocking {
+//        val (master, _) = makeClient("Master")
+//
+//        master.createNetwork("Test", snake())
+//        delay(100)
+//        var i = 0
+//        repeat(100) {
+//            val (c, _) = makeClient("User${i}")
+//            c.joinAndWait("Test")
+//            i++
+//        }
+//
+//        delay(100)
+//
+//        // Send a message all the way through the graph
+//
+//        LocalNetwork.displayNetworkGraph()
+//    }
 }

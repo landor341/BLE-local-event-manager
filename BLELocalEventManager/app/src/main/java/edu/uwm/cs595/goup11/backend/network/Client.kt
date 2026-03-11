@@ -114,7 +114,8 @@ class Client(
             onRoleChanged        = { role -> handleRoleChange(role) },
             coroutineScope       = scope,
             onConnect = {endpointId -> requireNetwork().connect(endpointId)},
-            networkEvents = requireNetwork().events
+            networkEvents = requireNetwork().events,
+            disconnectFromEndpoint = {endpointId -> requireNetwork().disconnect(endpointId)}
         )
     }
 
@@ -223,7 +224,10 @@ class Client(
      * Leave the current network gracefully.
      * Stops advertising, stops topology background jobs, and resets identity.
      */
-    fun leaveNetwork() {
+    suspend fun leaveNetwork() {
+        // Disconnect from all connected clients
+        topology?.disconnectFromAllNodes(topologyContext)
+
         topology?.stop()
         topology = null
         currentAdvertisedName = null

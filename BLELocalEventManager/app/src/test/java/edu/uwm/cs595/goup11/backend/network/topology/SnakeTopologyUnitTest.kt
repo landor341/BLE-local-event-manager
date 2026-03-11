@@ -125,6 +125,7 @@ class SnakeTopologyUnitTest {
             onConnect            = { endpointId -> net.connect(endpointId) },
             networkEvents        = net.events,
             coroutineScope       = topoScope,
+            disconnectFromEndpoint = {endpointId -> net.disconnect(endpointId)}
         )
         return TC(ctx, net, advLog, scanLog)
     }

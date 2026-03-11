@@ -130,4 +130,9 @@ interface TopologyStrategy {
      * whether to call startAdvertising() or stopAdvertising() on the network.
      */
     fun shouldAdvertise(context: TopologyContext): Boolean
+
+    /**
+     * Sends a leave signal to all connected nodes
+     */
+    suspend fun disconnectFromAllNodes(context: TopologyContext)
 }

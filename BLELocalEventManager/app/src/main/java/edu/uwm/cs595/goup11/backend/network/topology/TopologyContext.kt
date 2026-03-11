@@ -39,6 +39,8 @@ class TopologyContext(
 
     private val onConnect: suspend (endpointId: String) -> Unit,
 
+    private val disconnectFromEndpoint: suspend (endpointId: String) -> Unit,
+
     private val networkEvents: SharedFlow<NetworkEvent>
 ) {
     /** This node's current endpoint ID */
@@ -64,6 +66,7 @@ class TopologyContext(
         coroutineScope.launch(block = block)
 
     suspend fun connect(endpointId: String) = onConnect(endpointId)
+    suspend fun disconnect(endpointId: String) = disconnectFromEndpoint(endpointId)
     val events: SharedFlow<NetworkEvent> get() = networkEvents
 }
 
