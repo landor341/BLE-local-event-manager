@@ -1,5 +1,8 @@
 package edu.uwm.cs595.goup11.backend.network
+
 import androidx.annotation.VisibleForTesting
+import edu.uwm.cs595.goup11.backend.security.Crypto
+import edu.uwm.cs595.goup11.backend.security.Manager
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.util.collections.setValue
@@ -60,8 +63,14 @@ class LocalNetwork() : Network {
     /** replyTo waiters: requestMessageId -> deferred(replyMessage) */
     private val replyWaiters = ConcurrentHashMap<String, CompletableDeferred<Message>>()
 
-    override fun init(client: Client, config: Network.Config) {
+    /** 
+     * Session-specific encryption key. 
+     * In the real app, this would be managed by [Manager]. 
+     * In the emulator, each virtual device (LocalNetwork instance) stores its own view of the key.
+     */
+    private var sessionKey: ByteArray? = null
 
+    override fun init(client: Client, config: Network.Config) {
         this.client = client
         this.config = config
         _state.value = NetworkState.Idle
@@ -91,6 +100,7 @@ class LocalNetwork() : Network {
         client = null
         config = null
         _currentSessionId.value = null
+        sessionKey = null
 
         logger.debug { "Network has been shutdown" }
     }
@@ -145,7 +155,7 @@ class LocalNetwork() : Network {
         _state.value = NetworkState.Joining(sessionId)
 
         // Pick random router to connect to
-        val r = net.connectedClients.filter { c -> c.value.client.type == ClientType.ROUTER }
+        val r = net.connectedClients.filter { it.value.client.type == ClientType.ROUTER }
         val router = net.connectedClients[r.keys.random()]
         val routerPeer = Peer(
             router!!.client.id,
@@ -154,14 +164,16 @@ class LocalNetwork() : Network {
 
         logger.debug { "${c.id} is attempting to attach to ${routerPeer.endpointId}" }
 
+        // IMPORTANT: Set session ID before adding client so that any immediate 
+        // messages (like KEY_EXCHANGE replies) can find the network.
+        _currentSessionId.value = sessionId
+
         // Register this client in the network, connecting to master/router by default
         net.addClient(
             client = c,
             network = this,
             routerPeer
         )
-
-        _currentSessionId.value = sessionId
 
         _state.value = NetworkState.Joined(sessionId, routerPeer)
         _events.tryEmit(NetworkEvent.Joined(sessionId, routerPeer))
@@ -181,6 +193,7 @@ class LocalNetwork() : Network {
 
         _currentSessionId.value = null
         _state.value = NetworkState.Idle
+        sessionKey = null
 
         logger.debug { "${c.id} emitting PeerDisconnected(${c.id}) event" }
         _events.tryEmit(NetworkEvent.PeerDisconnected(c.id))
@@ -198,6 +211,12 @@ class LocalNetwork() : Network {
         )
 
         _currentSessionId.value = created.id
+
+        // Host generates the session key
+        Manager.reset()
+        Manager.init()
+        sessionKey = Manager.getKey()
+        logger.debug { "${c.id} generated session key as Host" }
 
         startAdvertising()
 
@@ -228,6 +247,7 @@ class LocalNetwork() : Network {
         _currentSessionId.value = null
         isAdvertising = false
         _state.value = NetworkState.Idle
+        sessionKey = null
     }
 
     // ------------------ Messaging ------------------
@@ -236,9 +256,22 @@ class LocalNetwork() : Network {
         val c = requireClient()
         val net = requireNet()
 
-        net.sendMessage(fromClientId = c.id, toClientId = to, message = message)
+        // --- SECURITY: Encrypt Data if it's a Text Message and Session Key is available ---
+        var securedMessage = message
+        val key = sessionKey
+        if (message.type == MessageType.TEXT_MESSAGE && key != null && message.data != null) {
+            try {
+                val encryptedData = Crypto.encryptMessage(message.data, key)
+                securedMessage = message.copy(data = encryptedData)
+                logger.debug { "Message encrypted before sending" }
+            } catch (e: Exception) {
+                logger.error(e) { "Failed to encrypt message" }
+            }
+        }
 
-        logger.debug { "${c.id} sent message to $to. Message type = ${message.type}. Id=${message.id}" }
+        net.sendMessage(fromClientId = c.id, toClientId = to, message = securedMessage)
+
+        logger.debug { "${c.id} sent message to $to. Message type = ${securedMessage.type}. Id=${securedMessage.id}" }
     }
 
     override suspend fun sendMessageAndWait(
@@ -274,23 +307,47 @@ class LocalNetwork() : Network {
 
         logger.debug { "${client?.id} received message on local network by ${message.from}. Type=${message.type}. Id=${message.id}" }
 
+        // --- SECURITY: Handle Key Exchange ---
+        if (message.type == MessageType.KEY_EXCHANGE && message.data != null) {
+            logger.debug { "${c.id} received KEY_EXCHANGE message. Updating session key." }
+            sessionKey = message.data
+            // Sync with real Manager singleton for UI/ViewModels
+            Manager.reset()
+            Manager.init(message.data)
+            
+            // Confirm to Host
+            sendMessage(message.from, message.createReply(c.id, MessageType.SESSION_ESTABLISHED, null, 5))
+            return
+        }
+
+        // --- SECURITY: Decrypt Data if it's a Text Message and Session Key is available ---
+        var processedMessage = message
+        val key = sessionKey
+        if (message.type == MessageType.TEXT_MESSAGE && key != null && message.data != null) {
+            try {
+                val decryptedData = Crypto.decryptMessage(message.data, key)
+                processedMessage = message.copy(data = decryptedData)
+                logger.debug { "Message decrypted after receiving" }
+            } catch (e: Exception) {
+                logger.warn(e) { "Failed to decrypt message (maybe it wasn't encrypted?)" }
+            }
+        }
+
         // Complete request/response waiter if this is a reply
-        val replyTo = message.replyTo
+        val replyTo = processedMessage.replyTo
         if (!replyTo.isNullOrBlank()) {
             replyWaiters.remove(replyTo)?.let { deferred ->
                 logger.debug { "Completing waiter for $replyTo" }
-                if (!deferred.isCompleted) deferred.complete(message)
+                if (!deferred.isCompleted) deferred.complete(processedMessage)
             }
         }
 
         // Legacy listeners
-        notifyListeners(message)
+        notifyListeners(processedMessage)
 
         logger.debug { "${c.id} emitting NetworkEvent.MessageReceived()" }
         // Event stream
-        _events.tryEmit(NetworkEvent.MessageReceived(message))
-
-
+        _events.tryEmit(NetworkEvent.MessageReceived(processedMessage))
     }
 
     /**
@@ -329,7 +386,22 @@ class LocalNetwork() : Network {
     }
 
     override fun onPeerConnect(peer: Peer) {
-        logger.debug { "${client?.id} connected to peer ${peer.endpointId}" }
+        val c = requireClient()
+        logger.debug { "${c.id} connected to peer ${peer.endpointId}" }
+        
+        // --- SECURITY: Host shares key with new peers ---
+        if (sessionKey != null && c.type == ClientType.ROUTER) {
+            logger.debug { "${c.id} (Host/Router) sharing session key with ${peer.endpointId}" }
+            val keyMessage = Message(
+                to = peer.endpointId,
+                from = c.id,
+                type = MessageType.KEY_EXCHANGE,
+                data = sessionKey,
+                ttl = 5
+            )
+            sendMessage(peer.endpointId, keyMessage)
+        }
+
         _events.tryEmit(NetworkEvent.PeerConnected(peer))
     }
 
@@ -337,8 +409,6 @@ class LocalNetwork() : Network {
         logger.debug { "${client?.id} disconnected to peer ${peer.endpointId}" }
         _events.tryEmit(NetworkEvent.PeerDisconnected(peer.endpointId))
     }
-
-
 
     // ------------------ Helper Methods ------------------
 
@@ -361,10 +431,9 @@ class LocalNetwork() : Network {
      */
     private fun requireNet(): InMemoryNetworks.InMemoryNetwork {
         val netId = currentSessionId.value ?: throw IllegalStateException("Client is not in a network")
-        val net = InMemoryNetworks.getNetworkById(netId) ?: throw IllegalStateException("Network is required for this operation")
-
-        return net
+        return InMemoryNetworks.getNetworkById(netId) ?: throw IllegalStateException("Network is required for this operation")
     }
+
     // ------------------ Debug Methods ------------------
 
     /**
@@ -543,13 +612,7 @@ class LocalNetwork() : Network {
             networks.clear()
         }
 
-        class InMemoryNetwork(
-            val id: String,
-            val masterClient: Client
-        ) {
-            /**
-             * List of users that are advertising this network
-             */
+        class InMemoryNetwork(val id: String, val masterClient: Client) {
             val advertisedBy = mutableListOf<Peer>()
             data class ConnectedClient(
                 val client: Client,
@@ -611,11 +674,7 @@ class LocalNetwork() : Network {
              * @exception Error when [isConnected] returns false
              */
             fun sendMessage(fromClientId: String, toClientId: String, message: Message) {
-                // Only deliver if connected in this emulation model
-                if (!isConnected(fromClientId, toClientId)) {
-                    throw Error("$fromClientId is not connected to $toClientId")
-                }
-
+                if (!isConnected(fromClientId, toClientId)) throw Error("$fromClientId not connected to $toClientId")
                 val target = connectedClients[toClientId] ?: return
                 target.network.onReceive(message)
             }
