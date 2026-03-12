@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
@@ -112,8 +114,7 @@ fun ExploreScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Mesh status card (REAL)
-            MeshStatusCard(meshState)
+
 
             OutlinedTextField(
                 value = query,
@@ -125,6 +126,9 @@ fun ExploreScreen(
             )
 
             HorizontalDivider()
+
+            // Mesh status card (REAL)
+            MeshStatusCard(meshState)
 
             if (filtered.isEmpty()) {
                 EmptyExploreState()
@@ -148,7 +152,22 @@ fun ExploreScreen(
 
 @Composable
 private fun MeshStatusCard(state: MeshUiState) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    val backgroundColor = when (state) {
+        is MeshUiState.Scanning -> MaterialTheme.colorScheme.secondaryContainer
+        is MeshUiState.InEvent, is MeshUiState.Hosting -> Color(0xFFE8F5E9)
+        is MeshUiState.Error -> MaterialTheme.colorScheme.errorContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    }
+
+    val contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+                containerColor = backgroundColor,
+                contentColor = contentColor
+        )
+    ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text("Mesh status", style = MaterialTheme.typography.titleMedium)
 
