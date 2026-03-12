@@ -360,6 +360,14 @@ class ConnectNetwork(
 
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
             val encodedName = info.endpointName
+
+            // Nearby Connections can surface our own advertisement back to us.
+            // Drop it — we never want to connect to ourselves.
+            if (encodedName == localEndpointId) {
+                logger.debug { "Ignoring self-discovery (endpointId=$endpointId)" }
+                return
+            }
+
             knownEndpoints[endpointId] = encodedName
 
             logger.debug { "$localEndpointId discovered $endpointId ('$encodedName')" }

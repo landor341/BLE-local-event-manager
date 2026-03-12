@@ -30,7 +30,7 @@ import java.time.format.DateTimeFormatter
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun HomeScreen(onExploreClick: () -> Unit) {
+fun HomeScreen(onExploreClick: () -> Unit, onDevClick: () -> Unit = {}) {
 
     var allPres = remember {HomeMockData.presentations() }
 
@@ -45,6 +45,11 @@ fun HomeScreen(onExploreClick: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(padSize/2),
 
     ){
+
+        Button(onClick = onDevClick) {
+            Text("Dev: Network")
+        }
+
         Text("Welcome back User!", modifier = Modifier
             .align(Alignment.CenterHorizontally)
             , fontSize = header)

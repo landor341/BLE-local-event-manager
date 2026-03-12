@@ -4,6 +4,9 @@
 
 package edu.uwm.cs595.goup11.frontend.core.navigation
 
+import android.content.Intent
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,21 +28,29 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import edu.uwm.cs595.goup11.frontend.dev.DevNetworkActivity
 import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import kotlinx.coroutines.launch
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun AppNavigation() {
     var currentDestination by remember { mutableStateOf(Destinations.HOME) }
-
+    val context = LocalContext.current
     when (currentDestination) {
         Destinations.HOME ->
-            HomeScreen(onExploreClick = {
-                currentDestination = Destinations.EXPLORE
-            })
+            HomeScreen(
+                onExploreClick = { currentDestination = Destinations.EXPLORE },
+                onDevClick = {                                 // ← add this
+                    context.startActivity(
+                        Intent(context, DevNetworkActivity::class.java)
+                    )
+                }
+            )
 
         Destinations.EXPLORE ->
             ExploreScreen(onBack = {
