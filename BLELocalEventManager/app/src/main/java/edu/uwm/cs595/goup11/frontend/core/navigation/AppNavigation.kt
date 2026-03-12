@@ -45,9 +45,11 @@ import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventMockData
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
+import edu.uwm.cs595.goup11.frontend.features.inbox.InboxScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
+import edu.uwm.cs595.goup11.frontend.features.inbox.InboxViewModel
 import kotlinx.coroutines.launch
 
 //
@@ -132,16 +134,16 @@ fun navDrawer(
                         "Explore Screen"
                     )
                     drawerItem(
-                        {navController.navigate(SealedDestinations.EVENT_DETAIL.route)},
-                        "Event Details"
-                    )
-                    drawerItem(
                         {navController.navigate(SealedDestinations.CREATE_EVENT.route)},
                         "Create Event"
                     )
                     drawerItem(
                         {navController.navigate(SealedDestinations.PROFILE.route)},
                         "Profile"
+                    )
+                    drawerItem(
+                        { navController.navigate(SealedDestinations.INBOX.route) },
+                        "Inbox"
                     )
                 }
             }
@@ -194,6 +196,8 @@ fun AppNavigation(){
     val meshGateway = AppContainer.meshGateway
     val exploreVm = remember { ExploreViewModel(meshGateway) }
     val userVm = remember { UserViewModel() }
+    val inboxVm = remember { InboxViewModel(meshGateway) }
+
     navDrawer(navController = navController) {
         padding ->
         NavHost(
@@ -258,6 +262,15 @@ fun AppNavigation(){
                 )
             }
 
+            composable(SealedDestinations.INBOX.route) {
+                InboxScreen(
+                    viewModel = inboxVm,
+                    onBack = { navController.popBackStack() },
+                    onNavigateToChat = { peerId ->
+                        navController.navigate("${SealedDestinations.CHAT.route}/$peerId")
+                    }
+                )
+            }
 
         }
     }
