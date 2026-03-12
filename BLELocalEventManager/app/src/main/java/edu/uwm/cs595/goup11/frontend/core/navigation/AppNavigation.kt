@@ -127,11 +127,15 @@ fun navDrawer(
                     //add new drawer items here so they can appear in the navigation sidebar
                     drawerItem(
                         { navController.navigate(SealedDestinations.HOME.route) },
-                        "Home Screen"
+                        "Home"
+                    )
+                    drawerItem(
+                            { navController.navigate(SealedDestinations.INBOX.route) },
+                    "Inbox"
                     )
                     drawerItem(
                         { navController.navigate(SealedDestinations.EXPLORE.route) },
-                        "Explore Screen"
+                        "Explore"
                     )
                     drawerItem(
                         {navController.navigate(SealedDestinations.CREATE_EVENT.route)},
@@ -141,10 +145,7 @@ fun navDrawer(
                         {navController.navigate(SealedDestinations.PROFILE.route)},
                         "Profile"
                     )
-                    drawerItem(
-                        { navController.navigate(SealedDestinations.INBOX.route) },
-                        "Inbox"
-                    )
+
                 }
             }
         },

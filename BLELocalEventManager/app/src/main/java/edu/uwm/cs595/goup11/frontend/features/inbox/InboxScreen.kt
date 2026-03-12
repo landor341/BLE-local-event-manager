@@ -104,8 +104,8 @@ fun PreviewInboxConnected() {
     MaterialTheme {
         InboxContent(
             activePeers = listOf(
-                ChatPeer("1", "Global Mesh", "Hello", "12:01 PM", rssi = -40),
-                ChatPeer("2", "Nearby User", "", "11:50 AM", isOnline = false)
+                ChatPeer("1", "User1", "Hello", "12:01 PM", rssi = -40),
+                ChatPeer("2", "User2", "", "11:50 AM", isOnline = false)
             ),
             onBack = {},
             onNavigateToChat = {}
