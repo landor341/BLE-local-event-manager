@@ -114,10 +114,11 @@ class ConnectNetwork(
     // -------------------------------------------------------------------------
 
     override fun init(localEndpointId: String, config: Network.Config) {
+        val wasAlreadyInit = this.localEndpointId != null
         this.localEndpointId = localEndpointId
         this.connectionsClient = Nearby.getConnectionsClient(context)
         _state.value = NetworkState.Idle
-        logger.debug { "ConnectNetwork initialised as $localEndpointId" }
+        logger.warn { "[CN] init() — localId='$localEndpointId' (re-init=$wasAlreadyInit)" }
     }
 
     override fun shutdown() {
@@ -151,18 +152,18 @@ class ConnectNetwork(
             .build()
 
         connectionsClient.startAdvertising(
-            encodedName,        // ← this becomes the Nearby "endpointName"
+            encodedName,
             serviceId,
             connectionLifecycleCallback,
             options
         ).addOnSuccessListener {
             isAdvertising = true
             _state.value  = NetworkState.Advertising
-            logger.debug { "$localEndpointId started advertising as '$encodedName'" }
+            logger.warn { "[CN] startAdvertising SUCCESS — serviceId='$serviceId' encodedName='$encodedName'" }
         }.addOnFailureListener { e ->
             isAdvertising = false
             _events.tryEmit(NetworkEvent.ConnectionRejected("ADVERTISING_FAILED"))
-            logger.error { "startAdvertising failed: ${e.message}" }
+            logger.error { "[CN] startAdvertising FAILED: ${e.message}" }
         }
     }
 
@@ -187,7 +188,12 @@ class ConnectNetwork(
      */
     override suspend fun startDiscovery() {
         requireClient()
-        if (isDiscovering) return
+        if (isDiscovering) {
+            logger.warn { "[CN] startDiscovery() called but already discovering — skipping" }
+            return
+        }
+
+        logger.warn { "[CN] startDiscovery() — serviceId='$serviceId' localId='$localEndpointId'" }
 
         val options = DiscoveryOptions.Builder()
             .setStrategy(Strategy.P2P_CLUSTER)
@@ -200,10 +206,10 @@ class ConnectNetwork(
         ).addOnSuccessListener {
             isDiscovering = true
             _state.value  = NetworkState.Discovering
-            logger.debug { "$localEndpointId started discovery" }
+            logger.warn { "[CN] startDiscovery SUCCESS" }
         }.addOnFailureListener { e ->
             isDiscovering = false
-            logger.error { "startDiscovery failed: ${e.message}" }
+            logger.error { "[CN] startDiscovery FAILED: ${e.message}" }
         }
     }
 
@@ -215,7 +221,7 @@ class ConnectNetwork(
         if (_state.value is NetworkState.Discovering) {
             _state.value = NetworkState.Idle
         }
-        logger.debug { "$localEndpointId stopped discovery" }
+        logger.warn { "[CN] stopDiscovery()" }
     }
 
     // -------------------------------------------------------------------------
@@ -234,17 +240,18 @@ class ConnectNetwork(
      */
     override suspend fun connect(endpointId: String) {
         val localId = requireLocalEndpointId()
+        logger.warn { "[CN] connect() — localId='$localId' → target='$endpointId'" }
 
         connectionsClient.requestConnection(
-            localId,    // our encoded name — the remote side sees this in ConnectionInfo.endpointName
+            localId,
             endpointId,
             connectionLifecycleCallback
-        ).addOnFailureListener { e ->
-            logger.error { "requestConnection to $endpointId failed: ${e.message}" }
+        ).addOnSuccessListener {
+            logger.warn { "[CN] requestConnection sent successfully to $endpointId" }
+        }.addOnFailureListener { e ->
+            logger.error { "[CN] requestConnection to $endpointId FAILED: ${e.message}" }
             _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
         }
-
-        logger.debug { "$localId requested connection to $endpointId" }
     }
 
     override fun disconnect(endpointId: String) {
@@ -295,91 +302,80 @@ class ConnectNetwork(
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
 
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-            // info.endpointName is the encoded name the remote node advertised with
             val encodedName = info.endpointName
             knownEndpoints[endpointId] = encodedName
 
-            logger.debug { "$localEndpointId: connection initiated from $endpointId ('$encodedName')" }
+            logger.warn { "[CN] onConnectionInitiated — from='$endpointId' encodedName='$encodedName' incoming=${info.isIncomingConnection}" }
 
-            // Ask Client/topology whether to accept — must run in a coroutine since
-            // onConnectionRequest is a suspend function
             scope.launch {
                 val accept = onConnectionRequest(endpointId, encodedName)
+                logger.warn { "[CN] onConnectionRequest result for '$endpointId': accept=$accept" }
 
                 if (accept) {
                     connectionsClient.acceptConnection(endpointId, payloadCallback)
-                    logger.debug { "$localEndpointId accepted connection from $endpointId" }
+                    logger.warn { "[CN] acceptConnection sent for $endpointId" }
                 } else {
                     connectionsClient.rejectConnection(endpointId)
-                    logger.debug { "$localEndpointId rejected connection from $endpointId" }
+                    logger.warn { "[CN] rejectConnection sent for $endpointId" }
                 }
             }
         }
 
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
-            when (result.status.statusCode) {
+            val code = result.status.statusCode
+            val msg  = result.status.statusMessage
+            logger.warn { "[CN] onConnectionResult — endpointId='$endpointId' statusCode=$code message='$msg'" }
+
+            when (code) {
                 ConnectionsStatusCodes.STATUS_OK -> {
                     val encodedName = knownEndpoints[endpointId] ?: endpointId
-                    logger.debug { "$localEndpointId: connection established with $endpointId" }
+                    logger.warn { "[CN] CONNECTION ESTABLISHED with $endpointId (encodedName='$encodedName')" }
                     _events.tryEmit(NetworkEvent.EndpointConnected(endpointId, encodedName))
                 }
 
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> {
                     knownEndpoints.remove(endpointId)
-                    logger.debug { "$localEndpointId: connection rejected by $endpointId" }
+                    logger.warn { "[CN] CONNECTION REJECTED by $endpointId" }
                     _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
                 }
 
                 ConnectionsStatusCodes.STATUS_ERROR -> {
                     knownEndpoints.remove(endpointId)
-                    logger.error { "$localEndpointId: connection error with $endpointId (${result.status.statusMessage})" }
+                    logger.error { "[CN] CONNECTION ERROR with $endpointId: $msg" }
                     _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
+                }
+
+                else -> {
+                    logger.error { "[CN] onConnectionResult unknown statusCode=$code for $endpointId" }
                 }
             }
         }
 
         override fun onDisconnected(endpointId: String) {
             knownEndpoints.remove(endpointId)
-            logger.debug { "$localEndpointId: disconnected from $endpointId" }
+            logger.warn { "[CN] onDisconnected — endpointId='$endpointId'" }
             _events.tryEmit(NetworkEvent.EndpointDisconnected(endpointId))
         }
     }
 
-    /**
-     * Fires during active discovery whenever a remote node is found or lost.
-     *
-     * onEndpointFound — emits EndpointDiscovered with the hardware endpointId and
-     *   the encodedName string (the remote node's advertised identity).
-     *   Client decodes this to decide whether to connect.
-     *
-     * onEndpointLost — the endpoint went out of range or stopped advertising.
-     *   We don't emit an event here because we were never connected to it —
-     *   it was only "discovered". If it was connected, onDisconnected fires instead.
-     */
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
 
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
             val encodedName = info.endpointName
 
-            // Nearby Connections can surface our own advertisement back to us.
-            // Drop it — we never want to connect to ourselves.
             if (encodedName == localEndpointId) {
-                logger.debug { "Ignoring self-discovery (endpointId=$endpointId)" }
+                logger.warn { "[CN] onEndpointFound — ignoring self-discovery (endpointId=$endpointId)" }
                 return
             }
 
             knownEndpoints[endpointId] = encodedName
-
-            logger.debug { "$localEndpointId discovered $endpointId ('$encodedName')" }
-
+            logger.warn { "[CN] onEndpointFound — endpointId='$endpointId' encodedName='$encodedName'" }
             _events.tryEmit(NetworkEvent.EndpointDiscovered(endpointId, encodedName))
         }
 
         override fun onEndpointLost(endpointId: String) {
-            // Only remove from known if we never established a full connection
             knownEndpoints.remove(endpointId)
-            logger.debug { "$localEndpointId lost sight of $endpointId" }
-            // No event emitted — Client only acts on discovered endpoints it chose to connect to
+            logger.warn { "[CN] onEndpointLost — endpointId='$endpointId'" }
         }
     }
 

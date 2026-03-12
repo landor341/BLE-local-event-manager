@@ -192,33 +192,55 @@ class Client(
      * NetworkEvent.EndpointConnected or NetworkEvent.ConnectionRejected on the
      * events flow, which listenToNetworkEvents() handles.
      */
-    suspend fun joinNetwork(eventName: String) {
+    suspend fun joinNetwork(eventName: String, alreadyDiscovering: Boolean = false) {
         val net = requireNetwork()
-        val discoveryJob = scope.launch { net.startDiscovery() }
 
+        if (!alreadyDiscovering) {
+            // init() must be called before startDiscovery() on real transports.
+            // Temporary identity — re-init with real encoded name once we find the event.
+            net.init("JOINING:$displayName", Network.Config(defaultTtl = 5))
+            val discoveryJob = scope.launch { net.startDiscovery() }
 
+            net.events
+                .filterIsInstance<NetworkEvent.EndpointDiscovered>()
+                .collect { ev ->
+                    val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@collect
+                    if (advertisedName.eventName != eventName) return@collect
 
-        net.events
-            .filterIsInstance<NetworkEvent.EndpointDiscovered>()
-            .collect { ev ->
-                val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@collect
-                if (advertisedName.eventName != eventName) return@collect
+                    discoveryJob.cancel()
+                    connectToEvent(net, ev.endpointId, advertisedName, eventName)
+                }
+        } else {
+            // Network is already init'd and discovering (reused from Discover tab scan).
+            // Just wait for the matching event to appear in the existing event stream.
+            net.events
+                .filterIsInstance<NetworkEvent.EndpointDiscovered>()
+                .collect { ev ->
+                    val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@collect
+                    if (advertisedName.eventName != eventName) return@collect
+                    connectToEvent(net, ev.endpointId, advertisedName, eventName)
+                }
+        }
+    }
 
-                discoveryJob.cancel()
+    private suspend fun connectToEvent(
+        net: Network,
+        endpointId: String,
+        advertisedName: AdvertisedName,
+        eventName: String
+    ) {
+        currentAdvertisedName = AdvertisedName(
+            eventName    = eventName,
+            topologyCode = advertisedName.topologyCode,
+            role         = TopologyStrategy.Role.PEER,
+            displayName  = displayName
+        )
 
-                currentAdvertisedName = AdvertisedName(
-                    eventName    = eventName,
-                    topologyCode = advertisedName.topologyCode,
-                    role         = TopologyStrategy.Role.PEER,
-                    displayName  = displayName
-                )
-
-                val topo = TopologyFactory.create(advertisedName)
-                topology = topo
-                net.init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
-                topo.start(topologyContext)
-                net.connect(ev.endpointId)
-            }
+        val topo = TopologyFactory.create(advertisedName)
+        topology = topo
+        net.init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
+        topo.start(topologyContext)
+        net.connect(endpointId)
     }
     /**
      * Leave the current network gracefully.

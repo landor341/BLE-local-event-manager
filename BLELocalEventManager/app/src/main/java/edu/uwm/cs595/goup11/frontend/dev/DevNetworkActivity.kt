@@ -66,6 +66,10 @@ class DevNetworkActivity : ComponentActivity() {
     private val permissionError    = mutableStateOf<String?>(null)
     private var discoverJob: kotlinx.coroutines.Job? = null
 
+    // Held so joinFromDiscover() can reuse the already-active scan network
+    // instead of creating a new one and hitting STATUS_ALREADY_DISCOVERING.
+    private var scanNet: ConnectNetwork? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -90,7 +94,7 @@ class DevNetworkActivity : ComponentActivity() {
                 },
                 onJoinDiscovered   = { name, event ->
                     nearbyPerms.request(this) { granted ->
-                        if (granted) joinNetwork(name, event)
+                        if (granted) joinFromDiscover(name, event)
                         else permissionError.value = "Bluetooth & location permissions are required"
                     }
                 },
@@ -99,6 +103,7 @@ class DevNetworkActivity : ComponentActivity() {
                     clientState.value = null
                     peersState.clear()
                     eventNameState.value = null
+                    scanNet = null
                 },
                 onSendMessage      = { to, body -> sendMessage(to, body) },
                 onStartDiscover    = { name ->
@@ -166,22 +171,18 @@ class DevNetworkActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Spin up a temporary ConnectNetwork just for scanning.
-     * We call init() with a dummy identity so requireClient() passes,
-     * but we never advertise so we won't appear in other nodes' discovery results.
-     */
     private fun startDiscover(scannerName: String) {
         if (isDiscoveringState.value) return
         discoveredEvents.clear()
         isDiscoveringState.value = true
 
+        val net = ConnectNetwork(context = this, scope = scope)
+        net.init("SCANNER:$scannerName", Network.Config(defaultTtl = 5))
+        scanNet = net
+
         discoverJob = scope.launch {
-            val scanNet = ConnectNetwork(context = this@DevNetworkActivity, scope = scope)
-            // init() with a temporary identity — needed so connectionsClient is initialised
-            scanNet.init("SCANNER:$scannerName", Network.Config(defaultTtl = 5))
-            scanNet.startDiscovery()
-            scanNet.events
+            net.startDiscovery()
+            net.events
                 .filterIsInstance<NetworkEvent.EndpointDiscovered>()
                 .collect { ev ->
                     val decoded = AdvertisedName.decode(ev.encodedName) ?: return@collect
@@ -196,6 +197,30 @@ class DevNetworkActivity : ComponentActivity() {
                     else discoveredEvents[existing] = entry
                 }
         }
+    }
+
+    /**
+     * Join an event using the already-running scan network from the Discover tab.
+     * Reuses [scanNet] so we don't hit STATUS_ALREADY_DISCOVERING by starting
+     * a second discovery on a fresh ConnectNetwork instance.
+     */
+    private fun joinFromDiscover(name: String, event: String) {
+        val net = scanNet ?: run {
+            // Scan wasn't started — fall back to a fresh join
+            joinNetwork(name, event)
+            return
+        }
+        discoverJob?.cancel()
+        discoverJob = null
+        isDiscoveringState.value = false
+        scanNet = null
+
+        val c = Client(displayName = name, network = net, scope = scope)
+        c.attachNetwork(net, Network.Config(defaultTtl = 5))
+        wireClientEvents(c)
+        scope.launch { c.joinNetwork(event, alreadyDiscovering = true) }
+        clientState.value    = c
+        eventNameState.value = event
     }
 
     private fun stopDiscover() {
