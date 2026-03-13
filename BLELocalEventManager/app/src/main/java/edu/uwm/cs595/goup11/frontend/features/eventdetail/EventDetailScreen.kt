@@ -164,17 +164,6 @@ fun EventDetailScreen(
             // Sprint 3: keep the same join/leave/chat controls.
             // Later: isJoined should come from MeshUiState + join result.
             if (isJoined) {
-                Button(
-                    onClick = { onOpenChat(event.name)},
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Open Chat")
-                }
-
-                Spacer(Modifier.height(16.dp))
 
                 Button(
                     onClick = onLeave,

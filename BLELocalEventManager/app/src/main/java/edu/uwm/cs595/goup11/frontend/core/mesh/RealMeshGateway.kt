@@ -2,6 +2,7 @@ package edu.uwm.cs595.goup11.frontend.core.mesh
 
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
+import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
 import edu.uwm.cs595.goup11.backend.network.Peer
 import kotlinx.coroutines.CoroutineScope
@@ -9,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 /**
  * ==========================================================
@@ -83,6 +86,9 @@ class RealMeshGateway(
     private val _chat = MutableSharedFlow<ChatMessage>(extraBufferCapacity = 256)
     override val chat: Flow<ChatMessage> = _chat.asSharedFlow()
 
+    private val _logs = MutableSharedFlow<String>(extraBufferCapacity = 500)
+    override val logs: Flow<String> = _logs.asSharedFlow()
+
     // ------------------ Internal Session Tracking ------------------
 
     /**
@@ -118,11 +124,13 @@ class RealMeshGateway(
 
         // Starts backend components (Client/Network initialization, etc.)
         backend.start()
+        log("Gateway started. ID: $myId")
 
         // Map backend NetworkState -> UI state
         // This keeps UI consistent when backend transitions (Idle/Scanning/Joined/Hosting/Error).
         scope.launch {
             backend.state.collect { s ->
+                log("Backend state: ${s::class.simpleName}")
                 _state.value = when (s) {
                     is NetworkState.Idle -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning
@@ -134,10 +142,29 @@ class RealMeshGateway(
             }
         }
 
+        scope.launch {
+            backend.events.collect { event ->
+                when (event) {
+                    is NetworkEvent.Joined -> log("Joined network: ${event.sessionId}")
+                    is NetworkEvent.PeerConnected -> log("Peer connected: ${event.peer.endpointId}")
+                    is NetworkEvent.PeerDisconnected -> log("Peer disconnected: ${event.endpointId}")
+                    is NetworkEvent.MessageReceived -> {
+                        val text = event.message.data?.toString(StandardCharsets.UTF_8) ?: "no data"
+                        log("Message from ${event.message.from}: $text")
+                    }
+                }
+            }
+        }
+
         // Listen for incoming backend messages (Sprint 3: TEXT_MESSAGE only)
         backend.addMessageListener { msg ->
             onBackendMessage(msg)
         }
+    }
+
+    private fun log(message: String) {
+        val time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        _logs.tryEmit("[$time] $message")
     }
 
     // ------------------ Scanning ------------------
@@ -151,6 +178,7 @@ class RealMeshGateway(
      * - backend.scanNetworks() must eventually call into network.startScan() for real discovery.
      */
     override suspend fun startScanning() {
+        log("Start scanning requested")
         // Optimistic UI state change: user asked to scan, so UI should not remain Idle.
         _state.value = MeshUiState.Scanning
 
@@ -164,6 +192,7 @@ class RealMeshGateway(
 
         scope.launch {
             discoveredFlow.collect { sessionId ->
+                log("Discovered nearby network: $sessionId")
                 _discovered.emit(
                     DiscoveredEventSummary(
                         sessionId = sessionId,
@@ -180,6 +209,7 @@ class RealMeshGateway(
      * Depending on backend implementation, discovery may still emit briefly.
      */
     override suspend fun stopScanning() {
+        log("Stop scanning requested")
         scanningCollectorStarted = false
         backend.stopScan()
 
@@ -199,6 +229,7 @@ class RealMeshGateway(
      * - backend.state collector should transition UI to Hosting(sessionId)
      */
     override suspend fun hostEvent(eventName: String) {
+        log("Hosting event: $eventName")
         backend.createNetwork(eventName)
         // UI state should become Hosting(...) via backend.state mapping.
         // If backend doesn't emit Hosting, you'll still see the last UI state (often Scanning).
@@ -212,10 +243,12 @@ class RealMeshGateway(
      * - We return a mocked JoinedEventBundle so EventDetail UI can be built.
      */
     override suspend fun joinEvent(sessionId: String): JoinedEventBundle {
+        log("Joining event: $sessionId")
         _state.value = MeshUiState.Joining(sessionId)
 
         // backend.joinNetwork returns the router peer we joined through
         router = backend.joinNetwork(sessionId)
+        log("Joined via router: ${router?.endpointId}")
 
         return JoinedEventBundle(
             sessionId = sessionId,
@@ -234,6 +267,7 @@ class RealMeshGateway(
      * Leaves current event and resets routing state.
      */
     override suspend fun leaveEvent() {
+        log("Leaving event")
         router = null
         backend.leave()
 
@@ -264,6 +298,7 @@ class RealMeshGateway(
                 isMine = true
             )
         )
+        log("Sending chat: $text to ${r.endpointId}")
 
         val msg = Message(
             to = r.endpointId,
@@ -288,6 +323,7 @@ class RealMeshGateway(
             MessageType.TEXT_MESSAGE -> {
                 val sessionId = backend.currentSessionId.value ?: "unknown"
                 val text = msg.data?.toString(StandardCharsets.UTF_8).orEmpty()
+                log("Received chat from ${msg.from}: $text")
 
                 _chat.tryEmit(
                     ChatMessage(

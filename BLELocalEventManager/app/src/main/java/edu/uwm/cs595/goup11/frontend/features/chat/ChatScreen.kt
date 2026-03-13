@@ -18,7 +18,8 @@ import edu.uwm.cs595.goup11.frontend.core.mesh.ChatMessage
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
-    eventName: String,
+    peerId: String,
+    sender: String,
     onBack: () -> Unit
 ) {
     val messages by viewModel.messages.collectAsState()
@@ -27,7 +28,7 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(eventName) },
+                title = { Text(sender) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")

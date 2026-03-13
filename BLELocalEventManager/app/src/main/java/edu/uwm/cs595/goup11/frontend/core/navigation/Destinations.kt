@@ -13,7 +13,8 @@ enum class Destinations {
     PROFILE,
     EDIT_PROFILE,
     CREATE_EVENT,
-    CHAT
+    CHAT,
+    DEVELOPER
 }
 
 //sealed class will make it easier to pass information between screens when needed
@@ -38,4 +39,8 @@ sealed class SealedDestinations(val route: String) {
     @Serializable
     object TUTORIAL: SealedDestinations("TUTORIAL")
 
+}
+    object INBOX: SealedDestinations("INBOX")
+}
+    object DEVELOPER: SealedDestinations("DEVELOPER")
 }

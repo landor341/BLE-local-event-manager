@@ -1,6 +1,7 @@
 package edu.uwm.cs595.goup11.frontend.features.profile
 
 import androidx.lifecycle.ViewModel
+import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.frontend.domain.models.User
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +31,10 @@ class UserViewModel(): ViewModel(){
 
     fun updateProfileImage(uri: String) {
         _user.update { it.copy(profileImageUri = uri) }
+    }
+
+    fun updateRole(newRole: UserRole) {
+        _user.update { it.copy(role = newRole) }
     }
 
 }
