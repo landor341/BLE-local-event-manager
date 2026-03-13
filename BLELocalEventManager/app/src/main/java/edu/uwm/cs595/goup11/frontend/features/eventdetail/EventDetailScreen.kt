@@ -1,13 +1,27 @@
 package edu.uwm.cs595.goup11.frontend.features.eventdetail
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -23,29 +37,6 @@ import edu.uwm.cs595.goup11.R
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
 import edu.uwm.cs595.goup11.frontend.domain.models.Event
 
-/**
- * ==========================================================
- * EventDetailScreen — Sprint 3 Navigation + UI
- * ==========================================================
- *
- * MINIMAL CHANGE GOAL (Sprint 3):
- * - This screen must be navigable from Explore using ONLY a sessionId string.
- * - Do NOT require an Event object from navigation (that breaks mesh integration).
- *
- * CURRENT STATE:
- * - UI is mostly built already (image, title, description, join/leave buttons).
- * - For now we still display mock details by mapping sessionId -> mock Event (if present).
- *
- * NEXT (mesh integration):
- * - Replace mock lookup with MeshGateway.joinEvent(sessionId) result.
- * - Hook chat button to the real chat screen once created.
- *
- * TEAM RULES:
- * - Do NOT import backend.network.* in this file.
- * - Do NOT create Client/Network here.
- *
- * PRIMARY MAINTAINER: Frontend Integration
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EventDetailScreen(
@@ -53,11 +44,10 @@ fun EventDetailScreen(
     onBack: () -> Unit,
     isJoined: Boolean = true,
     onOpenChat: (String) -> Unit = {},
+    onViewConnectedUsers: () -> Unit = {},
     onJoin: () -> Unit = {},
     onLeave: () -> Unit = {},
 ) {
-    // Sprint 3 temporary: show mock event details if the id matches; otherwise show placeholders.
-    // Later this should come from: MeshGateway.joinEvent(sessionId)
     val event: Event = remember(sessionId) {
         EventMockData.events().firstOrNull { it.id == sessionId } ?: Event(
             id = sessionId,
@@ -90,7 +80,6 @@ fun EventDetailScreen(
                 .padding(24.dp),
             horizontalAlignment = Alignment.Start,
         ) {
-            // Map photo (placeholder)
             Image(
                 painter = painterResource(id = R.drawable.map_sample),
                 contentDescription = "Event Map",
@@ -154,17 +143,26 @@ fun EventDetailScreen(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                "No presentations available yet.",
+                text = "No presentations available yet.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.Gray
             )
 
             Spacer(Modifier.height(40.dp))
 
-            // Sprint 3: keep the same join/leave/chat controls.
-            // Later: isJoined should come from MeshUiState + join result.
-            if (isJoined) {
+            Button(
+                onClick = onViewConnectedUsers,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("View Connected Users")
+            }
 
+            Spacer(Modifier.height(12.dp))
+
+            if (isJoined) {
                 Button(
                     onClick = onLeave,
                     modifier = Modifier
@@ -200,6 +198,7 @@ fun EventDetailPreview() {
             sessionId = EventMockData.events().first().id,
             isJoined = true,
             onOpenChat = {},
+            onViewConnectedUsers = {},
             onJoin = {},
             onLeave = {},
             onBack = {}

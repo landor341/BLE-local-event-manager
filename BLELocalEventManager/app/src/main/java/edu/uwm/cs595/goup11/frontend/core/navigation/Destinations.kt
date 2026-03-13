@@ -27,6 +27,8 @@ sealed class SealedDestinations(val route: String) {
     @Serializable
     object EVENT_DETAIL: SealedDestinations("EVENT_DETAIL")
     @Serializable
+    object CONNECTED_USERS : SealedDestinations("CONNECTED_USERS")
+    @Serializable
     object PROFILE: SealedDestinations("PROFILE")
     @Serializable
     object EDIT_PROFILE : SealedDestinations("EDIT_PROFILE")
