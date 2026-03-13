@@ -38,15 +38,15 @@ import java.util.Locale
 // ─────────────────────────────────────────────────────────────────────────────
 // Colour tokens — dark terminal theme
 // ─────────────────────────────────────────────────────────────────────────────
-private val BgColor      = Color(0xFF080A0D)
-private val SurfaceColor = Color(0xFF111318)
-private val BorderColor  = Color(0xFF1E2229)
-private val GreenColor   = Color(0xFF00E676)
-private val BlueColor    = Color(0xFF40C4FF)
-private val AmberColor   = Color(0xFFFFB300)
-private val RedColor     = Color(0xFFFF3D57)
-private val TextColor    = Color(0xFFB8C4D4)
-private val TextDimColor = Color(0xFF4A5568)
+private val BgColor      = Color(0xFFF8F9FA)
+private val SurfaceColor = Color(0xFFFFFFFF)
+private val BorderColor  = Color(0xFFDEE2E6)
+private val GreenColor   = Color(0xFF1B8A4E)
+private val BlueColor    = Color(0xFF0B6EBD)
+private val AmberColor   = Color(0xFFB45309)
+private val RedColor     = Color(0xFFDC2626)
+private val TextColor    = Color(0xFF1A1D23)
+private val TextDimColor = Color(0xFF6B7280)
 private val Mono         = FontFamily.Monospace
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,36 +457,50 @@ fun DevNetworkScreen(
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun DevHeader(isOnline: Boolean, endpointId: String?) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(SurfaceColor)
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Text(
-            text       = "MESH · DEV",
-            fontFamily = Mono,
-            fontWeight = FontWeight.Bold,
-            fontSize   = 16.sp,
-            color      = GreenColor,
-            letterSpacing = 0.15.sp
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(9.dp)
-                    .background(
-                        color = if (isOnline) GreenColor else TextDimColor,
-                        shape = RoundedCornerShape(50)
-                    )
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Text(
-                text       = if (isOnline) "ONLINE" else "OFFLINE",
+                text       = "DEV PAGE",
+                fontFamily = Mono,
+                fontWeight = FontWeight.Bold,
+                fontSize   = 16.sp,
+                color      = GreenColor,
+                letterSpacing = 0.15.sp
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(9.dp)
+                        .background(
+                            color = if (isOnline) GreenColor else TextDimColor,
+                            shape = RoundedCornerShape(50)
+                        )
+                )
+                Text(
+                    text       = if (isOnline) "ONLINE" else "OFFLINE",
+                    fontFamily = Mono,
+                    fontSize   = 11.sp,
+                    color      = if (isOnline) GreenColor else TextDimColor
+                )
+            }
+        }
+        if (endpointId != null) {
+            Text(
+                text       = endpointId.shortName(),
                 fontFamily = Mono,
                 fontSize   = 11.sp,
-                color      = if (isOnline) GreenColor else TextDimColor
+                color      = TextDimColor,
+                letterSpacing = 0.1.sp
             )
         }
     }
@@ -1088,7 +1102,7 @@ private fun MessageBubble(msg: ChatMessage, selfId: String, peers: List<Connecte
             modifier = Modifier
                 .widthIn(max = 280.dp)
                 .background(
-                    color = if (isSent) Color(0x1400E676) else SurfaceColor,
+                    color = if (isSent) Color(0xFF1B8A4E).copy(alpha = 0.08f) else Color(0xFFF0F7FF),
                     shape = RoundedCornerShape(6.dp)
                 )
                 .border(
@@ -1186,7 +1200,7 @@ private fun DevCard(
             letterSpacing = 0.2.sp,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF131820), RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                .background(Color(0xFFF1F3F5), RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
                 .padding(horizontal = 12.dp, vertical = 7.dp)
         )
         Column(
