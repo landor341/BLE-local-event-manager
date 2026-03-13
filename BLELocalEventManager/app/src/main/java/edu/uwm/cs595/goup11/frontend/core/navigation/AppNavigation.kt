@@ -254,12 +254,15 @@ fun AppNavigation(){
                 )
             }
 
-            composable(SealedDestinations.CHAT.route) {
-                val chatVm = remember { ChatViewModel(meshGateway) }
+            composable("${SealedDestinations.CHAT.route}/{peerId}/{userName}") { backStackEntry ->
+                val peerId = backStackEntry.arguments?.getString("peerId") ?: "Unknown User"
+                val userName = backStackEntry.arguments?.getString("userName") ?: "Unknown User"
+                val chatVm = remember { ChatViewModel(meshGateway, peerId) }
                 ChatScreen(
                     viewModel = chatVm,
                     onBack = { navController.popBackStack() },
-                    eventName = selectedEventName
+                    peerId = peerId,
+                    sender = userName
                 )
             }
 
@@ -267,8 +270,8 @@ fun AppNavigation(){
                 InboxScreen(
                     viewModel = inboxVm,
                     onBack = { navController.popBackStack() },
-                    onNavigateToChat = { peerId ->
-                        navController.navigate("${SealedDestinations.CHAT.route}/$peerId")
+                    onNavigateToChat = { peerId, userName ->
+                        navController.navigate("${SealedDestinations.CHAT.route}/$peerId/$userName")
                     }
                 )
             }

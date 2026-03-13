@@ -17,12 +17,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.frontend.domain.models.ChatPeer
+import edu.uwm.cs595.goup11.frontend.domain.models.User
 
 @Composable
 fun InboxScreen(
     viewModel: InboxViewModel,
     onBack: () -> Unit,
-    onNavigateToChat: (String) -> Unit
+    onNavigateToChat: (String, String) -> Unit
 ) {
     val peers by viewModel.chatPeers.collectAsState()
 
@@ -38,7 +39,7 @@ fun InboxScreen(
 fun InboxContent(
     activePeers: List<ChatPeer>,
     onBack: () -> Unit,
-    onNavigateToChat: (String) -> Unit
+    onNavigateToChat: (String, String) -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -63,7 +64,7 @@ fun InboxContent(
             LazyColumn(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                 items(activePeers) { peer ->
                     ListItem(
-                        headlineContent = { Text(peer.displayName) },
+                        headlineContent = { Text(peer.user.username) },
                         supportingContent = {
                             Text(
                                 text = peer.lastMessage.ifEmpty { "No messages yet" },
@@ -89,7 +90,7 @@ fun InboxContent(
                                 )
                             }
                         },
-                        modifier = Modifier.clickable { onNavigateToChat(peer.id) }
+                        modifier = Modifier.clickable { onNavigateToChat(peer.user.id, peer.user.username) }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                 }
@@ -104,11 +105,11 @@ fun PreviewInboxConnected() {
     MaterialTheme {
         InboxContent(
             activePeers = listOf(
-                ChatPeer("1", "User1", "Hello", "12:01 PM", rssi = -40),
-                ChatPeer("2", "User2", "", "11:50 AM", isOnline = false)
+                ChatPeer(User(id = "1", username = "user1"), "Hello", "12:01 PM", rssi = -40),
+                ChatPeer(User(id = "2", username = "user2"), "", "11:50 AM", isOnline = false)
             ),
             onBack = {},
-            onNavigateToChat = {}
+            onNavigateToChat = {_, _->},
         )
     }
 }
@@ -120,7 +121,7 @@ fun PreviewInboxIdle() {
         InboxContent(
             activePeers = emptyList(),
             onBack = {},
-            onNavigateToChat = {}
+            onNavigateToChat = {_, _->}
         )
     }
 }

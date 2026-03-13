@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import edu.uwm.cs595.goup11.frontend.domain.models.ChatPeer
+import edu.uwm.cs595.goup11.frontend.domain.models.User
 import kotlinx.coroutines.flow.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -12,10 +13,12 @@ import java.util.*
 class InboxViewModel(private val meshGateway: MeshGateway) : ViewModel() {
     private val lastMessages = MutableStateFlow<Map<String, String>>(emptyMap())
     private val lastTimestamps = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val peerNames = MutableStateFlow<Map<String, String>>(emptyMap())
 
     init {
         meshGateway.chat
             .onEach { message ->
+                peerNames.update { it + (message.sessionId to message.sender) }
                 lastMessages.update { it + (message.sessionId to message.text) }
                 lastTimestamps.update { it + (message.sessionId to formatTime(message.timestampMs)) }
             }
@@ -23,17 +26,20 @@ class InboxViewModel(private val meshGateway: MeshGateway) : ViewModel() {
     }
 
     val chatPeers: StateFlow<List<ChatPeer>> =combine(
+        peerNames,
         meshGateway.state,
         lastMessages,
         lastTimestamps
-    ){ state, messages, times ->
+    ){ state, names, messages, times ->
         when (state) {
             is MeshUiState.InEvent -> {
                 val sid = state.sessionId
                 listOf(
                     ChatPeer(
-                        id = sid,
-                        displayName = "Event: $sid",
+                        user = User(
+                            id = sid,
+                            username = (names as? Map<String, String>)?.get(sid) ?: "User ${sid.take(4)}"
+                        ),
                         lastMessage = messages[sid] ?: "No messages yet",
                         timestamp = times[sid] ?: ""
                     )
