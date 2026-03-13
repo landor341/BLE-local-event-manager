@@ -126,7 +126,8 @@ fun navDrawer(
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
                         .verticalScroll(rememberScrollState())
-                ) {
+                )
+                {
                     //add new drawer items here so they can appear in the navigation sidebar
                     drawerItem(
                         { navController.navigate(SealedDestinations.HOME.route) },
@@ -151,6 +152,7 @@ fun navDrawer(
                     drawerItem(
                         {navController.navigate(SealedDestinations.TUTORIAL_INTRO.route)},
                         "help"
+                    )
 
                     drawerItem(
                         {navController.navigate(SealedDestinations.DEVELOPER.route)},
@@ -287,7 +289,9 @@ fun AppNavigation(){
             composable(SealedDestinations.TUTORIAL.route) {
                 TutorialScreen(
                     onNoClick = {navController.navigate(SealedDestinations.HOME.route)},
-                        onBack = { navController.navigate(SealedDestinations.HOME.route)}
+                        onBack = { navController.navigate(SealedDestinations.HOME.route)},
+                )
+            }
 
             composable(SealedDestinations.INBOX.route) {
                 InboxScreen(
