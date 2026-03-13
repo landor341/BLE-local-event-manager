@@ -18,11 +18,11 @@ import edu.uwm.cs595.goup11.backend.network.Message
  */
 data class TopologyPeer(
     /**
-     * The opaque ID used to address this peer when calling Network.sendMessage().
-     * In real Nearby Connections this is a hardware-assigned short string.
-     * In LocalNetwork this is the encoded advertised name string.
+     * The Nearby Connections hardware-assigned endpoint ID for this peer.
+     * Used as the transport address for all Network.sendMessage() calls.
+     * In LocalNetwork this is the encoded advertised name (they are the same thing).
      */
-    val endpointId: String,
+    val hardwareId: String,
 
     /**
      * Parsed identity of this peer — decoded from the advertised name string

@@ -45,7 +45,11 @@ class LocalNetwork(
 ) : Network {
 
     override val logger: KLogger = KotlinLogging.logger {}
+    private val _isAdvertising  = MutableStateFlow(false)
+    override val isAdvertising:  StateFlow<Boolean> = _isAdvertising.asStateFlow()
 
+    private val _isDiscovering  = MutableStateFlow(false)
+    override val isDiscovering:  StateFlow<Boolean> = _isDiscovering.asStateFlow()
     init {
         logger.warn {
             "LocalNetwork created — if this is a unit test or local debug session this warning can be ignored"
@@ -70,7 +74,6 @@ class LocalNetwork(
     private var localEndpointId: String? = null
 
     private var isScanning    = false
-    private var isAdvertising = false
 
     private val listeners = mutableListOf<(Message) -> Unit>()
 
@@ -126,7 +129,7 @@ class LocalNetwork(
 
     override fun startAdvertising(encodedName: String) {
         val id = requireLocalEndpointId()
-        isAdvertising = true
+        _isAdvertising.value = true
 
         // Register or update our node in the shared holder
         val existing = InMemoryNetworkHolder.getNode(id)
@@ -152,7 +155,7 @@ class LocalNetwork(
 
     override fun stopAdvertising() {
         val id = localEndpointId ?: return
-        isAdvertising = false
+        _isAdvertising.value = false
         InMemoryNetworkHolder.getNode(id)?.isAdvertising = false
 
         if (_state.value is NetworkState.Advertising) {
@@ -317,6 +320,13 @@ class LocalNetwork(
     // Messaging
     // -------------------------------------------------------------------------
 
+    /** In LocalNetwork, encoded name == hardware endpoint ID — identity lookup. */
+    override fun encodedNameToHardwareId(encodedName: String): String? {
+        val id = localEndpointId ?: return null
+        val localNode = InMemoryNetworkHolder.getNode(id) ?: return null
+        return if (localNode.connections.contains(encodedName)) encodedName else null
+    }
+
     override fun sendMessage(endpointId: String, message: Message) {
         val localId   = requireLocalEndpointId()
         val localNode = InMemoryNetworkHolder.getNode(localId)
@@ -364,6 +374,10 @@ class LocalNetwork(
 
     override fun addListener(listener: (Message) -> Unit) {
         listeners.add(listener)
+    }
+
+    override fun removeListener(listener: (Message) -> Unit) {
+        listeners.remove(listener)
     }
 
     override fun notifyListeners(message: Message) {

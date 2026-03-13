@@ -65,13 +65,13 @@ class HubAndSpokeTopology(
             val timeSinceLastPong = now - topoPeer.lastPongAt
 
             if (timeSinceLastPong > keepaliveTimeoutMs) {
-                logger.warn { "Peer ${topoPeer.endpointId} timed out — removing" }
-                onPeerDisconnected(context, topoPeer.endpointId)
+                logger.warn { "Peer ${topoPeer.hardwareId} timed out — removing" }
+                onPeerDisconnected(context, topoPeer.hardwareId)
             } else {
                 context.sendMessage(
-                    topoPeer.endpointId,
+                    topoPeer,
                     Message(
-                        to   = topoPeer.endpointId,
+                        to   = topoPeer.hardwareId,
                         from = context.endpointId,
                         type = MessageType.PING,
                         ttl  = 1
@@ -102,7 +102,7 @@ class HubAndSpokeTopology(
             TopologyStrategy.Role.LEAF, TopologyStrategy.Role.PEER -> {
                 // Only routers accept leaf connections, and only up to maxLeaves
                 localRole == TopologyStrategy.Role.ROUTER &&
-                peers.values.count { it.role != TopologyStrategy.Role.ROUTER } < maxLeaves
+                        peers.values.count { it.role != TopologyStrategy.Role.ROUTER } < maxLeaves
             }
         }
     }
@@ -113,7 +113,7 @@ class HubAndSpokeTopology(
         advertisedName: AdvertisedName
     ) {
         peers[endpointId] = TopologyPeer(
-            endpointId     = endpointId,
+            hardwareId     = endpointId,
             advertisedName = advertisedName
         )
 
@@ -157,12 +157,19 @@ class HubAndSpokeTopology(
     // -------------------------------------------------------------------------
 
     override fun onMessage(context: TopologyContext, message: Message): Boolean {
+        val senderPeer = peers[message.from]
+            ?: peers.values.find { it.advertisedName.encode() == message.from }
+
         return when (message.type) {
             MessageType.PING -> {
+                val peer = senderPeer ?: run {
+                    logger.warn { "PING from unknown sender '${message.from}' — cannot reply" }
+                    return true
+                }
                 context.sendMessage(
-                    message.from,
+                    peer,
                     Message(
-                        to      = message.from,
+                        to      = peer.hardwareId,
                         from    = context.endpointId,
                         type    = MessageType.PONG,
                         replyTo = message.id,
@@ -172,7 +179,7 @@ class HubAndSpokeTopology(
                 true
             }
             MessageType.PONG -> {
-                peers[message.from]?.lastPongAt = System.currentTimeMillis()
+                senderPeer?.lastPongAt = System.currentTimeMillis()
                 true
             }
             else -> false
@@ -184,9 +191,12 @@ class HubAndSpokeTopology(
     // -------------------------------------------------------------------------
 
     override fun resolveNextHop(context: TopologyContext, message: Message): List<String> {
-        // Direct delivery if the destination is one of our peers
-        if (peers.containsKey(message.to)) {
-            return listOf(message.to)
+        // Find dest peer by encoded name, falling back to treating message.to as a hardware ID
+        val destPeer = peers.values.find { it.advertisedName.encode() == message.to }
+            ?: peers[message.to]
+
+        if (destPeer != null) {
+            return listOf(destPeer.hardwareId)
         }
 
         return when (localRole) {
@@ -194,14 +204,14 @@ class HubAndSpokeTopology(
                 // We don't have the destination directly — forward to peer routers
                 peers.values
                     .filter { it.role == TopologyStrategy.Role.ROUTER }
-                    .map { it.endpointId }
+                    .map { it.hardwareId }
                     .also { if (it.isEmpty()) logger.warn { "No router links to forward ${message.to}" } }
             }
             TopologyStrategy.Role.LEAF, TopologyStrategy.Role.PEER -> {
                 // Leaves always send up to their router
                 peers.values
                     .filter { it.role == TopologyStrategy.Role.ROUTER }
-                    .map { it.endpointId }
+                    .map { it.hardwareId }
                     .take(1)
                     .also { if (it.isEmpty()) logger.warn { "No router available to forward ${message.to}" } }
             }

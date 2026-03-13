@@ -58,13 +58,16 @@ class DevNetworkActivity : ComponentActivity() {
     private val nearbyPerms = NearbyPermissions(this)   // must be created in constructor, not onCreate
 
     // Compose-observable state — changing these triggers recomposition
-    private val clientState        = mutableStateOf<Client?>(null)
-    private val peersState         = mutableStateListOf<String>()
-    private val eventNameState     = mutableStateOf<String?>(null)
-    private val discoveredEvents   = mutableStateListOf<DiscoveredEvent>()
-    private val isDiscoveringState = mutableStateOf(false)
-    private val permissionError    = mutableStateOf<String?>(null)
+    private val clientState          = mutableStateOf<Client?>(null)
+    private val peersState           = mutableStateListOf<ConnectedPeer>()
+    private val eventNameState       = mutableStateOf<String?>(null)
+    private val discoveredEvents     = mutableStateListOf<DiscoveredEvent>()
+    private val isDiscoveringState   = mutableStateOf(false)
+    private val isAdvertisingState   = mutableStateOf(false)
+    private val isNodeDiscovering    = mutableStateOf(false)  // client's own discovery state
+    private val permissionError      = mutableStateOf<String?>(null)
     private var discoverJob: kotlinx.coroutines.Job? = null
+    private var networkStateJob: kotlinx.coroutines.Job? = null
 
     // Held so joinFromDiscover() can reuse the already-active scan network
     // instead of creating a new one and hitting STATUS_ALREADY_DISCOVERING.
@@ -79,6 +82,8 @@ class DevNetworkActivity : ComponentActivity() {
                 eventName          = eventNameState.value,
                 discoveredEvents   = discoveredEvents,
                 isDiscovering      = isDiscoveringState.value,
+                isAdvertising      = isAdvertisingState.value,
+                isNodeDiscovering  = isNodeDiscovering.value,
                 permissionError    = permissionError.value,
                 onCreateNetwork    = { name, event, topo, maxPeers ->
                     nearbyPerms.request(this) { granted ->
@@ -99,20 +104,32 @@ class DevNetworkActivity : ComponentActivity() {
                     }
                 },
                 onLeaveNetwork     = {
-                    scope.launch { clientState.value?.leaveNetwork() }
-                    clientState.value = null
-                    peersState.clear()
-                    eventNameState.value = null
-                    scanNet = null
+                    scope.launch {
+                        // Cancel event collection FIRST so incoming PINGs/PONGs
+                        // are no longer processed while we're tearing down.
+                        networkStateJob?.cancel()
+                        networkStateJob = null
+                        clientState.value?.leaveNetwork()
+                        clientState.value = null
+                        peersState.clear()
+                        eventNameState.value = null
+                        isAdvertisingState.value = false
+                        isNodeDiscovering.value = false
+                        scanNet = null
+                    }
                 },
-                onSendMessage      = { to, body -> sendMessage(to, body) },
-                onStartDiscover    = { name ->
+                onSendMessage        = { to, body -> sendMessage(to, body) },
+                onStartDiscover      = {
                     nearbyPerms.request(this) { granted ->
-                        if (granted) startDiscover(name)
+                        if (granted) startDiscover()
                         else permissionError.value = "Bluetooth & location permissions are required"
                     }
                 },
-                onStopDiscover     = { stopDiscover() },
+                onStopDiscover       = { stopDiscover() },
+                onStartAdvertising   = { toggleAdvertising(true) },
+                onStopAdvertising    = { toggleAdvertising(false) },
+                onStartNodeDiscovery = { toggleNodeDiscovery(true) },
+                onStopNodeDiscovery  = { toggleNodeDiscovery(false) },
                 onPermissionErrorDismissed = { permissionError.value = null }
             )
         }
@@ -157,27 +174,47 @@ class DevNetworkActivity : ComponentActivity() {
      */
     private fun wireClientEvents(c: Client) {
         peersState.clear()
-        scope.launch {
+        networkStateJob?.cancel()
+        networkStateJob = scope.launch {
+            launch { c.network?.isAdvertising?.collect { isAdvertisingState.value = it } }
+            launch { c.network?.isDiscovering?.collect { isNodeDiscovering.value  = it } }
             c.network?.events?.collect { ev ->
                 when (ev) {
-                    is NetworkEvent.EndpointConnected    -> {
-                        if (!peersState.contains(ev.endpointId))
-                            peersState.add(ev.endpointId)
+                    is NetworkEvent.EndpointConnected -> {
+                        if (peersState.none { it.endpointId == ev.endpointId }) {
+                            val displayName = AdvertisedName.decode(ev.encodedName)?.displayName
+                                ?: ev.endpointId.shortName()
+                            peersState.add(ConnectedPeer(ev.endpointId, displayName, ev.encodedName))
+                        }
                     }
-                    is NetworkEvent.EndpointDisconnected -> peersState.remove(ev.endpointId)
+                    is NetworkEvent.EndpointDisconnected ->
+                        peersState.removeAll { it.endpointId == ev.endpointId }
                     else -> Unit
                 }
             }
         }
     }
 
-    private fun startDiscover(scannerName: String) {
+    private fun toggleAdvertising(start: Boolean) {
+        val net = clientState.value?.network ?: return
+        val encodedName = clientState.value?.endpointId ?: return
+        if (start) net.startAdvertising(encodedName)
+        else net.stopAdvertising()
+    }
+
+    private fun toggleNodeDiscovery(start: Boolean) {
+        val net = clientState.value?.network ?: return
+        if (start) scope.launch { net.startDiscovery() }
+        else scope.launch { net.stopDiscovery() }
+    }
+
+    private fun startDiscover() {
         if (isDiscoveringState.value) return
         discoveredEvents.clear()
         isDiscoveringState.value = true
 
         val net = ConnectNetwork(context = this, scope = scope)
-        net.init("SCANNER:$scannerName", Network.Config(defaultTtl = 5))
+        net.init("SCANNER:${java.util.UUID.randomUUID()}", Network.Config(defaultTtl = 5))
         scanNet = net
 
         discoverJob = scope.launch {
@@ -218,7 +255,7 @@ class DevNetworkActivity : ComponentActivity() {
         val c = Client(displayName = name, network = net, scope = scope)
         c.attachNetwork(net, Network.Config(defaultTtl = 5))
         wireClientEvents(c)
-        scope.launch { c.joinNetwork(event, alreadyDiscovering = true) }
+        scope.launch { c.joinNetwork(event) }
         clientState.value    = c
         eventNameState.value = event
     }
@@ -250,18 +287,24 @@ class DevNetworkActivity : ComponentActivity() {
 @Composable
 fun DevNetworkScreen(
     client:                    Client?,
-    peers:                     List<String>,
+    peers:                     List<ConnectedPeer>,
     eventName:                 String?,
     discoveredEvents:          List<DiscoveredEvent>,
     isDiscovering:             Boolean,
+    isAdvertising:             Boolean,
+    isNodeDiscovering:         Boolean,
     permissionError:           String?,
     onCreateNetwork:           (name: String, event: String, topo: String, maxPeers: Int) -> Unit,
     onJoinNetwork:             (name: String, event: String) -> Unit,
     onJoinDiscovered:          (name: String, event: String) -> Unit,
     onLeaveNetwork:            () -> Unit,
     onSendMessage:             (to: String, body: String) -> Unit,
-    onStartDiscover:           (scannerName: String) -> Unit,
+    onStartDiscover:           () -> Unit,
     onStopDiscover:            () -> Unit,
+    onStartAdvertising:        () -> Unit,
+    onStopAdvertising:         () -> Unit,
+    onStartNodeDiscovery:      () -> Unit,
+    onStopNodeDiscovery:       () -> Unit,
     onPermissionErrorDismissed: () -> Unit,
 ) {
     val isOnline   = client?.isConnected() == true
@@ -346,29 +389,41 @@ fun DevNetworkScreen(
             val offset = if (isOnline && eventName != null) 1 else 0
             when {
                 isOnline && eventName != null && selectedTab == 0 -> EventTab(
-                    eventName  = eventName,
-                    peers      = peers,
-                    selfId     = endpointId ?: "",
+                    eventName         = eventName,
+                    peers             = peers,
+                    selfId            = endpointId ?: "",
+                    isAdvertising     = isAdvertising,
+                    isNodeDiscovering = isNodeDiscovering,
+                    onStartAdvertising    = onStartAdvertising,
+                    onStopAdvertising     = onStopAdvertising,
+                    onStartNodeDiscovery  = onStartNodeDiscovery,
+                    onStopNodeDiscovery   = onStopNodeDiscovery,
                     onLeave    = {
                         logLines.addLine("Left network '$eventName'", LogLevel.WARN)
                         onLeaveNetwork()
                     }
                 )
                 selectedTab - offset == 0 -> NetworkTab(
-                    isOnline        = isOnline,
-                    endpointId      = endpointId,
-                    onCreateNetwork = { name, event, topo, max ->
+                    isOnline          = isOnline,
+                    endpointId        = endpointId,
+                    isAdvertising     = isAdvertising,
+                    isNodeDiscovering = isNodeDiscovering,
+                    onCreateNetwork   = { name, event, topo, max ->
                         logLines.addLine("Created '$event' as $name [$topo]", LogLevel.OK)
                         onCreateNetwork(name, event, topo, max)
                     },
-                    onJoinNetwork   = { name, event ->
+                    onJoinNetwork     = { name, event ->
                         logLines.addLine("Joining '$event' as $name…", LogLevel.INFO)
                         onJoinNetwork(name, event)
                     },
-                    onLeaveNetwork  = {
+                    onLeaveNetwork    = {
                         logLines.addLine("Left network", LogLevel.WARN)
                         onLeaveNetwork()
-                    }
+                    },
+                    onStartAdvertising   = onStartAdvertising,
+                    onStopAdvertising    = onStopAdvertising,
+                    onStartNodeDiscovery = onStartNodeDiscovery,
+                    onStopNodeDiscovery  = onStopNodeDiscovery,
                 )
                 selectedTab - offset == 1 -> DiscoverTab(
                     isDiscovering    = isDiscovering,
@@ -383,6 +438,7 @@ fun DevNetworkScreen(
                 selectedTab - offset == 2 -> MessagesTab(
                     isOnline      = isOnline,
                     endpointId    = endpointId,
+                    peers         = peers,
                     messages      = messages,
                     onSendMessage = { to, body ->
                         messages.add(ChatMessage(from = endpointId ?: "", body = body, sent = true))
@@ -443,11 +499,10 @@ private fun DevHeader(isOnline: Boolean, endpointId: String?) {
 private fun DiscoverTab(
     isDiscovering:    Boolean,
     discoveredEvents: List<DiscoveredEvent>,
-    onStartDiscover:  (scannerName: String) -> Unit,
+    onStartDiscover:  () -> Unit,
     onStopDiscover:   () -> Unit,
     onJoin:           (name: String, eventName: String) -> Unit,
 ) {
-    var scannerName  by remember { mutableStateOf("") }
     var joinName     by remember { mutableStateOf("") }
     var joiningEvent by remember { mutableStateOf<DiscoveredEvent?>(null) }
 
@@ -460,21 +515,13 @@ private fun DiscoverTab(
     ) {
         // ── Scanner controls ──
         DevCard(title = "SCANNER") {
-            DevField(label = "Your Display Name") {
-                DevInput(
-                    value         = scannerName,
-                    onValueChange = { scannerName = it },
-                    placeholder   = "e.g. Alice",
-                    enabled       = !isDiscovering
-                )
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 DevButton(
                     text     = if (isDiscovering) "● Scanning…" else "⬡ Scan",
                     color    = if (isDiscovering) AmberColor else GreenColor,
-                    enabled  = !isDiscovering && scannerName.isNotBlank(),
+                    enabled  = !isDiscovering,
                     modifier = Modifier.weight(1f)
-                ) { onStartDiscover(scannerName.trim()) }
+                ) { onStartDiscover() }
 
                 DevButton(
                     text     = "■ Stop",
@@ -593,10 +640,16 @@ private fun DiscoverTab(
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun EventTab(
-    eventName: String,
-    peers:     List<String>,
-    selfId:    String,
-    onLeave:   () -> Unit,
+    eventName:            String,
+    peers:                List<ConnectedPeer>,
+    selfId:               String,
+    isAdvertising:        Boolean,
+    isNodeDiscovering:    Boolean,
+    onStartAdvertising:   () -> Unit,
+    onStopAdvertising:    () -> Unit,
+    onStartNodeDiscovery: () -> Unit,
+    onStopNodeDiscovery:  () -> Unit,
+    onLeave:              () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -613,6 +666,16 @@ private fun EventTab(
             DevKV("status", "active", valueColor = GreenColor)
         }
 
+        // Radio controls
+        RadioControls(
+            isAdvertising     = isAdvertising,
+            isDiscovering     = isNodeDiscovering,
+            onStartAdvertising   = onStartAdvertising,
+            onStopAdvertising    = onStopAdvertising,
+            onStartDiscovering   = onStartNodeDiscovery,
+            onStopDiscovering    = onStopNodeDiscovery,
+        )
+
         // Peer list
         DevCard(title = "CONNECTED PEERS (${peers.size})") {
             if (peers.isEmpty()) {
@@ -628,7 +691,7 @@ private fun EventTab(
                     )
                 }
             } else {
-                peers.forEach { peerId ->
+                peers.forEach { peer ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -638,25 +701,18 @@ private fun EventTab(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Green dot
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .background(GreenColor, RoundedCornerShape(50))
-                        )
+                        Box(modifier = Modifier.size(8.dp).background(GreenColor, RoundedCornerShape(50)))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                peerId.shortName(),
-                                fontFamily = Mono, fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp, color = TextColor
-                            )
-                            Text(
-                                peerId,
-                                fontFamily = Mono, fontSize = 9.sp,
-                                color = TextDimColor,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                            )
+                            Text(peer.displayName, fontFamily = Mono, fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp, color = TextColor)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("nearby:", fontFamily = Mono, fontSize = 9.sp, color = TextDimColor)
+                                Text(peer.endpointId, fontFamily = Mono, fontSize = 9.sp,
+                                    color = BlueColor, maxLines = 1)
+                            }
+                            Text(peer.encodedName, fontFamily = Mono, fontSize = 8.sp,
+                                color = TextDimColor, maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -674,15 +730,124 @@ private fun EventTab(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Radio Controls — manual advertising / discovery toggles
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun RadioControls(
+    isAdvertising:     Boolean,
+    isDiscovering:     Boolean,
+    onStartAdvertising:  () -> Unit,
+    onStopAdvertising:   () -> Unit,
+    onStartDiscovering:  () -> Unit,
+    onStopDiscovering:   () -> Unit,
+) {
+    DevCard(title = "RADIO") {
+        // Advertising row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("ADVERTISING", fontFamily = Mono, fontSize = 10.sp, color = TextDimColor)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(
+                                if (isAdvertising) GreenColor else TextDimColor,
+                                RoundedCornerShape(50)
+                            )
+                    )
+                    Text(
+                        if (isAdvertising) "broadcasting" else "silent",
+                        fontFamily = Mono, fontSize = 11.sp,
+                        color = if (isAdvertising) GreenColor else TextDimColor
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DevButton(
+                    text    = "ON",
+                    color   = GreenColor,
+                    enabled = !isAdvertising,
+                    modifier = Modifier.width(64.dp)
+                ) { onStartAdvertising() }
+                DevButton(
+                    text    = "OFF",
+                    color   = RedColor,
+                    enabled = isAdvertising,
+                    modifier = Modifier.width(64.dp)
+                ) { onStopAdvertising() }
+            }
+        }
+
+        HorizontalDivider(color = BorderColor, thickness = 1.dp)
+
+        // Discovery row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("DISCOVERING", fontFamily = Mono, fontSize = 10.sp, color = TextDimColor)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(
+                                if (isDiscovering) BlueColor else TextDimColor,
+                                RoundedCornerShape(50)
+                            )
+                    )
+                    Text(
+                        if (isDiscovering) "scanning" else "idle",
+                        fontFamily = Mono, fontSize = 11.sp,
+                        color = if (isDiscovering) BlueColor else TextDimColor
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DevButton(
+                    text    = "ON",
+                    color   = BlueColor,
+                    enabled = !isDiscovering,
+                    modifier = Modifier.width(64.dp)
+                ) { onStartDiscovering() }
+                DevButton(
+                    text    = "OFF",
+                    color   = RedColor,
+                    enabled = isDiscovering,
+                    modifier = Modifier.width(64.dp)
+                ) { onStopDiscovering() }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tab 1 — Network
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun NetworkTab(
-    isOnline:        Boolean,
-    endpointId:      String?,
-    onCreateNetwork: (String, String, String, Int) -> Unit,
-    onJoinNetwork:   (String, String) -> Unit,
-    onLeaveNetwork:  () -> Unit,
+    isOnline:            Boolean,
+    endpointId:          String?,
+    isAdvertising:       Boolean,
+    isNodeDiscovering:   Boolean,
+    onCreateNetwork:     (String, String, String, Int) -> Unit,
+    onJoinNetwork:       (String, String) -> Unit,
+    onLeaveNetwork:      () -> Unit,
+    onStartAdvertising:  () -> Unit,
+    onStopAdvertising:   () -> Unit,
+    onStartNodeDiscovery: () -> Unit,
+    onStopNodeDiscovery:  () -> Unit,
 ) {
     var name     by remember { mutableStateOf("") }
     var event    by remember { mutableStateOf("") }
@@ -751,14 +916,31 @@ private fun NetworkTab(
             modifier = Modifier.fillMaxWidth()
         ) { onLeaveNetwork() }
 
+        // ── Radio controls (only when online) ──
+        if (isOnline) {
+            RadioControls(
+                isAdvertising      = isAdvertising,
+                isDiscovering      = isNodeDiscovering,
+                onStartAdvertising = onStartAdvertising,
+                onStopAdvertising  = onStopAdvertising,
+                onStartDiscovering = onStartNodeDiscovery,
+                onStopDiscovering  = onStopNodeDiscovery,
+            )
+        }
+
         // ── State card ──
         DevCard(title = "NODE STATE") {
             DevKV("status",   if (isOnline) "connected" else "disconnected",
                 valueColor = if (isOnline) GreenColor else RedColor)
+            DevKV("advert",   if (isAdvertising) "on" else "off",
+                valueColor = if (isAdvertising) GreenColor else TextDimColor)
+            DevKV("discover", if (isNodeDiscovering) "on" else "off",
+                valueColor = if (isNodeDiscovering) BlueColor else TextDimColor)
             DevKV("name",     name.ifBlank { "—" })
             DevKV("event",    event.ifBlank { "—" })
             DevKV("topology", topo)
-            DevKV("endpoint", endpointId ?: "—", smallText = true)
+            DevKV("encoded",  endpointId ?: "—", smallText = true)
+            DevKV("nearby id","(shown per-peer below)", smallText = true)
         }
     }
 }
@@ -770,12 +952,20 @@ private fun NetworkTab(
 private fun MessagesTab(
     isOnline:      Boolean,
     endpointId:    String?,
+    peers:         List<ConnectedPeer>,
     messages:      List<ChatMessage>,
     onSendMessage: (to: String, body: String) -> Unit,
 ) {
-    var recipient by remember { mutableStateOf("") }
-    var body      by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
+    var selectedPeer by remember { mutableStateOf<ConnectedPeer?>(null) }
+    var body         by remember { mutableStateOf("") }
+    val listState    = rememberLazyListState()
+
+    // Auto-select the only peer if there's exactly one
+    LaunchedEffect(peers) {
+        if (peers.size == 1) selectedPeer = peers.first()
+        else if (selectedPeer != null && peers.none { it.endpointId == selectedPeer!!.endpointId })
+            selectedPeer = null
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -785,15 +975,37 @@ private fun MessagesTab(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Recipient input
+        // Peer picker
         DevCard(title = "RECIPIENT") {
-            DevField(label = "Endpoint ID (paste from Node State)") {
-                DevInput(
-                    value         = recipient,
-                    onValueChange = { recipient = it },
-                    placeholder   = "EVT:…|N:…",
-                    fontSize      = 10.sp
-                )
+            if (peers.isEmpty()) {
+                Text("No connected peers", fontFamily = Mono, fontSize = 11.sp, color = TextDimColor)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    peers.forEach { peer ->
+                        val selected = selectedPeer?.endpointId == peer.endpointId
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (selected) GreenColor.copy(alpha = 0.12f) else BgColor,
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (selected) GreenColor.copy(alpha = 0.6f) else BorderColor,
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .clickable { selectedPeer = peer }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)                        ) {
+                            Column {
+                                Text(peer.displayName, fontFamily = Mono, fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selected) GreenColor else TextColor)
+                                Text(peer.endpointId, fontFamily = Mono, fontSize = 9.sp,
+                                    color = TextDimColor)
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -807,27 +1019,30 @@ private fun MessagesTab(
             } else {
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(messages) { msg ->
-                        MessageBubble(msg = msg, selfId = endpointId ?: "")
+                        MessageBubble(msg = msg, selfId = endpointId ?: "", peers = peers)
                     }
                 }
             }
         }
 
         // Compose row
-        Row(
-            verticalAlignment     = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value         = body,
                 onValueChange = { body = it },
                 modifier      = Modifier.weight(1f).heightIn(min = 56.dp, max = 120.dp),
-                placeholder   = { Text("Type a message…", fontFamily = Mono, fontSize = 12.sp, color = TextDimColor) },
-                textStyle     = LocalTextStyle.current.copy(fontFamily = Mono, fontSize = 13.sp, color = TextColor),
-                colors        = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor   = GreenColor,
-                    unfocusedBorderColor = BorderColor,
-                    cursorColor          = GreenColor,
+                placeholder   = {
+                    Text(
+                        if (selectedPeer != null) "Message ${selectedPeer!!.displayName}…"
+                        else "Select a peer first…",
+                        fontFamily = Mono, fontSize = 12.sp, color = TextDimColor
+                    )
+                },
+                textStyle = LocalTextStyle.current.copy(fontFamily = Mono, fontSize = 13.sp, color = TextColor),
+                colors    = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor      = GreenColor,
+                    unfocusedBorderColor    = BorderColor,
+                    cursorColor             = GreenColor,
                     focusedContainerColor   = SurfaceColor,
                     unfocusedContainerColor = SurfaceColor,
                 ),
@@ -837,8 +1052,9 @@ private fun MessagesTab(
                 ),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                     onSend = {
-                        if (body.isNotBlank() && recipient.isNotBlank() && isOnline) {
-                            onSendMessage(recipient.trim(), body.trim())
+                        val peer = selectedPeer
+                        if (body.isNotBlank() && peer != null && isOnline) {
+                            onSendMessage(peer.encodedName, body.trim())
                             body = ""
                         }
                     }
@@ -847,19 +1063,23 @@ private fun MessagesTab(
             DevButton(
                 text    = "↑",
                 color   = GreenColor,
-                enabled = isOnline && body.isNotBlank() && recipient.isNotBlank(),
+                enabled = isOnline && body.isNotBlank() && selectedPeer != null,
                 modifier = Modifier.size(56.dp)
             ) {
-                onSendMessage(recipient.trim(), body.trim())
-                body = ""
+                selectedPeer?.let { peer ->
+                    onSendMessage(peer.encodedName, body.trim())
+                    body = ""
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MessageBubble(msg: ChatMessage, selfId: String) {
+private fun MessageBubble(msg: ChatMessage, selfId: String, peers: List<ConnectedPeer>) {
     val isSent = msg.from == selfId || msg.sent
+    val senderName = if (isSent) "me"
+    else peers.find { it.endpointId == msg.from }?.displayName ?: msg.from.shortName()
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isSent) Alignment.End else Alignment.Start
@@ -882,10 +1102,8 @@ private fun MessageBubble(msg: ChatMessage, selfId: String) {
                 Text(msg.body, fontFamily = Mono, fontSize = 12.sp,
                     color = if (isSent) GreenColor else TextColor)
                 Text(
-                    text       = "${if (isSent) "→" else "←"} ${msg.from.shortName()} · ${msg.ts}",
-                    fontFamily = Mono,
-                    fontSize   = 9.sp,
-                    color      = TextDimColor,
+                    text       = "${if (isSent) "→" else "←"} $senderName · ${msg.ts}",
+                    fontFamily = Mono, fontSize = 9.sp, color = TextDimColor,
                     modifier   = Modifier.padding(top = 3.dp)
                 )
             }
@@ -1099,6 +1317,8 @@ private data class ChatMessage(val from: String, val body: String, val sent: Boo
 
 private data class LogLine(val msg: String, val level: LogLevel,
                            val ts: String = nowTs())
+
+data class ConnectedPeer(val endpointId: String, val displayName: String, val encodedName: String)
 
 private enum class LogLevel { OK, INFO, WARN, ERR }
 

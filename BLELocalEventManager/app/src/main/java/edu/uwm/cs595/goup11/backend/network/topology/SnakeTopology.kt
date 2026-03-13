@@ -79,7 +79,6 @@ class SnakeTopology(
     override fun stop() {
         keepaliveJob?.cancel()
         discoveryJob?.cancel()
-
         peers.clear()
         chainMembers.clear()
     }
@@ -104,13 +103,13 @@ class SnakeTopology(
             val timeSinceLastPong = now - topoPeer.lastPongAt
 
             if (timeSinceLastPong > keepaliveTimeoutMs) {
-                logger.warn { "Peer ${topoPeer.endpointId} timed out — removing" }
-                onPeerDisconnected(context, topoPeer.endpointId)
+                logger.warn { "Peer ${topoPeer.hardwareId} timed out — removing" }
+                onPeerDisconnected(context, topoPeer.hardwareId)
             } else {
                 context.sendMessage(
-                    topoPeer.endpointId,
+                    topoPeer,
                     Message(
-                        to   = topoPeer.endpointId,
+                        to   = topoPeer.hardwareId,
                         from = context.endpointId,
                         type = MessageType.PING,
                         ttl  = 1
@@ -160,8 +159,14 @@ class SnakeTopology(
                     // Ring guard — don't connect to known chain members
                     if (chainMembers.contains(ev.endpointId)) return@collect
 
+                    // Tie-breaking: both sides discover each other simultaneously and
+                    // would both call connect(), causing STATUS_ENDPOINT_IO_ERROR.
+                    // Compare encodedNames — both sides see the other's encodedName in
+                    // ev.encodedName, and their own via context.encodedName(). This gives
+                    // a consistent ordering in the same namespace on both devices.
+                    if (context.encodedName() > ev.encodedName) return@collect
+
                     context.connect(ev.endpointId)
-                    chainMembers.add(ev.endpointId)
                 }
         }
     }
@@ -203,7 +208,7 @@ class SnakeTopology(
         advertisedName: AdvertisedName
     ) {
         peers[endpointId] = TopologyPeer(
-            endpointId     = endpointId,
+            hardwareId     = endpointId,
             advertisedName = advertisedName
         )
 
@@ -264,11 +269,11 @@ class SnakeTopology(
     private fun broadcastChainMembers(context: TopologyContext) {
         if (peers.isEmpty()) return
         val memberList = chainMembers.joinToString(",")
-        peers.keys.forEach { peerId ->
+        peers.values.forEach { peer ->
             context.sendMessage(
-                peerId,
+                peer,
                 Message(
-                    to   = peerId,
+                    to   = peer.hardwareId,
                     from = context.endpointId,
                     type = MessageType.HELLO,
                     ttl  = maxPeerCount + 1,   // enough hops to traverse the whole chain
@@ -283,12 +288,21 @@ class SnakeTopology(
     // -------------------------------------------------------------------------
 
     override fun onMessage(context: TopologyContext, message: Message): Boolean {
+        // peers is keyed by hardware endpoint ID (the Nearby-assigned short string).
+        // message.from carries the sender's encoded name — look up the peer directly.
+        val senderPeer = peers[message.from]  // works when from == hardwareId (forwarded msgs)
+            ?: peers.values.find { it.advertisedName.encode() == message.from }
+
         return when (message.type) {
             MessageType.PING -> {
+                val peer = senderPeer ?: run {
+                    logger.warn { "PING from unknown sender '${message.from}' — cannot reply" }
+                    return true
+                }
                 context.sendMessage(
-                    message.from,
+                    peer,
                     Message(
-                        to      = message.from,
+                        to      = peer.hardwareId,
                         from    = context.endpointId,
                         type    = MessageType.PONG,
                         replyTo = message.id,
@@ -299,12 +313,11 @@ class SnakeTopology(
             }
 
             MessageType.PONG -> {
-                peers[message.from]?.lastPongAt = System.currentTimeMillis()
+                senderPeer?.lastPongAt = System.currentTimeMillis()
                 true
             }
 
             MessageType.HELLO -> {
-                // Merge the sender's chain membership knowledge into ours
                 val newMembers = message.data
                     ?.toString(Charsets.UTF_8)
                     ?.split(",")
@@ -314,18 +327,15 @@ class SnakeTopology(
 
                 val addedAny = chainMembers.addAll(newMembers)
 
-                // If we learned about new members, propagate to our OTHER
-                // neighbors (not back to the sender) so knowledge spreads
-                // along the full chain.
                 if (addedAny) {
                     val memberList = chainMembers.joinToString(",")
-                    peers.keys
-                        .filter { it != message.from }
-                        .forEach { peerId ->
+                    peers.values
+                        .filter { it != senderPeer }
+                        .forEach { peer ->
                             context.sendMessage(
-                                peerId,
+                                peer,
                                 Message(
-                                    to   = peerId,
+                                    to   = peer.hardwareId,
                                     from = context.endpointId,
                                     type = MessageType.HELLO,
                                     ttl  = (message.ttl - 1).coerceAtLeast(0),
@@ -346,11 +356,21 @@ class SnakeTopology(
     // -------------------------------------------------------------------------
 
     override fun resolveNextHop(context: TopologyContext, message: Message): List<String> {
-        if (peers.containsKey(message.to)) {
-            return listOf(message.to)
+        // message.to is the peer's encoded name (logical address).
+        // Find the peer whose advertisedName matches, then use their hardwareId.
+        val destPeer = peers.values.find { it.advertisedName.encode() == message.to }
+            ?: peers[message.to]  // fallback: message.to is already a hardware ID
+
+        if (destPeer != null) {
+            return listOf(destPeer.hardwareId)
         }
-        return peers.keys
-            .filter { it != message.from }
+
+        // No direct route — flood to all peers except the sender
+        val senderPeer = peers.values.find { it.advertisedName.encode() == message.from }
+            ?: peers[message.from]
+        return peers.values
+            .filter { it != senderPeer }
+            .map { it.hardwareId }
             .also { if (it.isEmpty()) logger.warn { "No route to ${message.to}" } }
     }
 
@@ -363,8 +383,9 @@ class SnakeTopology(
     }
 
     override suspend fun disconnectFromAllNodes(context: TopologyContext) {
-        peers.keys.forEach { peer ->
-            context.disconnect(peer)
+        // Disconnect from all peers
+        peers.keys.forEach { endpointId ->
+            context.disconnect(endpointId)
         }
     }
 }

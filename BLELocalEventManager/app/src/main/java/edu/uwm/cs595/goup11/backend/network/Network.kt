@@ -86,8 +86,23 @@ interface Network {
     /** Current transport state */
     val state: StateFlow<NetworkState>
 
+    /** True while this node is actively advertising to nearby devices */
+    val isAdvertising: StateFlow<Boolean>
+
+    /** True while this node is actively scanning for nearby advertisers */
+    val isDiscovering: StateFlow<Boolean>
+
     /** Stream of raw network events — Client subscribes and reacts to these */
     val events: SharedFlow<NetworkEvent>
+
+    /**
+     * Resolve a peer's encoded name to the transport-layer hardware endpoint ID.
+     * In ConnectNetwork this is the Nearby-assigned short ID (e.g. "E3C9").
+     * In LocalNetwork encoded name == hardware ID so this is an identity lookup.
+     * Returns null if no connected peer with that encoded name is known.
+     */
+    fun encodedNameToHardwareId(encodedName: String): String?
+
 
     /**
      * Initialise the network with the local endpoint's ID.
@@ -187,6 +202,12 @@ interface Network {
      * Used by Client to pipe messages into its own processing pipeline.
      */
     fun addListener(listener: (Message) -> Unit)
+
+    /**
+     * Unregister a previously added listener.
+     * Called by Client on leaveNetwork to stop processing messages after teardown.
+     */
+    fun removeListener(listener: (Message) -> Unit)
 
     /**
      * Deliver a received message to all registered listeners.

@@ -6,6 +6,7 @@ import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -86,6 +87,9 @@ class Client(
 
     private val messageListeners = mutableListOf<(Message) -> Unit>()
 
+    /** Stored so we can unregister it from the network on leaveNetwork(). */
+    private val networkMessageListener: (Message) -> Unit = { message -> onMessageReceived(message) }
+
     fun addMessageListener(listener: (Message) -> Unit) {
         messageListeners.add(listener)
     }
@@ -149,7 +153,7 @@ class Client(
             }
         }
 
-        network.addListener { message -> onMessageReceived(message) }
+        network.addListener(networkMessageListener)
         listenToNetworkEvents()
     }
 
@@ -173,9 +177,10 @@ class Client(
             displayName  = displayName
         )
 
-        // Re-initialise network with our new encoded identity
+        // Initialise the network with our identity. Advertising is started by the
+        // topology itself inside topo.start() — don't call startAdvertising() here
+        // or Nearby will see STATUS_ALREADY_ADVERTISING when the topology does it.
         requireNetwork().init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
-        requireNetwork().startAdvertising(currentAdvertisedName!!.encode())
 
         topo.start(topologyContext)
 
@@ -192,43 +197,25 @@ class Client(
      * NetworkEvent.EndpointConnected or NetworkEvent.ConnectionRejected on the
      * events flow, which listenToNetworkEvents() handles.
      */
-    suspend fun joinNetwork(eventName: String, alreadyDiscovering: Boolean = false) {
+    suspend fun joinNetwork(eventName: String) {
         val net = requireNetwork()
+        net.init("JOINING:$displayName", Network.Config(defaultTtl = 5))
+        val discoveryJob = scope.launch { net.startDiscovery() }
 
-        if (!alreadyDiscovering) {
-            // init() must be called before startDiscovery() on real transports.
-            // Temporary identity — re-init with real encoded name once we find the event.
-            net.init("JOINING:$displayName", Network.Config(defaultTtl = 5))
-            val discoveryJob = scope.launch { net.startDiscovery() }
+        // Wait for exactly one matching endpoint then stop — using collect here
+        // causes the loop to re-fire on every Nearby re-announcement of the same
+        // endpoint, triggering repeated init()/topo.start()/connect() calls.
+        val ev = net.events
+            .filterIsInstance<NetworkEvent.EndpointDiscovered>()
+            .first { ev ->
+                val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@first false
+                advertisedName.eventName == eventName
+            }
 
-            net.events
-                .filterIsInstance<NetworkEvent.EndpointDiscovered>()
-                .collect { ev ->
-                    val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@collect
-                    if (advertisedName.eventName != eventName) return@collect
+        discoveryJob.cancel()
+        net.stopDiscovery()
 
-                    discoveryJob.cancel()
-                    connectToEvent(net, ev.endpointId, advertisedName, eventName)
-                }
-        } else {
-            // Network is already init'd and discovering (reused from Discover tab scan).
-            // Just wait for the matching event to appear in the existing event stream.
-            net.events
-                .filterIsInstance<NetworkEvent.EndpointDiscovered>()
-                .collect { ev ->
-                    val advertisedName = AdvertisedName.decode(ev.encodedName) ?: return@collect
-                    if (advertisedName.eventName != eventName) return@collect
-                    connectToEvent(net, ev.endpointId, advertisedName, eventName)
-                }
-        }
-    }
-
-    private suspend fun connectToEvent(
-        net: Network,
-        endpointId: String,
-        advertisedName: AdvertisedName,
-        eventName: String
-    ) {
+        val advertisedName = AdvertisedName.decode(ev.encodedName)!!
         currentAdvertisedName = AdvertisedName(
             eventName    = eventName,
             topologyCode = advertisedName.topologyCode,
@@ -240,24 +227,30 @@ class Client(
         topology = topo
         net.init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
         topo.start(topologyContext)
-        net.connect(endpointId)
+        // Do NOT call net.connect() — topo.start() → evaluateHealth() → startDiscovery()
+        // will rediscover the host and connect via the topology's own logic.
     }
     /**
      * Leave the current network gracefully.
      * Stops advertising, stops topology background jobs, and resets identity.
      */
     suspend fun leaveNetwork() {
-        // Disconnect from all connected clients
-        topology?.disconnectFromAllNodes(topologyContext)
+        val net  = network
+        val topo = topology
 
-        topology?.stop()
+        // Unregister message listener first — stops PING/PONG processing immediately.
+        net?.removeListener(networkMessageListener)
+
+        // Null out topology so disconnect events don't re-trigger evaluateHealth
+        // → startDiscovery and spawn new keepalive jobs.
         topology = null
         currentAdvertisedName = null
 
-        requireNetwork().stopAdvertising()
+        topo?.stop()                            // cancel keepalive/discovery jobs
+        topo?.disconnectFromAllNodes(topologyContext) // notify peers we're gone
 
-        // stopDiscovery is suspend so it must be launched in a coroutine
-        scope.launch { requireNetwork().stopDiscovery() }
+        // shutdown() calls stopAllEndpoints + stopAdvertising and resets state.
+        net?.shutdown()
 
         logger.info { "$displayName left the network" }
     }

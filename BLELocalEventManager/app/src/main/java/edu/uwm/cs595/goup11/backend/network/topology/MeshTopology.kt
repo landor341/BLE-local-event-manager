@@ -6,6 +6,7 @@ import edu.uwm.cs595.goup11.backend.network.MessageType
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterIsInstance
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -82,13 +83,13 @@ class MeshTopology(
             val timeSinceLastPong = now - topoPeer.lastPongAt
 
             if (timeSinceLastPong > keepaliveTimeoutMs) {
-                logger.warn { "Peer ${topoPeer.endpointId} timed out — removing" }
-                onPeerDisconnected(context, topoPeer.endpointId)
+                logger.warn { "Peer ${topoPeer.hardwareId} timed out — removing" }
+                onPeerDisconnected(context, topoPeer.hardwareId)
             } else {
                 context.sendMessage(
-                    topoPeer.endpointId,
+                    topoPeer,
                     Message(
-                        to   = topoPeer.endpointId,
+                        to   = topoPeer.hardwareId,
                         from = context.endpointId,
                         type = MessageType.PING,
                         ttl  = 1
@@ -130,25 +131,30 @@ class MeshTopology(
     private fun startDiscovery(context: TopologyContext) {
         if (discoveryJob?.isActive == true) return
 
+        context.startAdvertising(context.encodedName())
+        context.startScan()
+
         discoveryJob = context.launchJob {
-            while (peers.size < targetPeerCount) {
-                context.startAdvertising(context.encodedName())
-                context.startScan()
+            context.events
+                .filterIsInstance<edu.uwm.cs595.goup11.backend.network.NetworkEvent.EndpointDiscovered>()
+                .collect { ev ->
+                    if (peers.size >= maxPeerCount) {
+                        context.stopScan()
+                        context.stopAdvertising()
+                        discoveryJob?.cancel()
+                        return@collect
+                    }
 
-                delay(discoveryIntervalMs)
+                    val advertisedName = edu.uwm.cs595.goup11.backend.network.AdvertisedName.decode(ev.encodedName)
+                        ?: return@collect
 
-                context.stopScan()
-            }
+                    if (advertisedName.topologyCode != topologyCode) return@collect
 
-            // Reached target — stop scanning but keep advertising so others
-            // can still connect to us until we hit maxPeerCount
-            context.stopScan()
-            logger.info { "Mesh target reached (${peers.size}/$targetPeerCount) — scanning stopped" }
+                    // Tie-breaking: lower encodedName initiates to avoid simultaneous connect
+                    if (context.encodedName() > ev.encodedName) return@collect
 
-            // Re-evaluate: if we're now at max, also stop advertising
-            if (peers.size >= maxPeerCount) {
-                context.stopAdvertising()
-            }
+                    context.connect(ev.endpointId)
+                }
         }
     }
 
@@ -178,7 +184,7 @@ class MeshTopology(
         advertisedName: AdvertisedName
     ) {
         peers[endpointId] = TopologyPeer(
-            endpointId     = endpointId,
+            hardwareId     = endpointId,
             advertisedName = advertisedName
         )
 
@@ -201,12 +207,19 @@ class MeshTopology(
     // -------------------------------------------------------------------------
 
     override fun onMessage(context: TopologyContext, message: Message): Boolean {
+        val senderPeer = peers[message.from]
+            ?: peers.values.find { it.advertisedName.encode() == message.from }
+
         return when (message.type) {
             MessageType.PING -> {
+                val peer = senderPeer ?: run {
+                    logger.warn { "PING from unknown sender '${message.from}' — cannot reply" }
+                    return true
+                }
                 context.sendMessage(
-                    message.from,
+                    peer,
                     Message(
-                        to      = message.from,
+                        to      = peer.hardwareId,
                         from    = context.endpointId,
                         type    = MessageType.PONG,
                         replyTo = message.id,
@@ -216,7 +229,7 @@ class MeshTopology(
                 true
             }
             MessageType.PONG -> {
-                peers[message.from]?.lastPongAt = System.currentTimeMillis()
+                senderPeer?.lastPongAt = System.currentTimeMillis()
                 true
             }
             else -> false
@@ -228,15 +241,20 @@ class MeshTopology(
     // -------------------------------------------------------------------------
 
     override fun resolveNextHop(context: TopologyContext, message: Message): List<String> {
-        // Direct delivery if destination is a known peer
-        if (peers.containsKey(message.to)) {
-            return listOf(message.to)
+        // Find dest peer by encoded name, falling back to treating message.to as a hardware ID
+        val destPeer = peers.values.find { it.advertisedName.encode() == message.to }
+            ?: peers[message.to]
+
+        if (destPeer != null) {
+            return listOf(destPeer.hardwareId)
         }
 
         // Flood to all peers except the sender
-        // The TTL field on Message prevents infinite loops as it propagates
-        return peers.keys
-            .filter { it != message.from }
+        val senderPeer = peers.values.find { it.advertisedName.encode() == message.from }
+            ?: peers[message.from]
+        return peers.values
+            .filter { it != senderPeer }
+            .map { it.hardwareId }
             .also { if (it.isEmpty()) logger.warn { "No route to ${message.to}" } }
     }
 

@@ -1,8 +1,8 @@
 package edu.uwm.cs595.goup11.backend.network.topology
 
 import edu.uwm.cs595.goup11.backend.network.Message
-import edu.uwm.cs595.goup11.backend.network.Network
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
+import edu.uwm.cs595.goup11.backend.network.Network
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
@@ -52,7 +52,18 @@ class TopologyContext(
      */
     fun encodedName(): String = localEncodedName()
 
+    /** Send to a raw hardware endpoint ID — for internal/topology use. */
     fun sendMessage(to: String, message: Message) = network.sendMessage(to, message)
+
+    /** Send to a peer using its hardware ID — preferred overload for topology code. */
+    fun sendMessage(peer: TopologyPeer, message: Message) = network.sendMessage(peer.hardwareId, message)
+
+    /**
+     * Translate a peer's encoded name (logical address) to the transport-layer
+     * hardware endpoint ID needed by [sendMessage]. Returns null if unknown.
+     */
+    fun encodedNameToHardwareId(encodedName: String): String? =
+        network.encodedNameToHardwareId(encodedName)
 
     fun startAdvertising(encodedName: String) = onAdvertisingChanged(true, encodedName)
     fun stopAdvertising()                     = onAdvertisingChanged(false, null)
@@ -69,25 +80,3 @@ class TopologyContext(
     suspend fun disconnect(endpointId: String) = disconnectFromEndpoint(endpointId)
     val events: SharedFlow<NetworkEvent> get() = networkEvents
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

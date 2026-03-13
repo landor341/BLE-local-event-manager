@@ -1,6 +1,7 @@
 package edu.uwm.cs595.goup11.backend.network
 
 import android.content.Context
+import android.util.Log
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.AdvertisingOptions
 import com.google.android.gms.nearby.connection.ConnectionInfo
@@ -61,22 +62,32 @@ class ConnectNetwork(
 
     override val logger: KLogger = KotlinLogging.logger {}
 
+    // Direct Logcat helpers — KotlinLogging routes through SLF4J which has no
+    // Android backend, so all logger.* calls are silently dropped on device.
+    // Use cn()/cne() instead; filter Logcat by tag "CN".
+    private fun cn(msg: String)  = Log.w("CN", msg)
+    private fun cne(msg: String) = Log.e("CN", msg)
+
     // -------------------------------------------------------------------------
-    // Service ID — the "channel" all nodes on this app share
+    // Service ID
     // -------------------------------------------------------------------------
 
-    /**
-     * All nodes in the same app must use the same serviceId so they can discover
-     * each other. This matches the applicationId in your build.gradle.
-     */
     private val serviceId = "edu.uwm.cs595.group11"
 
     // -------------------------------------------------------------------------
     // Reactive state
     // -------------------------------------------------------------------------
 
-    private val _state  = MutableStateFlow<NetworkState>(NetworkState.Idle)
-    override val state: StateFlow<NetworkState> = _state.asStateFlow()
+    private val _state          = MutableStateFlow<NetworkState>(NetworkState.Idle)
+    override val state:          StateFlow<NetworkState> = _state.asStateFlow()
+
+    // Independent flags — _state can only hold ONE value at a time so it loses
+    // advertising status the moment discovery starts. These track them separately.
+    private val _isAdvertising  = MutableStateFlow(false)
+    override val isAdvertising:  StateFlow<Boolean> = _isAdvertising.asStateFlow()
+
+    private val _isDiscovering  = MutableStateFlow(false)
+    override val isDiscovering:  StateFlow<Boolean> = _isDiscovering.asStateFlow()
 
     private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64, replay = 1)
     override val events: SharedFlow<NetworkEvent> = _events.asSharedFlow()
@@ -90,10 +101,7 @@ class ConnectNetwork(
     /** Our local endpoint ID — the encoded advertised name string set by init() */
     private var localEndpointId: String? = null
 
-    private var isAdvertising = false
-    private var isDiscovering = false
-
-    private val listeners = mutableListOf<(Message) -> Unit>()
+    private val listeners      = mutableListOf<(Message) -> Unit>()
 
     /**
      * endpointId (hardware Nearby ID) → encodedName (our advertised name string)
@@ -117,22 +125,39 @@ class ConnectNetwork(
         val wasAlreadyInit = this.localEndpointId != null
         this.localEndpointId = localEndpointId
         this.connectionsClient = Nearby.getConnectionsClient(context)
-        _state.value = NetworkState.Idle
-        logger.warn { "[CN] init() — localId='$localEndpointId' (re-init=$wasAlreadyInit)" }
+
+        if (!wasAlreadyInit) {
+            // First init — wipe any lingering Nearby state from a previous app session
+            // so ghost networks don't keep appearing on discovering devices.
+            connectionsClient.stopAllEndpoints()
+            _isAdvertising.value = false
+            _isDiscovering.value = false
+            _state.value = NetworkState.Idle
+            cn("[CN] init() localId='$localEndpointId' (fresh)")
+        } else {
+            // Re-init (e.g. joiner updating identity after discovering the host).
+            // Do NOT call stopAllEndpoints here — it would wipe Nearby's knowledge
+            // of the endpoint we just discovered, causing STATUS_ENDPOINT_IO_ERROR
+            // when we immediately call connect() after this.
+            cn("[CN] init() localId='$localEndpointId' (re-init, skipping stopAllEndpoints)")
+        }
     }
 
     override fun shutdown() {
-        if (::connectionsClient.isInitialized) {
-            connectionsClient.stopAllEndpoints()
-        }
-        isAdvertising = false
-        isDiscovering = false
+        if (::connectionsClient.isInitialized) connectionsClient.stopAllEndpoints()
+        _isAdvertising.value = false
+        _isDiscovering.value = false
         knownEndpoints.clear()
         listeners.clear()
         localEndpointId = null
         _state.value = NetworkState.Idle
-        logger.debug { "ConnectNetwork shut down" }
+        cn("[CN] shutdown()")
     }
+
+    /** knownEndpoints maps hardwareId -> encodedName; we need the reverse. */
+    override fun encodedNameToHardwareId(encodedName: String): String? =
+        knownEndpoints.entries.firstOrNull { it.value == encodedName }?.key
+
 
     // -------------------------------------------------------------------------
     // Advertising
@@ -146,120 +171,98 @@ class ConnectNetwork(
      */
     override fun startAdvertising(encodedName: String) {
         requireClient()
+        cn("[CN] startAdvertising() encodedName='$encodedName'")
 
-        val options = AdvertisingOptions.Builder()
-            .setStrategy(Strategy.P2P_CLUSTER)
-            .build()
+        val options = AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
 
-        connectionsClient.startAdvertising(
-            encodedName,
-            serviceId,
-            connectionLifecycleCallback,
-            options
-        ).addOnSuccessListener {
-            isAdvertising = true
-            _state.value  = NetworkState.Advertising
-            logger.warn { "[CN] startAdvertising SUCCESS — serviceId='$serviceId' encodedName='$encodedName'" }
-        }.addOnFailureListener { e ->
-            isAdvertising = false
-            _events.tryEmit(NetworkEvent.ConnectionRejected("ADVERTISING_FAILED"))
-            logger.error { "[CN] startAdvertising FAILED: ${e.message}" }
-        }
+        connectionsClient.startAdvertising(encodedName, serviceId, connectionLifecycleCallback, options)
+            .addOnSuccessListener {
+                _isAdvertising.value = true
+                _state.value = NetworkState.Advertising
+                cn("[CN] startAdvertising SUCCESS")
+            }
+            .addOnFailureListener { e ->
+                _isAdvertising.value = false
+                cne("[CN] startAdvertising FAILED: ${e.message}")
+                // Do NOT emit ConnectionRejected here — an advertising failure is not
+                // a connection event and would cause Client to react incorrectly.
+            }
     }
 
     override fun stopAdvertising() {
         if (!::connectionsClient.isInitialized) return
-        isAdvertising = false
+        _isAdvertising.value = false
         connectionsClient.stopAdvertising()
-        if (_state.value is NetworkState.Advertising) {
-            _state.value = NetworkState.Idle
-        }
-        logger.debug { "$localEndpointId stopped advertising" }
+        if (_state.value is NetworkState.Advertising) _state.value = NetworkState.Idle
+        cn("[CN] stopAdvertising()")
     }
 
     // -------------------------------------------------------------------------
     // Discovery
     // -------------------------------------------------------------------------
 
-    /**
-     * Start scanning. Every discovered endpoint is emitted as
-     * [NetworkEvent.EndpointDiscovered] with the hardware endpointId and the
-     * encodedName string the remote node passed to startAdvertising().
-     */
     override suspend fun startDiscovery() {
         requireClient()
-        if (isDiscovering) {
-            logger.warn { "[CN] startDiscovery() called but already discovering — skipping" }
+        if (_isDiscovering.value) {
+            cn("[CN] startDiscovery() already discovering — skipping")
             return
         }
+        cn("[CN] startDiscovery() serviceId='$serviceId' localId='$localEndpointId'")
 
-        logger.warn { "[CN] startDiscovery() — serviceId='$serviceId' localId='$localEndpointId'" }
+        val options = DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
 
-        val options = DiscoveryOptions.Builder()
-            .setStrategy(Strategy.P2P_CLUSTER)
-            .build()
-
-        connectionsClient.startDiscovery(
-            serviceId,
-            endpointDiscoveryCallback,
-            options
-        ).addOnSuccessListener {
-            isDiscovering = true
-            _state.value  = NetworkState.Discovering
-            logger.warn { "[CN] startDiscovery SUCCESS" }
-        }.addOnFailureListener { e ->
-            isDiscovering = false
-            logger.error { "[CN] startDiscovery FAILED: ${e.message}" }
-        }
+        connectionsClient.startDiscovery(serviceId, endpointDiscoveryCallback, options)
+            .addOnSuccessListener {
+                _isDiscovering.value = true
+                _state.value = NetworkState.Discovering
+                cn("[CN] startDiscovery SUCCESS")
+            }
+            .addOnFailureListener { e ->
+                _isDiscovering.value = false
+                cne("[CN] startDiscovery FAILED: ${e.message}")
+            }
     }
 
     override suspend fun stopDiscovery() {
         if (!::connectionsClient.isInitialized) return
-        if (!isDiscovering) return
-        isDiscovering = false
+        if (!_isDiscovering.value) return
+        _isDiscovering.value = false
         connectionsClient.stopDiscovery()
-        if (_state.value is NetworkState.Discovering) {
-            _state.value = NetworkState.Idle
-        }
-        logger.warn { "[CN] stopDiscovery()" }
+        if (_state.value is NetworkState.Discovering) _state.value = NetworkState.Idle
+        cn("[CN] stopDiscovery()")
     }
 
     // -------------------------------------------------------------------------
     // Connections
     // -------------------------------------------------------------------------
 
-    /**
-     * Request a connection to [endpointId].
-     *
-     * Does NOT block — the result arrives asynchronously:
-     *  - [NetworkEvent.EndpointConnected]  if both sides accepted
-     *  - [NetworkEvent.ConnectionRejected] if either side rejected or an error occurred
-     *
-     * [localEndpointId] is passed as our "endpointName" to Nearby so the remote
-     * side receives our encoded identity in onConnectionInitiated.
-     */
     override suspend fun connect(endpointId: String) {
         val localId = requireLocalEndpointId()
-        logger.warn { "[CN] connect() — localId='$localId' → target='$endpointId'" }
-
-        connectionsClient.requestConnection(
-            localId,
-            endpointId,
-            connectionLifecycleCallback
-        ).addOnSuccessListener {
-            logger.warn { "[CN] requestConnection sent successfully to $endpointId" }
-        }.addOnFailureListener { e ->
-            logger.error { "[CN] requestConnection to $endpointId FAILED: ${e.message}" }
-            _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
+        if (knownEndpoints[endpointId] != null && false) {
+            // already tracked — but we still allow re-attempts since knownEndpoints
+            // is populated on discovery too. Real guard is STATUS_ALREADY_CONNECTED.
         }
+        cn("[CN] connect() localId='$localId' target='$endpointId'")
+
+        connectionsClient.requestConnection(localId, endpointId, connectionLifecycleCallback)
+            .addOnSuccessListener { cn("[CN] requestConnection sent to $endpointId") }
+            .addOnFailureListener { e ->
+                val msg = e.message ?: ""
+                // STATUS_ALREADY_CONNECTED_TO_ENDPOINT is not an error — ignore it
+                if ("8003" in msg) {
+                    cn("[CN] connect() to $endpointId skipped — already connected")
+                    return@addOnFailureListener
+                }
+                cne("[CN] requestConnection to $endpointId FAILED: $msg")
+                _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
+            }
     }
 
     override fun disconnect(endpointId: String) {
         if (!::connectionsClient.isInitialized) return
         connectionsClient.disconnectFromEndpoint(endpointId)
         knownEndpoints.remove(endpointId)
-        // Nearby will fire onDisconnected which emits EndpointDisconnected
-        logger.debug { "$localEndpointId disconnected from $endpointId" }
+        cn("[CN] disconnect() endpointId='$endpointId'")
     }
 
     // -------------------------------------------------------------------------
@@ -270,11 +273,15 @@ class ConnectNetwork(
         requireClient()
         val bytes = message.toBytes()
         connectionsClient.sendPayload(endpointId, Payload.fromBytes(bytes))
-        logger.debug { "$localEndpointId sent ${message.type} to $endpointId (id=${message.id})" }
+        cn("[CN] sendMessage() to='$endpointId' type=${message.type} id=${message.id}")
     }
 
     override fun addListener(listener: (Message) -> Unit) {
         listeners.add(listener)
+    }
+
+    override fun removeListener(listener: (Message) -> Unit) {
+        listeners.remove(listener)
     }
 
     override fun notifyListeners(message: Message) {
@@ -304,19 +311,17 @@ class ConnectNetwork(
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
             val encodedName = info.endpointName
             knownEndpoints[endpointId] = encodedName
-
-            logger.warn { "[CN] onConnectionInitiated — from='$endpointId' encodedName='$encodedName' incoming=${info.isIncomingConnection}" }
+            cn("[CN] onConnectionInitiated from='$endpointId' encodedName='$encodedName' incoming=${info.isIncomingConnection}")
 
             scope.launch {
                 val accept = onConnectionRequest(endpointId, encodedName)
-                logger.warn { "[CN] onConnectionRequest result for '$endpointId': accept=$accept" }
-
+                cn("[CN] onConnectionRequest result for '$endpointId': accept=$accept")
                 if (accept) {
                     connectionsClient.acceptConnection(endpointId, payloadCallback)
-                    logger.warn { "[CN] acceptConnection sent for $endpointId" }
+                    cn("[CN] acceptConnection sent for $endpointId")
                 } else {
                     connectionsClient.rejectConnection(endpointId)
-                    logger.warn { "[CN] rejectConnection sent for $endpointId" }
+                    cn("[CN] rejectConnection sent for $endpointId")
                 }
             }
         }
@@ -324,36 +329,31 @@ class ConnectNetwork(
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
             val code = result.status.statusCode
             val msg  = result.status.statusMessage
-            logger.warn { "[CN] onConnectionResult — endpointId='$endpointId' statusCode=$code message='$msg'" }
+            cn("[CN] onConnectionResult endpointId='$endpointId' statusCode=$code msg='$msg'")
 
             when (code) {
                 ConnectionsStatusCodes.STATUS_OK -> {
                     val encodedName = knownEndpoints[endpointId] ?: endpointId
-                    logger.warn { "[CN] CONNECTION ESTABLISHED with $endpointId (encodedName='$encodedName')" }
+                    cn("[CN] CONNECTED with $endpointId encodedName='$encodedName'")
                     _events.tryEmit(NetworkEvent.EndpointConnected(endpointId, encodedName))
                 }
-
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> {
                     knownEndpoints.remove(endpointId)
-                    logger.warn { "[CN] CONNECTION REJECTED by $endpointId" }
+                    cn("[CN] REJECTED by $endpointId")
                     _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
                 }
-
                 ConnectionsStatusCodes.STATUS_ERROR -> {
                     knownEndpoints.remove(endpointId)
-                    logger.error { "[CN] CONNECTION ERROR with $endpointId: $msg" }
+                    cne("[CN] ERROR with $endpointId: $msg")
                     _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
                 }
-
-                else -> {
-                    logger.error { "[CN] onConnectionResult unknown statusCode=$code for $endpointId" }
-                }
+                else -> cne("[CN] onConnectionResult unknown statusCode=$code for $endpointId")
             }
         }
 
         override fun onDisconnected(endpointId: String) {
             knownEndpoints.remove(endpointId)
-            logger.warn { "[CN] onDisconnected — endpointId='$endpointId'" }
+            cn("[CN] onDisconnected endpointId='$endpointId'")
             _events.tryEmit(NetworkEvent.EndpointDisconnected(endpointId))
         }
     }
@@ -363,41 +363,46 @@ class ConnectNetwork(
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
             val encodedName = info.endpointName
 
+            // Ignore self
             if (encodedName == localEndpointId) {
-                logger.warn { "[CN] onEndpointFound — ignoring self-discovery (endpointId=$endpointId)" }
+                cn("[CN] onEndpointFound ignoring self (endpointId=$endpointId)")
+                return
+            }
+            // Ignore transient scanner/joiner identities — these are stale cache entries
+            if (encodedName.startsWith("SCANNER:") || encodedName.startsWith("JOINING:")) {
+                cn("[CN] onEndpointFound ignoring transient '$encodedName'")
+                return
+            }
+            // Ignore anything we can't decode — also a stale cache entry
+            if (AdvertisedName.decode(encodedName) == null) {
+                cn("[CN] onEndpointFound ignoring undecodable '$encodedName'")
                 return
             }
 
             knownEndpoints[endpointId] = encodedName
-            logger.warn { "[CN] onEndpointFound — endpointId='$endpointId' encodedName='$encodedName'" }
+            cn("[CN] onEndpointFound endpointId='$endpointId' encodedName='$encodedName'")
             _events.tryEmit(NetworkEvent.EndpointDiscovered(endpointId, encodedName))
         }
 
         override fun onEndpointLost(endpointId: String) {
             knownEndpoints.remove(endpointId)
-            logger.warn { "[CN] onEndpointLost — endpointId='$endpointId'" }
+            cn("[CN] onEndpointLost endpointId='$endpointId'")
         }
     }
 
-    /**
-     * Handles incoming byte payloads from connected endpoints.
-     * Parses the bytes into a [Message] and notifies all listeners.
-     */
     private val payloadCallback = object : PayloadCallback() {
 
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
             if (payload.type != Payload.Type.BYTES) return
             val bytes = payload.asBytes() ?: return
-
             val message = Message.fromBytes(bytes)
-            logger.debug { "$localEndpointId received ${message.type} from $endpointId" }
-
+            cn("[CN] onPayloadReceived from='$endpointId' type=${message.type} id=${message.id}")
             notifyListeners(message)
             _events.tryEmit(NetworkEvent.MessageReceived(message))
         }
 
         override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {
-            // No-op for BYTES payloads — only relevant for FILE/STREAM types
+            // No-op for BYTES payloads
         }
     }
 
