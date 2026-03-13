@@ -50,6 +50,8 @@ import edu.uwm.cs595.goup11.frontend.features.inbox.InboxScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
+import edu.uwm.cs595.goup11.frontend.features.tutorial.TutorialScreen
+import edu.uwm.cs595.goup11.frontend.features.tutorial.introTutorialScreen
 import edu.uwm.cs595.goup11.frontend.features.inbox.InboxViewModel
 import kotlinx.coroutines.launch
 
@@ -146,6 +148,9 @@ fun navDrawer(
                         {navController.navigate(SealedDestinations.PROFILE.route)},
                         "Profile"
                     )
+                    drawerItem(
+                        {navController.navigate(SealedDestinations.TUTORIAL_INTRO.route)},
+                        "help"
 
                     drawerItem(
                         {navController.navigate(SealedDestinations.DEVELOPER.route)},
@@ -209,6 +214,7 @@ fun AppNavigation(){
         NavHost(
             navController = navController,
             startDestination = SealedDestinations.HOME.route,
+            //startDestination = SealedDestinations.TUTORIAL_INTRO.route,
         ) {
             composable(SealedDestinations.HOME.route) {
                 HomeScreen(
@@ -270,6 +276,18 @@ fun AppNavigation(){
                     sender = userName
                 )
             }
+
+            composable(SealedDestinations.TUTORIAL_INTRO.route) {
+                introTutorialScreen(
+                    onYesClick = {navController.navigate(SealedDestinations.TUTORIAL.route)},
+                    onNoClick = {navController.navigate(SealedDestinations.HOME.route)},
+                )
+            }
+
+            composable(SealedDestinations.TUTORIAL.route) {
+                TutorialScreen(
+                    onNoClick = {navController.navigate(SealedDestinations.HOME.route)},
+                        onBack = { navController.navigate(SealedDestinations.HOME.route)}
 
             composable(SealedDestinations.INBOX.route) {
                 InboxScreen(

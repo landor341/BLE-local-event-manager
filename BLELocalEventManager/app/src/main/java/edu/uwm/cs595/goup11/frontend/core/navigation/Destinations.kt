@@ -35,6 +35,11 @@ sealed class SealedDestinations(val route: String) {
     @Serializable
     object CHAT: SealedDestinations("CHAT")
     @Serializable
+    object TUTORIAL_INTRO: SealedDestinations("TUTORIAL_INTRO")
+    @Serializable
+    object TUTORIAL: SealedDestinations("TUTORIAL")
+
+}
     object INBOX: SealedDestinations("INBOX")
 }
     object DEVELOPER: SealedDestinations("DEVELOPER")
