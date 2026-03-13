@@ -46,9 +46,11 @@ import edu.uwm.cs595.goup11.frontend.features.developer.DeveloperScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventMockData
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
+import edu.uwm.cs595.goup11.frontend.features.inbox.InboxScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
+import edu.uwm.cs595.goup11.frontend.features.inbox.InboxViewModel
 import kotlinx.coroutines.launch
 
 //
@@ -126,15 +128,15 @@ fun navDrawer(
                     //add new drawer items here so they can appear in the navigation sidebar
                     drawerItem(
                         { navController.navigate(SealedDestinations.HOME.route) },
-                        "Home Screen"
+                        "Home"
+                    )
+                    drawerItem(
+                            { navController.navigate(SealedDestinations.INBOX.route) },
+                    "Inbox"
                     )
                     drawerItem(
                         { navController.navigate(SealedDestinations.EXPLORE.route) },
-                        "Explore Screen"
-                    )
-                    drawerItem(
-                        {navController.navigate(SealedDestinations.EVENT_DETAIL.route)},
-                        "Event Details"
+                        "Explore"
                     )
                     drawerItem(
                         {navController.navigate(SealedDestinations.CREATE_EVENT.route)},
@@ -144,6 +146,7 @@ fun navDrawer(
                         {navController.navigate(SealedDestinations.PROFILE.route)},
                         "Profile"
                     )
+
                     drawerItem(
                         {navController.navigate(SealedDestinations.DEVELOPER.route)},
                         "Developer"
@@ -199,6 +202,8 @@ fun AppNavigation(){
     val meshGateway = AppContainer.meshGateway
     val exploreVm = remember { ExploreViewModel(meshGateway) }
     val userVm = remember { UserViewModel() }
+    val inboxVm = remember { InboxViewModel(meshGateway) }
+
     navDrawer(navController = navController) {
         padding ->
         NavHost(
@@ -254,12 +259,25 @@ fun AppNavigation(){
                 )
             }
 
-            composable(SealedDestinations.CHAT.route) {
-                val chatVm = remember { ChatViewModel(meshGateway) }
+            composable("${SealedDestinations.CHAT.route}/{peerId}/{userName}") { backStackEntry ->
+                val peerId = backStackEntry.arguments?.getString("peerId") ?: "Unknown User"
+                val userName = backStackEntry.arguments?.getString("userName") ?: "Unknown User"
+                val chatVm = remember { ChatViewModel(meshGateway, peerId) }
                 ChatScreen(
                     viewModel = chatVm,
                     onBack = { navController.popBackStack() },
-                    eventName = selectedEventName
+                    peerId = peerId,
+                    sender = userName
+                )
+            }
+
+            composable(SealedDestinations.INBOX.route) {
+                InboxScreen(
+                    viewModel = inboxVm,
+                    onBack = { navController.popBackStack() },
+                    onNavigateToChat = { peerId, userName ->
+                        navController.navigate("${SealedDestinations.CHAT.route}/$peerId/$userName")
+                    }
                 )
             }
 

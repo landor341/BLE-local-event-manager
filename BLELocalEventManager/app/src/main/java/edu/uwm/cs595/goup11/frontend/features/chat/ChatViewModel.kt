@@ -10,7 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class ChatViewModel(
-    private val mesh: MeshGateway
+    private val mesh: MeshGateway,
+    private val peerId: String
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -20,7 +21,9 @@ class ChatViewModel(
         // Collect incoming chat stream
         viewModelScope.launch {
             mesh.chat.collect { msg ->
-                _messages.value = _messages.value + msg
+                if (msg.sender == peerId || (msg.isMine && msg.sessionId == peerId)) {
+                    _messages.value = _messages.value + msg
+                }
             }
         }
     }
