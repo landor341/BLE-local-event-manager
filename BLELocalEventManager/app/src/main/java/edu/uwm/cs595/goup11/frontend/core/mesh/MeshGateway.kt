@@ -54,6 +54,9 @@ interface MeshGateway {
     val discoveredEvents: Flow<DiscoveredEventSummary>
     val chat: Flow<ChatMessage>
 
+    /** Stream of log messages for developer/debug monitoring. */
+    val logs: Flow<String>
+
     suspend fun start()
     suspend fun startScanning()
     suspend fun stopScanning()

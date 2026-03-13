@@ -1,10 +1,11 @@
 package edu.uwm.cs595.goup11.frontend
 
+import android.Manifest
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import edu.uwm.cs595.goup11.frontend.core.navigation.AppNavigation
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
@@ -45,6 +46,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         edu.uwm.cs595.goup11.frontend.core.AppContainer.init(this)
+
+        /*// Request necessary permissions for Nearby Connections
+        val permissions = mutableListOf<String>()
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        
+        // Location is generally required for Nearby Connections to work reliably 
+        // across all versions and strategies.
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }*/
 
         setContent {
             BLELocalEventManagerTheme {
