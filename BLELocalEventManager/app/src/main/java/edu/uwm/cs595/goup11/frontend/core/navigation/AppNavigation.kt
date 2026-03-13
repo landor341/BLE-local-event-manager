@@ -42,6 +42,7 @@ import edu.uwm.cs595.goup11.frontend.core.AppContainer
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatViewModel
 import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventScreen
+import edu.uwm.cs595.goup11.frontend.features.developer.DeveloperScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventMockData
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
@@ -146,6 +147,10 @@ fun navDrawer(
                         "Profile"
                     )
 
+                    drawerItem(
+                        {navController.navigate(SealedDestinations.DEVELOPER.route)},
+                        "Developer"
+                    )
                 }
             }
         },
@@ -276,6 +281,12 @@ fun AppNavigation(){
                 )
             }
 
+            composable(SealedDestinations.DEVELOPER.route) {
+                DeveloperScreen(
+                    mesh = meshGateway,
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
     }
 

@@ -11,7 +11,8 @@ data class Message(
     val data: ByteArray? = null,
     var ttl: Int,
     val replyTo: String? = null,
-    val id: String = UUID.randomUUID().toString()
+    val id: String = UUID.randomUUID().toString(),
+    val senderRole: UserRole = UserRole.ATTENDEE
 ) {
 
     /**
@@ -23,6 +24,7 @@ data class Message(
         val typeBytes = type.name.toByteArray(StandardCharsets.UTF_8)
         val idBytes = id.toByteArray(StandardCharsets.UTF_8)
         val replyBytes = replyTo?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
+        val roleBytes = senderRole.name.toByteArray(StandardCharsets.UTF_8)
         val payload = data ?: ByteArray(0)
 
         val buffer = ByteBuffer.allocate(
@@ -31,6 +33,7 @@ data class Message(
                     4 + typeBytes.size +
                     4 + idBytes.size +
                     4 + replyBytes.size +
+                    4 + roleBytes.size +
                     4 + payload.size +
                     4 // ttl
         )
@@ -40,6 +43,7 @@ data class Message(
         putWithLength(buffer, typeBytes)
         putWithLength(buffer, idBytes)
         putWithLength(buffer, replyBytes)
+        putWithLength(buffer, roleBytes)
         putWithLength(buffer, payload)
 
         buffer.putInt(ttl)
@@ -60,6 +64,7 @@ data class Message(
             val type = MessageType.valueOf(readString(buffer))
             val id = readString(buffer)
             val replyToRaw = readString(buffer)
+            val roleName = readString(buffer)
             val data = readBytes(buffer)
             val ttl = buffer.int
 
@@ -70,7 +75,8 @@ data class Message(
                 data = if (data.isEmpty()) null else data,
                 ttl = ttl,
                 replyTo = replyToRaw.ifEmpty { null },
-                id = id
+                id = id,
+                senderRole = try { UserRole.valueOf(roleName) } catch (e: Exception) { UserRole.ATTENDEE }
             )
         }
 
@@ -103,7 +109,8 @@ data class Message(
         from: String,
         type: MessageType,
         data: ByteArray?,
-        ttl: Int
+        ttl: Int,
+        role: UserRole = UserRole.ATTENDEE
     ): Message {
         return Message(
             to = this.from,
@@ -111,7 +118,8 @@ data class Message(
             type = type,
             data = data,
             ttl = ttl,
-            replyTo = this.id
+            replyTo = this.id,
+            senderRole = role
         )
     }
 

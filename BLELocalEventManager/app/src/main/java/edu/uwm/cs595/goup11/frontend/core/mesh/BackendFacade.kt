@@ -10,6 +10,7 @@ import edu.uwm.cs595.goup11.backend.network.Network
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
 import edu.uwm.cs595.goup11.backend.network.Peer
+import edu.uwm.cs595.goup11.backend.network.UserRole
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -154,6 +155,7 @@ class DefaultBackendFacade(
     private val context: Context,
     override val myId: String = "android-client",
     private val clientType: ClientType = ClientType.LEAF,
+    private val userRole: UserRole = UserRole.ATTENDEE, // Added to support role-based features
     private val useRealNearby: Boolean = false, // Sprint 3: keep false (LocalNetwork)
     private val config: Network.Config = Network.Config(defaultTtl = 5),
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
@@ -167,8 +169,8 @@ class DefaultBackendFacade(
     private val network: Network =
         if (useRealNearby) ConnectNetwork(context) else LocalNetwork()
 
-    /** Backend Client node */
-    private val client: Client = Client(id = myId, type = clientType)
+    /** Backend Client node. Population of role ensures it's attached to outgoing messages. */
+    private val client: Client = Client(id = myId, type = clientType, role = userRole)
 
     override val state: StateFlow<NetworkState> get() = network.state
     override val events: SharedFlow<NetworkEvent> get() = network.events

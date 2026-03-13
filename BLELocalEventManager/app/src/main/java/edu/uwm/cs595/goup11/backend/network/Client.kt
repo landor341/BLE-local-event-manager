@@ -29,6 +29,7 @@ import kotlin.reflect.typeOf
 class Client(
     val id: String,
     val type: ClientType,
+    var role: UserRole = UserRole.ATTENDEE,
     var network: Network? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
@@ -118,7 +119,8 @@ class Client(
             to=p.endpointId,
             from=id,
             type= MessageType.HELLO,
-            ttl=1 // Should only send direct
+            ttl=1, // Should only send direct
+            senderRole = role
         ))
 
         return p
@@ -334,12 +336,12 @@ class Client(
                 when(message.type){
                     MessageType.PING -> {
                         // Reply with pong
-                        sendMessage(Message(
-                            to=message.from,
-                            from=id,
-                            replyTo = message.id,
+                        sendMessage(message.createReply(
+                            from = id,
                             type = MessageType.PONG,
-                            ttl = 5
+                            data = null,
+                            ttl = 5,
+                            role = role
                         ))
                     }
 
@@ -356,12 +358,12 @@ class Client(
                 when(message.type){
                     MessageType.PING -> {
                         // Reply with pong
-                        sendMessage(Message(
-                            to=message.from,
-                            from=id,
-                            replyTo = message.id,
+                        sendMessage(message.createReply(
+                            from = id,
                             type = MessageType.PONG,
-                            ttl = 5
+                            data = null,
+                            ttl = 5,
+                            role = role
                         ))
                     }
 

@@ -1,5 +1,6 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
+import edu.uwm.cs595.goup11.backend.network.UserRole
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -28,6 +29,7 @@ data class JoinedEventBundle(
 data class ChatMessage(
     val sessionId: String,
     val sender: String,
+    val senderRole: UserRole = UserRole.ATTENDEE,
     val text: String,
     val timestampMs: Long,
     val isMine: Boolean
@@ -53,6 +55,9 @@ interface MeshGateway {
 
     val discoveredEvents: Flow<DiscoveredEventSummary>
     val chat: Flow<ChatMessage>
+
+    /** Stream of log messages for developer/debug monitoring. */
+    val logs: Flow<String>
 
     suspend fun start()
     suspend fun startScanning()
