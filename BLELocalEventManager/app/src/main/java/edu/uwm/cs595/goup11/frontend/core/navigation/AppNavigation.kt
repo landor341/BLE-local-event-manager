@@ -1,7 +1,3 @@
-// AppNavigation.kt
-// Central navigation controller for the app.
-// Responsible for switching between high-level screens.
-
 package edu.uwm.cs595.goup11.frontend.core.navigation
 
 import android.os.Build
@@ -27,87 +23,50 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
-import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
-import edu.uwm.cs595.goup11.frontend.features.explore.ExploreScreen
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.frontend.core.AppContainer
+import edu.uwm.cs595.goup11.frontend.domain.models.User
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatViewModel
+import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUserUi
+import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUsersScreen
+import edu.uwm.cs595.goup11.frontend.features.connectedusers.PeerStatus
 import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventScreen
 import edu.uwm.cs595.goup11.frontend.features.developer.DeveloperScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
-import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventMockData
+import edu.uwm.cs595.goup11.frontend.features.explore.ExploreScreen
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
+import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
 import edu.uwm.cs595.goup11.frontend.features.inbox.InboxScreen
+import edu.uwm.cs595.goup11.frontend.features.inbox.InboxViewModel
 import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
 import edu.uwm.cs595.goup11.frontend.features.tutorial.TutorialScreen
 import edu.uwm.cs595.goup11.frontend.features.tutorial.introTutorialScreen
-import edu.uwm.cs595.goup11.frontend.features.inbox.InboxViewModel
 import kotlinx.coroutines.launch
 
-//
-//@Composable
-//fun AppNavigation() {
-//    var currentDestination by remember { mutableStateOf(Destinations.CREATE_EVENT) }
-//
-//    when (currentDestination) {
-//        Destinations.HOME ->
-//            HomeScreen(onExploreClick = {
-//                currentDestination = Destinations.EXPLORE
-//            })
-//
-//        Destinations.EXPLORE ->
-//            ExploreScreen(onBack = {
-//                currentDestination = Destinations.HOME
-//            })
-//
-//        Destinations.EVENT_DETAIL -> {
-//            val mockEvent = EventMockData.events().first()
-//            EventDetailScreen(
-//                event = mockEvent,
-//                onBack = { currentDestination = Destinations.EXPLORE }
-//            )
-//        }
-//        Destinations.CREATE_EVENT -> {
-//            CreateEventScreen(onBack = {currentDestination = Destinations.EVENT_DETAIL})
-//
-//        }
-//
-//        Destinations.PROFILE ->
-//            ProfileScreen()
-//    }
-//}
-
-/*
-how to add new pages to navigation
-    1. add a new serializable object within the SealedDestinations class in Destinations.kt
-    2. inside the appNavigation() function add a composable with a function call to the desired
-        page, here is where you may pass any needed arguments to the page
-    3. use the drawer item or create a NavigationDrawerItem with a label and a function call
-        to your desired page
- */
-
-
 @Composable
-fun drawerItem(navigate: () -> Unit, navLabel: String){
+fun drawerItem(navigate: () -> Unit, navLabel: String) {
     NavigationDrawerItem(
         label = { Text(navLabel) },
         selected = false,
-        onClick = navigate ,
-        )
+        onClick = navigate,
+    )
 }
-
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @RequiresApi(Build.VERSION_CODES.O)
@@ -117,7 +76,7 @@ fun navDrawer(
     content: @Composable (PaddingValues) -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     ModalNavigationDrawer(
         drawerContent = {
@@ -126,36 +85,33 @@ fun navDrawer(
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
                         .verticalScroll(rememberScrollState())
-                )
-                {
-                    //add new drawer items here so they can appear in the navigation sidebar
+                ) {
                     drawerItem(
                         { navController.navigate(SealedDestinations.HOME.route) },
                         "Home"
                     )
                     drawerItem(
-                            { navController.navigate(SealedDestinations.INBOX.route) },
-                    "Inbox"
+                        { navController.navigate(SealedDestinations.INBOX.route) },
+                        "Inbox"
                     )
                     drawerItem(
                         { navController.navigate(SealedDestinations.EXPLORE.route) },
                         "Explore"
                     )
                     drawerItem(
-                        {navController.navigate(SealedDestinations.CREATE_EVENT.route)},
+                        { navController.navigate(SealedDestinations.CREATE_EVENT.route) },
                         "Create Event"
                     )
                     drawerItem(
-                        {navController.navigate(SealedDestinations.PROFILE.route)},
+                        { navController.navigate(SealedDestinations.PROFILE.route) },
                         "Profile"
                     )
                     drawerItem(
-                        {navController.navigate(SealedDestinations.TUTORIAL_INTRO.route)},
-                        "help"
+                        { navController.navigate(SealedDestinations.TUTORIAL_INTRO.route) },
+                        "Help"
                     )
-
                     drawerItem(
-                        {navController.navigate(SealedDestinations.DEVELOPER.route)},
+                        { navController.navigate(SealedDestinations.DEVELOPER.route) },
                         "Developer"
                     )
                 }
@@ -163,9 +119,7 @@ fun navDrawer(
         },
         drawerState = drawerState
     ) {
-        Scaffold(
-
-        ) { innerPadding ->
+        Scaffold { innerPadding ->
             content(innerPadding)
             Box(
                 modifier = Modifier
@@ -182,41 +136,57 @@ fun navDrawer(
                             }
                         }
                     },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd),
-
+                    modifier = Modifier.align(Alignment.TopEnd),
                     containerColor = Color.Transparent,
                     elevation = FloatingActionButtonDefaults.elevation(0.dp)
                 ) {
-                        Icon(
-                            Icons.Default.Menu,
-                            contentDescription = "Menu",
-                            modifier = Modifier.size(24.dp))
+                    Icon(
+                        Icons.Default.Menu,
+                        contentDescription = "Menu",
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
             }
         }
     }
 }
 
-
-
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun AppNavigation(){
+fun AppNavigation() {
     val navController = rememberNavController()
     var selectedSessionId by remember { mutableStateOf<String?>(null) }
-    var selectedEventName by remember { mutableStateOf("") }
+
     val meshGateway = AppContainer.meshGateway
     val exploreVm = remember { ExploreViewModel(meshGateway) }
     val userVm = remember { UserViewModel() }
     val inboxVm = remember { InboxViewModel(meshGateway) }
 
-    navDrawer(navController = navController) {
-        padding ->
+    val mockConnectedUsers = remember {
+        listOf(
+            ConnectedUserUi(
+                user = User(id = "1", username = "Matthew", role = UserRole.ADMIN),
+                status = PeerStatus.CONNECTED
+            ),
+            ConnectedUserUi(
+                user = User(id = "2", username = "Angelo", role = UserRole.ATTENDEE),
+                status = PeerStatus.NEARBY
+            ),
+            ConnectedUserUi(
+                user = User(id = "3", username = "Labib", role = UserRole.ATTENDEE),
+                status = PeerStatus.OUT_OF_RANGE
+            ),
+            ConnectedUserUi(
+                user = User(id = "4", username = "Landon", role = UserRole.ATTENDEE),
+                status = PeerStatus.NEARBY
+            )
+        )
+    }
+
+    navDrawer(navController = navController) { padding ->
         NavHost(
             navController = navController,
             startDestination = SealedDestinations.HOME.route,
-            //startDestination = SealedDestinations.TUTORIAL_INTRO.route,
         ) {
             composable(SealedDestinations.HOME.route) {
                 HomeScreen(
@@ -238,17 +208,34 @@ fun AppNavigation(){
                 )
             }
 
-            val mockEvent = EventMockData.events().first()
             composable(SealedDestinations.EVENT_DETAIL.route) {
                 val sessionId = selectedSessionId ?: "unknown"
                 EventDetailScreen(
                     sessionId = sessionId,
-                    onBack = {navController.popBackStack()},
-                    onOpenChat = {navController.navigate(SealedDestinations.CHAT.route)},
-                )}
+                    onBack = { navController.popBackStack() },
+                    onOpenChat = {},
+                    onViewConnectedUsers = {
+                        navController.navigate(SealedDestinations.CONNECTED_USERS.route)
+                    }
+                )
+            }
+
+            composable(SealedDestinations.CONNECTED_USERS.route) {
+                val sessionId = selectedSessionId ?: "unknown"
+                ConnectedUsersScreen(
+                    sessionId = sessionId,
+                    users = mockConnectedUsers,
+                    onBack = { navController.popBackStack() },
+                    onUserClick = { user ->
+                        navController.navigate("${SealedDestinations.CHAT.route}/${user.id}/${user.username}")
+                    }
+                )
+            }
 
             composable(SealedDestinations.CREATE_EVENT.route) {
-                CreateEventScreen( onBack = {navController.popBackStack()})
+                CreateEventScreen(
+                    onBack = { navController.popBackStack() }
+                )
             }
 
             composable(SealedDestinations.PROFILE.route) {
@@ -271,6 +258,7 @@ fun AppNavigation(){
                 val peerId = backStackEntry.arguments?.getString("peerId") ?: "Unknown User"
                 val userName = backStackEntry.arguments?.getString("userName") ?: "Unknown User"
                 val chatVm = remember { ChatViewModel(meshGateway, peerId) }
+
                 ChatScreen(
                     viewModel = chatVm,
                     onBack = { navController.popBackStack() },
@@ -281,15 +269,15 @@ fun AppNavigation(){
 
             composable(SealedDestinations.TUTORIAL_INTRO.route) {
                 introTutorialScreen(
-                    onYesClick = {navController.navigate(SealedDestinations.TUTORIAL.route)},
-                    onNoClick = {navController.navigate(SealedDestinations.HOME.route)},
+                    onYesClick = { navController.navigate(SealedDestinations.TUTORIAL.route) },
+                    onNoClick = { navController.navigate(SealedDestinations.HOME.route) },
                 )
             }
 
             composable(SealedDestinations.TUTORIAL.route) {
                 TutorialScreen(
-                    onNoClick = {navController.navigate(SealedDestinations.HOME.route)},
-                        onBack = { navController.navigate(SealedDestinations.HOME.route)},
+                    onNoClick = { navController.navigate(SealedDestinations.HOME.route) },
+                    onBack = { navController.navigate(SealedDestinations.HOME.route) },
                 )
             }
 
@@ -311,17 +299,4 @@ fun AppNavigation(){
             }
         }
     }
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
