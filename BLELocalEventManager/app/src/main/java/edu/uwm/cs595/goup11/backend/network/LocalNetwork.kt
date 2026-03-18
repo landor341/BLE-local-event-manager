@@ -5,707 +5,548 @@ import edu.uwm.cs595.goup11.backend.security.Crypto
 import edu.uwm.cs595.goup11.backend.security.Manager
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
-import io.ktor.util.collections.setValue
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.withTimeout
-import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.log
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
- * Local in-memory network emulator. This class stores all networks locally and tries to
- * implement it as close as possible
+ * Local in-memory network emulator.
  *
- * This class DOES NOT handle any message processing
+ * Simulates Google Nearby Connections peer-to-peer behaviour using shared
+ * in-process state. Each [LocalNetwork] instance represents one physical device.
+ *
+ * Key design decisions:
+ *  - There is NO concept of a named "network" here — that is an application-layer
+ *    concern owned by Client. This class only knows about endpoints and connections.
+ *  - [InMemoryNetworkHolder] is the shared global state that all [LocalNetwork]
+ *    instances read/write, simulating the shared physical medium (Bluetooth/WiFi).
+ *  - Connections are always bidirectional.
+ *  - [onConnectionRequest] must be set by Client before any connections are accepted.
+ *
+ * This class DOES NOT handle any message processing or routing.
  */
-class LocalNetwork() : Network {
+class LocalNetwork(
+    private val chaos: ChaosConfig = ChaosConfig.NONE,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 
-    /** Kotlin Logger*/
-    override val logger: KLogger = KotlinLogging.logger {  }
+    /**
+     * Represents a list of messages to not log on receive. By default, PING, PONG, and HELLO are ignored
+     */
+    private val messageTypeLogIgnoreList: List<MessageType> = listOf<MessageType>(MessageType.PONG,
+        MessageType.PING, MessageType.HELLO
+    )
+) : Network {
 
+    override val logger: KLogger = KotlinLogging.logger {}
+    private val _isAdvertising  = MutableStateFlow(false)
+    override val isAdvertising:  StateFlow<Boolean> = _isAdvertising.asStateFlow()
+
+    private val _isDiscovering  = MutableStateFlow(false)
+    override val isDiscovering:  StateFlow<Boolean> = _isDiscovering.asStateFlow()
     init {
-        logger.warn { "WARNING. a LocalNetwork class has been created. If this is for a unit" +
-                " test or local debugging this log can be ignored" }
+        logger.warn {
+            "LocalNetwork created — if this is a unit test or local debug session this warning can be ignored"
+        }
     }
 
-    private val _currentSessionId = MutableStateFlow<String?>(null)
-    override val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
+    // -------------------------------------------------------------------------
+    // Network interface — reactive state
+    // -------------------------------------------------------------------------
 
-    // ---- Network interface reactive state/events ----
-    private val _state = MutableStateFlow<NetworkState>(NetworkState.Idle)
+    private val _state  = MutableStateFlow<NetworkState>(NetworkState.Idle)
     override val state: StateFlow<NetworkState> = _state.asStateFlow()
 
     private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64, replay = 1)
     override val events: SharedFlow<NetworkEvent> = _events.asSharedFlow()
 
-    // discovered networks output
-    private val _discoveredNetworks = MutableSharedFlow<String>(extraBufferCapacity = 64)
-    override val discoveredNetworks: Flow<String> = _discoveredNetworks.asSharedFlow()
+    // -------------------------------------------------------------------------
+    // Instance state
+    // -------------------------------------------------------------------------
 
-    // ---- Instance state ----
-    private var isScanning = false
-    private var isAdvertising = false
+    /** This node's current endpoint ID — set by init() */
+    private var localEndpointId: String? = null
 
-    private var client: Client? = null
-    private var config: Network.Config? = null
+    private var isScanning    = false
 
-    /**
-     *  network id this client is currently joined to (or hosting). TODO: Move to [currentSessionId]
-     *  @see [currentSessionId]
-     *  */
-    //private var currentNetworkId: String? = null
-
-    /** Message listeners */
     private val listeners = mutableListOf<(Message) -> Unit>()
 
-    /** replyTo waiters: requestMessageId -> deferred(replyMessage) */
-    private val replyWaiters = ConcurrentHashMap<String, CompletableDeferred<Message>>()
-
-    /** 
-     * Session-specific encryption key. 
-     * In the real app, this would be managed by [Manager]. 
-     * In the emulator, each virtual device (LocalNetwork instance) stores its own view of the key.
+    /**
+     * Set by Client. Called when a remote endpoint wants to connect to us.
+     * Returns true to accept, false to reject.
+     * Defaults to reject-all until Client wires it up.
      */
-    private var sessionKey: ByteArray? = null
+    override var onConnectionRequest: suspend (endpointId: String, encodedName: String) -> Boolean =
+        { _, _ -> false }
 
-    override fun init(client: Client, config: Network.Config) {
-        this.client = client
-        this.config = config
-        _state.value = NetworkState.Idle
-        logger.debug { "${client.id} initialized the LocalNetwork" }
-    }
+    // -------------------------------------------------------------------------
+    // Lifecycle
+    // -------------------------------------------------------------------------
 
     /**
-     * Cleans up all active connections, stops advertising, and stops discovery.
+     * Initialise this network instance with the local endpoint's identity.
+     * Should be called whenever the local identity changes (e.g. role promotion).
      */
-    override fun shutdown() {
-        // If joined, leave
-        runCatching { leave() }
-
-        stopAdvertising()
-
-        isScanning = false
+    override fun init(localEndpointId: String, config: Network.Config) {
+        this.localEndpointId = localEndpointId
         _state.value = NetworkState.Idle
+        logger.debug { "LocalNetwork initialised with endpointId=$localEndpointId" }
+    }
 
-        // fail any waiters
-        replyWaiters.values.forEach { d ->
-            logger.debug { "${client?.id}. SUSPENDED reply waiter ${d.key}" }
-            if (!d.isCompleted) d.completeExceptionally(RuntimeException("Network shutdown"))
+    override fun shutdown() {
+        stopAdvertising()
+        isScanning = false
+
+        // Remove ourselves from the shared node registry
+        val id = localEndpointId
+        if (id != null) {
+            val node = InMemoryNetworkHolder.getNode(id)
+            if (node != null) {
+                // Notify all connected peers that we have disconnected
+                node.connections.toList().forEach { peerId ->
+                    val peer = InMemoryNetworkHolder.getNode(peerId)
+                    peer?.network?.receiveDisconnect(id)
+                }
+                InMemoryNetworkHolder.removeNode(id)
+            }
         }
-        replyWaiters.clear()
 
         listeners.clear()
-        client = null
-        config = null
-        _currentSessionId.value = null
-        sessionKey = null
-
-        logger.debug { "Network has been shutdown" }
+        localEndpointId = null
+        _state.value = NetworkState.Idle
+        logger.debug { "LocalNetwork shut down" }
     }
 
-    // ------------------ Scan ------------------
+    // -------------------------------------------------------------------------
+    // Advertising
+    // -------------------------------------------------------------------------
 
-    override suspend fun startScan() {
-        logger.debug { "${client?.id} started scan" }
-        isScanning = true
-        _state.value = NetworkState.Scanning
+    override fun startAdvertising(encodedName: String) {
+        val id = requireLocalEndpointId()
+        _isAdvertising.value = true
 
-        // Emit current networks immediately
-        InMemoryNetworks.listNetworkIds().forEach { id ->
-            if(!InMemoryNetworks.getNetworkById(id)!!.advertisedBy.isEmpty()) {
-                logger.debug { "${client?.id} found network. Id=${id}" }
-                _discoveredNetworks.tryEmit(id)
-            }
+        // Register or update our node in the shared holder
+        val existing = InMemoryNetworkHolder.getNode(id)
+        if (existing != null) {
+            existing.isAdvertising  = true
+            existing.encodedName    = encodedName
+        } else {
+            InMemoryNetworkHolder.addNode(
+                InMemoryNetworkPeer(
+                    endpointId    = id,
+                    encodedName   = encodedName,
+                    isAdvertising = true,
+                    isDiscovering = false,
+                    connections   = mutableListOf(),
+                    network       = this
+                )
+            )
         }
 
-        // Optional: keep polling while scanning so new networks appear
-        while (isScanning) {
-            delay(750)
-            InMemoryNetworks.listNetworkIds().forEach { id ->
-                if(!InMemoryNetworks.getNetworkById(id)!!.advertisedBy.isEmpty()) {
-                    logger.debug { "${client?.id} found network. Id=${id}" }
-                    _discoveredNetworks.tryEmit(id)
-                }
-            }
-        }
+        _state.value = NetworkState.Advertising
+        logger.debug { "$id started advertising as '$encodedName'" }
     }
 
-    /**
-     * Discontinues the search for new nearby devices.
-     */
-    override suspend fun stopScan() {
-        logger.debug { "${client?.id} stopped scanning." }
-        isScanning = false
-        if (_state.value is NetworkState.Scanning) {
+    override fun stopAdvertising() {
+        val id = localEndpointId ?: return
+        _isAdvertising.value = false
+        InMemoryNetworkHolder.getNode(id)?.isAdvertising = false
+
+        if (_state.value is NetworkState.Advertising) {
             _state.value = NetworkState.Idle
         }
+        logger.debug { "$id stopped advertising" }
     }
 
-    // ------------------ Join / Leave ------------------
+    // -------------------------------------------------------------------------
+    // Discovery
+    // -------------------------------------------------------------------------
 
-    override suspend fun join(sessionId: String): Peer {
+    override suspend fun startDiscovery() {
+        if (isScanning) return
+        // Discovery is a passive listen — we do not need a local identity to
+        // observe what others are advertising. localEndpointId may be null here
+        // if joinNetwork() calls us before init() (which is the correct order:
+        // discover first, then adopt an identity once we know the topology).
+        val id = localEndpointId   // nullable — used only for self-exclusion
+        isScanning = true
 
-        val c = requireClient()
-        logger.debug { "${c.id} is attempting to join $sessionId" }
-        val net = InMemoryNetworks.getNetworkById(sessionId)
-            ?: throw Error("Network '$sessionId' not found")
-
-        _state.value = NetworkState.Joining(sessionId)
-
-        // Pick random router to connect to
-        val r = net.connectedClients.filter { it.value.client.type == ClientType.ROUTER }
-        val router = net.connectedClients[r.keys.random()]
-        val routerPeer = Peer(
-            router!!.client.id,
-            router.client.id
-        )
-
-        logger.debug { "${c.id} is attempting to attach to ${routerPeer.endpointId}" }
-
-        // IMPORTANT: Set session ID before adding client so that any immediate 
-        // messages (like KEY_EXCHANGE replies) can find the network.
-        _currentSessionId.value = sessionId
-
-        // Register this client in the network, connecting to master/router by default
-        net.addClient(
-            client = c,
-            network = this,
-            routerPeer
-        )
-
-        _state.value = NetworkState.Joined(sessionId, routerPeer)
-        _events.tryEmit(NetworkEvent.Joined(sessionId, routerPeer))
-        _events.tryEmit(NetworkEvent.PeerConnected(routerPeer))
-        logger.debug { "${c.id} joined network ${net.id} through ${routerPeer.endpointId}" }
-        return routerPeer
-    }
-
-    /**
-     * Gracefully disconnects from all currently connected peers.
-     */
-    override fun leave() {
-        val c = requireClient()
-        val net = requireNet()
-        logger.debug { "${c.id} is leaving network ${currentSessionId.value}" }
-        net.removeClient(c.id)
-
-        _currentSessionId.value = null
-        _state.value = NetworkState.Idle
-        sessionKey = null
-
-        logger.debug { "${c.id} emitting PeerDisconnected(${c.id}) event" }
-        _events.tryEmit(NetworkEvent.PeerDisconnected(c.id))
-    }
-
-    // ------------------ Host / Delete ------------------
-
-    override suspend fun create(eventName: String) {
-        val c = requireClient()
-
-        val created = InMemoryNetworks.createNetwork(
-            id = eventName,
-            masterClient = c,
-            masterNetwork = this
-        )
-
-        _currentSessionId.value = created.id
-
-        // Host generates the session key
-        Manager.reset()
-        Manager.init()
-        sessionKey = Manager.getKey()
-        logger.debug { "${c.id} generated session key as Host" }
-
-        startAdvertising()
-
-        logger.debug { "${c.id} emitting a NetworkState.Hosting(${created.id}) event" }
-        _state.value = NetworkState.Hosting(created.id)
-    }
-
-    /**
-     * Stops making this device visible to scanners.
-     */
-    override suspend fun deleteNetwork() {
-        val c = requireClient()
-        val net = requireNet()
-
-        if (net.masterClient.id != c.id) {
-            throw Error("Only the network owner can delete the network")
-        }
-        logger.debug { "Starting network deletion process for ${net.id}" }
-        // disconnect everyone
-        net.connectedClients.keys.toList().forEach { clientId ->
-            logger.debug { "REMOVING ${clientId} from Network ${net.id}" }
-            net.removeClient(clientId)
-        }
-
-        InMemoryNetworks.deleteNetwork(net.id)
-        logger.debug { "Network ${net.id} deleted" }
-
-        _currentSessionId.value = null
-        isAdvertising = false
-        _state.value = NetworkState.Idle
-        sessionKey = null
-    }
-
-    // ------------------ Messaging ------------------
-
-    override fun sendMessage(to: String, message: Message) {
-        val c = requireClient()
-        val net = requireNet()
-
-        // --- SECURITY: Encrypt Data if it's a Text Message and Session Key is available ---
-        var securedMessage = message
-        val key = sessionKey
-        if (message.type == MessageType.TEXT_MESSAGE && key != null && message.data != null) {
-            try {
-                val encryptedData = Crypto.encryptMessage(message.data, key)
-                securedMessage = message.copy(data = encryptedData)
-                logger.debug { "Message encrypted before sending" }
-            } catch (e: Exception) {
-                logger.error(e) { "Failed to encrypt message" }
+        // Register ourselves in the holder only if we already have an identity,
+        // so the isDiscovering flag is visible to other nodes if needed.
+        if (id != null) {
+            val existing = InMemoryNetworkHolder.getNode(id)
+            if (existing != null) {
+                existing.isDiscovering = true
+            } else {
+                InMemoryNetworkHolder.addNode(
+                    InMemoryNetworkPeer(
+                        endpointId    = id,
+                        encodedName   = id,
+                        isAdvertising = false,
+                        isDiscovering = true,
+                        connections   = mutableListOf(),
+                        network       = this
+                    )
+                )
             }
         }
 
-        net.sendMessage(fromClientId = c.id, toClientId = to, message = securedMessage)
+        _state.value = NetworkState.Discovering
 
-        logger.debug { "${c.id} sent message to $to. Message type = ${securedMessage.type}. Id=${securedMessage.id}" }
-    }
+        // Emit currently advertising nodes immediately, excluding ourselves
+        // if we have an identity (avoids self-discovery after init is called).
+        InMemoryNetworkHolder.allNodes()
+            .filter { it.isAdvertising && it.endpointId != id }
+            .forEach { node ->
+                logger.debug { "${id ?: "unidentified"} discovered ${node.endpointId}" }
+                _events.tryEmit(
+                    NetworkEvent.EndpointDiscovered(node.endpointId, node.encodedName)
+                )
+            }
 
-    override suspend fun sendMessageAndWait(
-        to: String,
-        message: Message,
-        timeoutMillis: Long
-    ): Message? {
-        requireNet()
-
-        // Register waiter BEFORE sending
-        val deferred = CompletableDeferred<Message>()
-        replyWaiters[message.id] = deferred
-
-        // Send request
-        sendMessage(to, message)
-
-        return try {
-            withTimeout(timeoutMillis) { deferred.await() }
-        } catch (_: TimeoutCancellationException) {
-            replyWaiters.remove(message.id)
-            null
-        } finally {
-            // If completed, it was removed in onReceive; if not, remove now.
-            replyWaiters.remove(message.id)
+        // Keep polling so newly advertising nodes are also discovered.
+        // Re-read localEndpointId on each tick — it may have been set by
+        // init() while we were already scanning.
+        while (isScanning) {
+            delay(750)
+            val currentId = localEndpointId
+            InMemoryNetworkHolder.allNodes()
+                .filter { it.isAdvertising && it.endpointId != currentId }
+                .forEach { node ->
+                    _events.tryEmit(
+                        NetworkEvent.EndpointDiscovered(node.endpointId, node.encodedName)
+                    )
+                }
         }
     }
 
+    override suspend fun stopDiscovery() {
+        val id = localEndpointId
+        isScanning = false
+        if (id != null) {
+            InMemoryNetworkHolder.getNode(id)?.isDiscovering = false
+        }
+
+        if (_state.value is NetworkState.Discovering) {
+            _state.value = NetworkState.Idle
+        }
+        logger.debug { "${id ?: "unidentified"} stopped discovery" }
+    }
+
+    // -------------------------------------------------------------------------
+    // Connections
+    // -------------------------------------------------------------------------
+
     /**
-     * Called by the in-memory network to deliver messages to this client instance.
+     * Initiate a connection request to [endpointId].
+     *
+     * Calls [onConnectionRequest] on the remote side. If accepted, wires up the
+     * bidirectional connection and fires [NetworkEvent.EndpointConnected] on both sides.
+     * If rejected, fires [NetworkEvent.ConnectionRejected] on this side only.
      */
-    fun onReceive(message: Message) {
-        val c = requireClient()
+    override suspend fun connect(endpointId: String) {
+        val localId  = requireLocalEndpointId()
+        val remote   = InMemoryNetworkHolder.getNode(endpointId)
+            ?: throw IllegalStateException("Endpoint $endpointId not found in network")
 
-        logger.debug { "${client?.id} received message on local network by ${message.from}. Type=${message.type}. Id=${message.id}" }
-
-        // --- SECURITY: Handle Key Exchange ---
-        if (message.type == MessageType.KEY_EXCHANGE && message.data != null) {
-            logger.debug { "${c.id} received KEY_EXCHANGE message. Updating session key." }
-            sessionKey = message.data
-            // Sync with real Manager singleton for UI/ViewModels
-            Manager.reset()
-            Manager.init(message.data)
-            
-            // Confirm to Host
-            sendMessage(message.from, message.createReply(c.id, MessageType.SESSION_ESTABLISHED, null, 5))
+        // Apply chaos config — randomly fail connection attempts
+        if (chaos.connectionFailureRate > 0.0 && Math.random() < chaos.connectionFailureRate) {
+            logger.debug { "CHAOS: connection from $localId to $endpointId failed" }
+            _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
             return
         }
 
-        // --- SECURITY: Decrypt Data if it's a Text Message and Session Key is available ---
-        var processedMessage = message
-        val key = sessionKey
-        if (message.type == MessageType.TEXT_MESSAGE && key != null && message.data != null) {
-            try {
-                val decryptedData = Crypto.decryptMessage(message.data, key)
-                processedMessage = message.copy(data = decryptedData)
-                logger.debug { "Message decrypted after receiving" }
-            } catch (e: Exception) {
-                logger.warn(e) { "Failed to decrypt message (maybe it wasn't encrypted?)" }
-            }
+        // Ask the remote side whether it accepts
+        val accepted = remote.network.onConnectionRequest(localId, localId)
+        //                                                           ^ we pass our own endpointId
+        //                                                             as the encoded name here since
+        //                                                             in LocalNetwork the endpointId
+        //                                                             IS the encoded name
+
+        if (!accepted) {
+            logger.debug { "$endpointId rejected connection from $localId" }
+            _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
+            return
         }
 
-        // Complete request/response waiter if this is a reply
-        val replyTo = processedMessage.replyTo
-        if (!replyTo.isNullOrBlank()) {
-            replyWaiters.remove(replyTo)?.let { deferred ->
-                logger.debug { "Completing waiter for $replyTo" }
-                if (!deferred.isCompleted) deferred.complete(processedMessage)
-            }
-        }
+        // Wire up bidirectional connection in the shared holder
+        val localNode = InMemoryNetworkHolder.getOrCreateNode(localId, this)
 
-        // Legacy listeners
-        notifyListeners(processedMessage)
+        if (localNode.connections.contains(endpointId)) return
 
-        logger.debug { "${c.id} emitting NetworkEvent.MessageReceived()" }
-        // Event stream
-        _events.tryEmit(NetworkEvent.MessageReceived(processedMessage))
+        localNode.connections.add(endpointId)
+        remote.connections.add(localId)
+
+        // Notify both sides
+        _events.tryEmit(NetworkEvent.EndpointConnected(endpointId, remote.encodedName))
+        remote.network._events.tryEmit(NetworkEvent.EndpointConnected(localId, localId))
+
+        logger.debug { "$localId connected to $endpointId" }
+    }
+
+    override fun disconnect(endpointId: String) {
+        val localId = localEndpointId ?: return
+
+        val localNode  = InMemoryNetworkHolder.getNode(localId)  ?: return
+        val remoteNode = InMemoryNetworkHolder.getNode(endpointId) ?: return
+
+        localNode.connections.remove(endpointId)
+        remoteNode.connections.remove(localId)
+
+        // Notify both sides
+        _events.tryEmit(NetworkEvent.EndpointDisconnected(endpointId))
+        remoteNode.network._events.tryEmit(NetworkEvent.EndpointDisconnected(localId))
+
+        logger.debug { "$localId disconnected from $endpointId" }
     }
 
     /**
-     * Registers a callback to be invoked when a message is received from a peer.
+     * Called internally when a remote peer disconnects us (not via our own disconnect() call).
      */
+    internal fun receiveDisconnect(fromEndpointId: String) {
+        val localId = localEndpointId ?: return
+        InMemoryNetworkHolder.getNode(localId)?.connections?.remove(fromEndpointId)
+        _events.tryEmit(NetworkEvent.EndpointDisconnected(fromEndpointId))
+        logger.debug { "$localId received disconnect from $fromEndpointId" }
+    }
+
+    // -------------------------------------------------------------------------
+    // Messaging
+    // -------------------------------------------------------------------------
+
+    /** In LocalNetwork, encoded name == hardware endpoint ID — identity lookup. */
+    override fun encodedNameToHardwareId(encodedName: String): String? {
+        val id = localEndpointId ?: return null
+        val localNode = InMemoryNetworkHolder.getNode(id) ?: return null
+        return if (localNode.connections.contains(encodedName)) encodedName else null
+    }
+
+    override fun sendMessage(endpointId: String, message: Message) {
+        val localId   = requireLocalEndpointId()
+        val localNode = InMemoryNetworkHolder.getNode(localId)
+            ?: throw IllegalStateException("$localId is not registered in the network")
+
+        if (!localNode.connections.contains(endpointId)) {
+            throw IllegalStateException("$localId is not connected to $endpointId")
+        }
+
+        val remote = InMemoryNetworkHolder.getNode(endpointId)
+            ?: throw IllegalStateException("Endpoint $endpointId not found")
+
+        // Apply chaos config — randomly drop messages
+        if (chaos.messageDropRate > 0.0 && Math.random() < chaos.messageDropRate) {
+            logger.debug { "CHAOS: dropped message ${message.id} from $localId to $endpointId" }
+            return
+        }
+
+        // Apply latency if configured
+        if (chaos.minLatencyMs > 0) {
+            scope.launch {
+                val latency = (chaos.minLatencyMs..chaos.maxLatencyMs).random()
+                delay(latency)
+                remote.network.receiveMessage(message)
+            }
+        } else {
+            remote.network.receiveMessage(message)
+        }
+        if(!messageTypeLogIgnoreList.contains(message.type)) {
+            logger.debug { "$localId sent ${message.type} to $endpointId (id=${message.id})" }
+        }
+    }
+
+    /**
+     * Called internally when a message arrives at this node.
+     */
+    internal fun receiveMessage(message: Message) {
+        // Ignore logs for certian message types
+        if(!messageTypeLogIgnoreList.contains(message.type)) {
+            logger.debug { "$localEndpointId received ${message.type} from ${message.from}" }
+        }
+        notifyListeners(message)
+        _events.tryEmit(NetworkEvent.MessageReceived(message))
+    }
+
     override fun addListener(listener: (Message) -> Unit) {
         listeners.add(listener)
     }
 
-    /**
-     * Forwards a received message to all registered listeners (usually the Client).
-     */
+    override fun removeListener(listener: (Message) -> Unit) {
+        listeners.remove(listener)
+    }
+
     override fun notifyListeners(message: Message) {
         listeners.forEach { it.invoke(message) }
     }
 
-    // ------------------ Advertising  ------------------
+    // -------------------------------------------------------------------------
+    // Debug helpers
+    // -------------------------------------------------------------------------
 
-    override fun startAdvertising() {
-        val net = requireNet()
-        val c = requireClient()
-        isAdvertising = true
-        net.startAdvertising(Peer(c.id, c.id))
-
-        logger.debug { "${c.id} started advertising on ${net.id}" }
-    }
-
-    override fun stopAdvertising() {
-        val net = requireNet()
-        val c = requireClient()
-
-        isAdvertising = false
-        net.stopAdvertising(Peer(c.id, c.id))
-
-        logger.debug { "${c.id} stopped advertising on ${net.id}" }
-    }
-
-    override fun onPeerConnect(peer: Peer) {
-        val c = requireClient()
-        logger.debug { "${c.id} connected to peer ${peer.endpointId}" }
-        
-        // --- SECURITY: Host shares key with new peers ---
-        if (sessionKey != null && c.type == ClientType.ROUTER) {
-            logger.debug { "${c.id} (Host/Router) sharing session key with ${peer.endpointId}" }
-            val keyMessage = Message(
-                to = peer.endpointId,
-                from = c.id,
-                type = MessageType.KEY_EXCHANGE,
-                data = sessionKey,
-                ttl = 5
-            )
-            sendMessage(peer.endpointId, keyMessage)
-        }
-
-        _events.tryEmit(NetworkEvent.PeerConnected(peer))
-    }
-
-    override fun onPeerDisconnect(peer: Peer) {
-        logger.debug { "${client?.id} disconnected to peer ${peer.endpointId}" }
-        _events.tryEmit(NetworkEvent.PeerDisconnected(peer.endpointId))
-    }
-
-    // ------------------ Helper Methods ------------------
-
-    /**
-     * This method will return the current client and throw an error when the client is not
-     * present or is null
-     *
-     * @exception IllegalStateException if [client] is null
-     */
-    private fun requireClient(): Client {
-        return client ?: throw IllegalStateException("Client is required for this operation")
-    }
-
-    /**
-     *  This method will return the current network and throw an error when the network does not
-     *  exist, or if the client is not on a network
-     *
-     *  @exception IllegalStateException if [currentSessionId] is null or [InMemoryNetworks.getNetworkById] returns null
-     *
-     */
-    private fun requireNet(): InMemoryNetworks.InMemoryNetwork {
-        val netId = currentSessionId.value ?: throw IllegalStateException("Client is not in a network")
-        return InMemoryNetworks.getNetworkById(netId) ?: throw IllegalStateException("Network is required for this operation")
-    }
-
-    // ------------------ Debug Methods ------------------
-
-    /**
-     * Returns a string representing a graph of the network. It does not build a top-level
-     * overview of the network, instead prints every client and who they are connected to
-     *
-     * Note: This method is only for testing
-     */
     @VisibleForTesting
-    fun prettyPrintNetworkGraph(): String {
-        val netId = currentSessionId.value ?: throw Error("Client is not in a network")
-        val net = InMemoryNetworks.getNetworkById(netId) ?: return "Network not found"
-
+    fun prettyPrintConnections(): String {
+        val id = localEndpointId ?: return "Not initialised"
+        val node = InMemoryNetworkHolder.getNode(id) ?: return "Not registered"
         val sb = StringBuilder()
-
-        sb.appendLine("===================================")
-        sb.appendLine("Network Graph: $netId")
-        sb.appendLine("Master: ${net.masterClient.id}")
-        sb.appendLine("===================================")
-
-        for ((clientId, connectedClient) in net.connectedClients) {
-            sb.appendLine(clientId)
-
-            if (connectedClient.connectedTo.isEmpty()) {
-                sb.appendLine("  (no connections)")
-            } else {
-                for (neighbor in connectedClient.connectedTo) {
-                    sb.appendLine("  └── $neighbor")
-                }
-            }
-
-            sb.appendLine()
-        }
-
+        sb.appendLine("=== $id ===")
+        sb.appendLine("Advertising : ${node.isAdvertising}")
+        sb.appendLine("Discovering : ${node.isDiscovering}")
+        sb.appendLine("Connections :")
+        node.connections.forEach { sb.appendLine("  └── $it") }
         return sb.toString()
     }
 
-    companion object {
-        val logger = KotlinLogging.logger {  }
+    // -------------------------------------------------------------------------
+    // Guards
+    // -------------------------------------------------------------------------
+
+    private fun requireLocalEndpointId(): String =
+        localEndpointId ?: error("LocalNetwork has not been initialised — call init() first")
+
+    // =========================================================================
+    // Shared in-memory state
+    // =========================================================================
+
+    /**
+     * Represents one physical device in the simulated network.
+     */
+    data class InMemoryNetworkPeer(
+        val endpointId:    String,
+        var encodedName:   String,
+        var isAdvertising: Boolean,
+        var isDiscovering: Boolean,
+        val connections:   MutableList<String>,
+        val network:       LocalNetwork
+    )
+
+    /**
+     * Global registry of all simulated devices.
+     * Shared across all [LocalNetwork] instances in the same process,
+     * simulating the shared physical medium.
+     */
+    object InMemoryNetworkHolder {
+        private val nodes = mutableListOf<InMemoryNetworkPeer>()
+
+        fun allNodes():                    List<InMemoryNetworkPeer> = nodes.toList()
+        fun getNode(endpointId: String):   InMemoryNetworkPeer?      = nodes.find { it.endpointId == endpointId }
+        fun addNode(peer: InMemoryNetworkPeer)                       { if (getNode(peer.endpointId) == null) nodes.add(peer) }
+        fun removeNode(endpointId: String)                           { nodes.removeIf { it.endpointId == endpointId } }
+
+        fun getOrCreateNode(endpointId: String, network: LocalNetwork): InMemoryNetworkPeer {
+            return getNode(endpointId) ?: InMemoryNetworkPeer(
+                endpointId    = endpointId,
+                encodedName   = endpointId,
+                isAdvertising = false,
+                isDiscovering = false,
+                connections   = mutableListOf(),
+                network       = network
+            ).also { addNode(it) }
+        }
+
+        /** Clears all state — call in @Before/@After in tests */
         fun purge() {
-            logger.debug { "Purging InMemoryNetwork" }
-            InMemoryNetworks.purgeNetworks()
+            nodes.clear()
         }
-        /**
-         * Generates a example network with the [networkId] as the title, and [numRouters] of routers
-         * and [numClients] of clients. If you want a specific client to be the master client
-         * (i.e. user who created the network) pass it as the [masterClient]. If passing a [masterClient]
-         * you must also pass a [network]
-         *
-         * This will NOT call the [Client.joinNetwork] methods or any methods
-         * that get called when a client joins, instead it will manually add clients to random routers
-         */
-        fun generateMockNetwork(
-            networkId: String,
-            numRouters: Int,
-            numClients: Int,
-            masterClient: Client = Client("MASTER", ClientType.ROUTER),
-            network: LocalNetwork = LocalNetwork()
-        ) {
-            logger.atDebug {
-                message = "Generating mock network"
-                payload = mapOf(
-                    "Class" to "LocalNetwork",
-                    "Title" to "GenerateMockNetwork",
-                    "ID" to networkId,
-                    "numRouters" to numRouters,
-                    "numClients" to numClients,
-                    "masterClientId" to masterClient.id,
-                    "masterClientType" to masterClient.type.toString()
-                )
-            }
-            // Create network with master
-            val net = InMemoryNetworks.createNetwork(networkId, masterClient, network)
-            network._currentSessionId.value = net.id
-
-            // Keep references to all router ConnectedClients (including master)
-            val routerIds = mutableListOf<String>()
-            routerIds.add(masterClient.id)
-
-            // Create routers
-            for (i in 0 until numRouters) {
-                val n = LocalNetwork()
-                val routerClient = Client("ROUTER$i", ClientType.ROUTER)
-                routerClient.attachNetwork(n, Network.Config(5))
-                n._currentSessionId.value = net.id
-
-                // Add router connected to MASTER (guarantees connectivity)
-                val masterPeer = Peer(masterClient.id, masterClient.id)
-                net.addClient(routerClient, n, masterPeer)
-
-                // Make sure this router knows it is connected to master
-                routerClient.manuallyAddPeer(masterPeer, true)
-                routerClient.manuallyListenToEvents()
-
-                routerIds.add(routerClient.id)
-            }
-
-            // Ensure every router connects to every other router (both directions)
-            for (a in routerIds.indices) {
-                for (b in (a + 1) until routerIds.size) {
-                    val aId = routerIds[a]
-                    val bId = routerIds[b]
-
-                    val aConn = net.connectedClients[aId] ?: continue
-                    val bConn = net.connectedClients[bId] ?: continue
-
-                    // Update adjacency sets
-                    aConn.connectedTo.add(bId)
-                    bConn.connectedTo.add(aId)
-
-                    // Notify both network instances (so events fire + peer lists update)
-                    aConn.network.onPeerConnect(Peer(bId, bId))
-                    bConn.network.onPeerConnect(Peer(aId, aId))
-                }
-            }
-
-            // Create leaves (EXACTLY numClients)
-            for (i in 0 until numClients) {
-                val n = LocalNetwork()
-                val leafClient = Client("LEAF$i", ClientType.LEAF)
-                leafClient.attachNetwork(n, Network.Config(5))
-                n._currentSessionId.value = net.id
-
-                // Connect leaf to a random router
-                val routerId = routerIds.random()
-                val routerPeer = Peer(routerId, routerId)
-
-                net.addClient(leafClient, n, routerPeer)
-
-                // Leaf knows it is connected to that router
-                leafClient.manuallyAddPeer(routerPeer)
-                leafClient.manuallyListenToEvents()
-            }
-        }
-
-
     }
 
-    // ------------------ In Memory Networks ------------------
+    companion object {
+        private val logger = KotlinLogging.logger {}
 
-    private object InMemoryNetworks {
-
-        private val networks = mutableMapOf<String, InMemoryNetwork>()
-
-        fun listNetworkIds(): List<String> = networks.keys.toList()
-
-        fun getNetworkById(id: String): InMemoryNetwork? = networks[id]
-
-        /**
-         * Creates a network with the [id] and a [masterClient] as the user who created it
-         *
-         * @return the [InMemoryNetwork] instance with ONLY the [masterClient]
-         */
-        fun createNetwork(id: String, masterClient: Client, masterNetwork: LocalNetwork): InMemoryNetwork {
-            if (networks.containsKey(id)) throw Error("Network '$id' already exists")
-            val net = InMemoryNetwork(id, masterClient)
-            networks[id] = net
-
-            // Add master as connected client (self)
-            net.connectedClients[masterClient.id] = InMemoryNetwork.ConnectedClient(masterClient, masterNetwork)
-            return net
+        /** Convenience purge for tests */
+        fun purge() {
+            logger.debug { "Purging InMemoryNetworkHolder" }
+            InMemoryNetworkHolder.purge()
         }
 
-        /**
-         * Deletes the network with the [id]
-         */
-        fun deleteNetwork(id: String) {
-            networks.remove(id)
-        }
 
-        /**
-         * This method will destroy all instances of [InMemoryNetwork]. If other [Client]'s are
-         * created, this will not purge them
-         */
-        fun purgeNetworks() {
-            networks.clear()
-        }
+        fun displayNetworkGraph() {
+            val nodes = InMemoryNetworkHolder.allNodes()
 
-        class InMemoryNetwork(val id: String, val masterClient: Client) {
-            val advertisedBy = mutableListOf<Peer>()
-            data class ConnectedClient(
-                val client: Client,
-                val network: LocalNetwork,
-                val connectedTo: MutableSet<String> = mutableSetOf()
-            )
-
-            val connectedClients = mutableMapOf<String, ConnectedClient>()
-
-            /**
-             * Adds a [client] and attaches it to a [peer]
-             */
-            fun addClient(client: Client, network: LocalNetwork, peer: Peer) {
-                if (connectedClients.containsKey(client.id)) return
-
-                if (!connectedClients.containsKey(peer.endpointId)) {
-                    throw Error("Peer does not exist on the network")
+            // Collect unique undirected edges — skip B→A if A→B already recorded
+            val seen  = mutableSetOf<Pair<String, String>>()
+            val edges = mutableListOf<Pair<String, String>>()
+            for (node in nodes) {
+                for (conn in node.connections) {
+                    val key = if (node.endpointId < conn)
+                        node.endpointId to conn else conn to node.endpointId
+                    if (seen.add(key)) edges.add(node.endpointId to conn)
                 }
-                val peerConnected = connectedClients[peer.endpointId]
-
-                val cc = ConnectedClient(client = client, network = network)
-                connectedClients[client.id] = cc
-
-                // Connect to peer
-                peerConnected!!.connectedTo.add(cc.client.id)
-                connectedClients[client.id]?.connectedTo?.add(peerConnected.client.id)
-
-                // Call event on the connected client
-                peerConnected.network.onPeerConnect(Peer(client.id, client.id))
-
             }
 
-            /**
-             * Removes a client via the [clientId] from the network
-             *
-             * This will emmit a [NetworkEvent.PeerDisconnected] on the client
-             */
-            fun removeClient(clientId: String) {
-                val removed = connectedClients.remove(clientId) ?: return
+            // Extract short display name from encoded N: field, or fall back to full id
+            fun shortName(id: String): String =
+                Regex("N:([^|]+)").find(id)?.groupValues?.get(1) ?: id
 
-                // Remove edges pointing to this client
-                connectedClients.values.forEach { it.connectedTo.remove(clientId) }
+            val sb    = StringBuilder()
+            val width = 56
 
-                // Notify owner/client via events if desired
-                removed.network._events.tryEmit(NetworkEvent.PeerDisconnected(clientId))
-            }
+            sb.appendLine("┌─ Network Graph (${nodes.size} nodes, ${edges.size} edges) ${"─".repeat(width)}".take(width + 2) + "┐")
 
-            /**
-             * Returns True if the [fromId] client is connected to the [toId] client
-             */
-            fun isConnected(fromId: String, toId: String): Boolean {
-                val from = connectedClients[fromId] ?: return false
-                return from.connectedTo.contains(toId) || fromId == toId
-            }
-
-            /**
-             * Sends a [message] to the [toClientId] client.
-             *
-             * @exception Error when [isConnected] returns false
-             */
-            fun sendMessage(fromClientId: String, toClientId: String, message: Message) {
-                if (!isConnected(fromClientId, toClientId)) throw Error("$fromClientId not connected to $toClientId")
-                val target = connectedClients[toClientId] ?: return
-                target.network.onReceive(message)
-            }
-
-            /**
-             * Starts advertising this network. This method will NOT throw an error if the user
-             * is already advertising
-             */
-            fun startAdvertising(peer: Peer) {
-                // Check if user is already advertising
-                if(advertisedBy.any { p -> p == peer }) {
-                    return;
+            // ── Nodes ──
+            sb.appendLine("│  Nodes")
+            if (nodes.isEmpty()) {
+                sb.appendLine("│    (none)")
+            } else {
+                for (node in nodes) {
+                    val flags = buildString {
+                        append(if (node.isAdvertising)          "A" else " ")
+                        append(if (node.isDiscovering)          "D" else " ")
+                        append(if (node.connections.isNotEmpty()) "C" else " ")
+                    }
+                    sb.appendLine("│    [$flags] ${node.endpointId}")
                 }
-
-                advertisedBy.add(peer)
             }
 
-            /**
-             * Stops advertising this network. This method will NOT throw an error if the user
-             * is not advertising
-             */
-            fun stopAdvertising(peer: Peer) {
-                // Check if user is not advertising
-                if(!advertisedBy.any { p -> p == peer }) {
-                    return;
+            // ── Edges ──
+            sb.appendLine("│  Edges")
+            if (edges.isEmpty()) {
+                sb.appendLine("│    (none)")
+            } else {
+                val maxLen = edges.maxOf { shortName(it.first).length }
+                for ((a, b) in edges) {
+                    val left  = shortName(a).padEnd(maxLen)
+                    val right = shortName(b)
+                    sb.appendLine("│    $left  ↔  $right")
                 }
-
-                // Remove
-                advertisedBy.removeIf { p -> p == peer }
-
             }
+
+            sb.append("└${"─".repeat(width + 1)}┘")
+
+            println(sb)
+            logger.debug { "\n$sb" }
         }
+    }
+}
+
+// =============================================================================
+// Chaos configuration
+// =============================================================================
+
+/**
+ * Controls how the [LocalNetwork] emulator misbehaves during tests.
+ * Use [NONE] for deterministic unit tests, [MILD] or [SEVERE] for resilience tests.
+ */
+data class ChaosConfig(
+    /** 0.0 = never drop, 1.0 = always drop */
+    val messageDropRate:          Double = 0.0,
+
+    /** Probability a connection attempt fails outright */
+    val connectionFailureRate:    Double = 0.0,
+
+    /** Simulated min/max latency added to message delivery */
+    val minLatencyMs:             Long   = 0,
+    val maxLatencyMs:             Long   = 0
+) {
+    companion object {
+        val NONE   = ChaosConfig()
+        val MILD   = ChaosConfig(messageDropRate = 0.05, connectionFailureRate = 0.05, minLatencyMs = 10, maxLatencyMs = 50)
+        val SEVERE = ChaosConfig(messageDropRate = 0.30, connectionFailureRate = 0.20, minLatencyMs = 50, maxLatencyMs = 300)
     }
 }

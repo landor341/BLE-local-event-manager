@@ -1,7 +1,9 @@
 package edu.uwm.cs595.goup11.frontend.core.navigation
 
+import android.content.Intent
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,6 +32,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import edu.uwm.cs595.goup11.frontend.dev.DevNetworkActivity
+import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -59,6 +65,7 @@ import edu.uwm.cs595.goup11.frontend.features.tutorial.TutorialScreen
 import edu.uwm.cs595.goup11.frontend.features.tutorial.introTutorialScreen
 import kotlinx.coroutines.launch
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun drawerItem(navigate: () -> Unit, navLabel: String) {
     NavigationDrawerItem(
