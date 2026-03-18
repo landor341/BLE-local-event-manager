@@ -14,8 +14,10 @@ import edu.uwm.cs595.goup11.backend.network.UserRole
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -154,8 +156,13 @@ interface BackendFacade {
 class DefaultBackendFacade(
     private val context: Context,
     override val myId: String = "android-client",
+
+
+    @Deprecated("Moved to topology. Client no longer manually controls this")
     private val clientType: ClientType = ClientType.LEAF,
+
     private val userRole: UserRole = UserRole.ATTENDEE, // Added to support role-based features
+
     private val useRealNearby: Boolean = false, // Sprint 3: keep false (LocalNetwork)
     private val config: Network.Config = Network.Config(defaultTtl = 5),
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
@@ -170,11 +177,14 @@ class DefaultBackendFacade(
         if (useRealNearby) ConnectNetwork(context) else LocalNetwork()
 
     /** Backend Client node. Population of role ensures it's attached to outgoing messages. */
-    private val client: Client = Client(id = myId, type = clientType, role = userRole)
+    private val client: Client = Client(displayName = myId)
 
     override val state: StateFlow<NetworkState> get() = network.state
     override val events: SharedFlow<NetworkEvent> get() = network.events
-    override val currentSessionId: StateFlow<String?> get() = network.currentSessionId
+
+    @Deprecated("No longer used")
+    override val currentSessionId: StateFlow<String?> get() = MutableStateFlow<String>("")
+
 
     /**
      * Start backend networking:
@@ -196,9 +206,8 @@ class DefaultBackendFacade(
      * So we start scan asynchronously and return the discovery flow immediately.
      */
     override fun scanNetworks(): Flow<String> {
-        // IMPORTANT:
-        // Do not block. Start scan on background coroutine.
-        scope.launch { network.startScan() }
+        //TODO: This is no longer used this way. Instead all networks are thrown as events
+        scope.launch { network.startDiscovery() }
         return network.discoveredNetworks
     }
 
