@@ -1,71 +1,103 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
+import android.content.Context
+import edu.uwm.cs595.goup11.backend.network.Client
+import edu.uwm.cs595.goup11.backend.network.ClientType
+import edu.uwm.cs595.goup11.backend.network.ConnectNetwork
+import edu.uwm.cs595.goup11.backend.network.LocalNetwork
+import edu.uwm.cs595.goup11.backend.network.Message
+import edu.uwm.cs595.goup11.backend.network.Network
+import edu.uwm.cs595.goup11.backend.network.NetworkEvent
+import edu.uwm.cs595.goup11.backend.network.NetworkState
+import edu.uwm.cs595.goup11.backend.network.Peer
 import edu.uwm.cs595.goup11.backend.network.UserRole
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
-data class DiscoveredEventSummary(
-    val sessionId: String,
-    val title: String = sessionId,
-    val venue: String = "Nearby"
-)
+interface BackendFacade {
+    val myId: String
+    val myRole: UserRole
 
-data class ItineraryItem(
-    val id: String,
-    val title: String,
-    val time: String,
-    val location: String,
-    val speaker: String? = null
-)
+    val state: StateFlow<NetworkState>
+    val events: SharedFlow<NetworkEvent>
+    val currentSessionId: StateFlow<String?>
 
-data class JoinedEventBundle(
-    val sessionId: String,
-    val title: String,
-    val venue: String,
-    val description: String,
-    val itinerary: List<ItineraryItem>
-)
+    fun start()
 
-data class ChatMessage(
-    val sessionId: String,
-    val sender: String,
-    val senderRole: UserRole = UserRole.ATTENDEE,
-    val text: String,
-    val timestampMs: Long,
-    val isMine: Boolean
-)
+    fun scanNetworks(): Flow<String>
+    suspend fun stopScan()
 
-sealed class MeshUiState {
-    data object Idle : MeshUiState()
-    data object Scanning : MeshUiState()
-    data class Joining(val sessionId: String) : MeshUiState()
-    data class InEvent(val sessionId: String) : MeshUiState()
-    data class Hosting(val sessionId: String) : MeshUiState()
-    data class Error(val reason: String) : MeshUiState()
+    suspend fun createNetwork(eventName: String)
+    suspend fun joinNetwork(sessionId: String): Peer
+
+    fun leave()
+
+    fun sendMessage(to: String, message: Message)
+
+    fun addMessageListener(listener: (Message) -> Unit)
 }
 
-/**
- * UI CONTRACT.
- * Frontend features/ViewModels MUST ONLY depend on this interface.
- * backend/network types MUST NOT leak past the gateway/facade.
- */
-interface MeshGateway {
-    val myId: String
-    val state: StateFlow<MeshUiState>
+class DefaultBackendFacade(
+    private val context: Context,
+    override val myId: String = "android-client",
+    override val myRole: UserRole = UserRole.ATTENDEE,
+    private val clientType: ClientType = ClientType.LEAF,
+    private val useRealNearby: Boolean = false,
+    private val config: Network.Config = Network.Config(defaultTtl = 5),
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
+) : BackendFacade {
 
-    val discoveredEvents: Flow<DiscoveredEventSummary>
-    val chat: Flow<ChatMessage>
+    private val network: Network =
+        if (useRealNearby) ConnectNetwork(context) else LocalNetwork()
 
-    /** Stream of log messages for developer/debug monitoring. */
-    val logs: Flow<String>
+    private val client: Client = Client(
+        id = myId,
+        type = clientType,
+        role = myRole
+    )
 
-    suspend fun start()
-    suspend fun startScanning()
-    suspend fun stopScanning()
+    private var started: Boolean = false
 
-    suspend fun hostEvent(eventName: String)
-    suspend fun joinEvent(sessionId: String): JoinedEventBundle
-    suspend fun leaveEvent()
+    override val state: StateFlow<NetworkState> get() = network.state
+    override val events: SharedFlow<NetworkEvent> get() = network.events
+    override val currentSessionId: StateFlow<String?> get() = network.currentSessionId
 
-    suspend fun sendChat(text: String)
+    override fun start() {
+        if (started) return
+        started = true
+        client.attachNetwork(network, config)
+    }
+
+    override fun scanNetworks(): Flow<String> {
+        scope.launch { network.startScan() }
+        return network.discoveredNetworks
+    }
+
+    override suspend fun stopScan() {
+        network.stopScan()
+    }
+
+    override suspend fun createNetwork(eventName: String) {
+        client.createNetwork(eventName)
+    }
+
+    override suspend fun joinNetwork(sessionId: String): Peer {
+        return client.joinNetwork(sessionId)
+    }
+
+    override fun leave() {
+        network.leave()
+    }
+
+    override fun sendMessage(to: String, message: Message) {
+        network.sendMessage(to, message)
+    }
+
+    override fun addMessageListener(listener: (Message) -> Unit) {
+        network.addListener(listener)
+    }
 }

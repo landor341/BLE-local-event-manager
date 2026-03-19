@@ -7,55 +7,17 @@ import edu.uwm.cs595.goup11.backend.network.NetworkState
 import edu.uwm.cs595.goup11.backend.network.Peer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
 
-/**
- * ==========================================================
- * RealMeshGateway — UI ↔ Backend Adapter (Sprint 3)
- * ==========================================================
- *
- * PURPOSE
- * -------
- * This gateway adapts the backend/network primitives (NetworkState, Message, Peer)
- * into UI-safe models defined in MeshGateway.kt.
- *
- * UI/ViewModels MUST NOT import backend.network.* directly.
- * They should talk ONLY to MeshGateway.
- *
- * DATA FLOW
- * ---------
- * Backend (Client/Network) ->
- *   BackendFacade ->
- *     RealMeshGateway ->
- *       ViewModels ->
- *         Compose UI
- *
- * SPRINT 3 SCOPE
- * --------------
- * - "Nearby events" are discovered session IDs (from backend scan flow).
- * - Joining uses backend.joinNetwork(sessionId) and stores returned router Peer.
- * - Chat uses MessageType.TEXT_MESSAGE with UTF-8 payload.
- * - Event details are mocked until backend supports metadata broadcast.
- *
- * IMPORTANT DESIGN NOTES
- * ----------------------
- * 1) AppContainer.init() only CONSTRUCTS dependencies.
- *    You must call mesh.start() to attach collectors and message listeners.
- *
- * 2) Some backend implementations might not immediately emit NetworkState.Scanning
- *    when scan starts (depending on how BackendFacade is implemented).
- *
- *    To ensure the UI always leaves Idle when the user taps "Discover",
- *    we set MeshUiState.Scanning optimistically inside startScanning().
- *
- * FILE MAINTAINER
- * --------------
- * Primary maintainer: Frontend integration (Labib)
- */
+
 class RealMeshGateway(
     private val backend: BackendFacade,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
@@ -63,71 +25,30 @@ class RealMeshGateway(
 
     override val myId: String get() = backend.myId
 
-    // ------------------ UI State ------------------
-
-    /**
-     * UI-facing state flow. Compose screens read this to show "Idle/Scanning/Joined/etc."
-     */
     private val _state = MutableStateFlow<MeshUiState>(MeshUiState.Idle)
     override val state: StateFlow<MeshUiState> = _state.asStateFlow()
 
-    // ------------------ UI Streams ------------------
-
-    /**
-     * UI-facing discovered events stream.
-     * Each item represents a nearby "event" (network sessionId).
-     */
     private val _discovered = MutableSharedFlow<DiscoveredEventSummary>(extraBufferCapacity = 64)
     override val discoveredEvents: Flow<DiscoveredEventSummary> = _discovered.asSharedFlow()
 
-    /**
-     * UI-facing chat stream.
-     */
     private val _chat = MutableSharedFlow<ChatMessage>(extraBufferCapacity = 256)
     override val chat: Flow<ChatMessage> = _chat.asSharedFlow()
 
     private val _logs = MutableSharedFlow<String>(extraBufferCapacity = 500)
     override val logs: Flow<String> = _logs.asSharedFlow()
 
-    // ------------------ Internal Session Tracking ------------------
-
-    /**
-     * Router returned by backend.joinNetwork(). For Sprint 3, chat is routed to this peer.
-     * Cleared when leaveEvent() is called.
-     */
     private var router: Peer? = null
-
-    /**
-     * Prevent multiple scanning collectors from being started if startScanning() is called repeatedly.
-     */
-    private var scanningCollectorStarted: Boolean = false
-
-    /**
-     * Prevent multiple start() collectors being created if start() is called multiple times.
-     * This is a common bug: every start() adds a new backend.state collector.
-     */
     private var started: Boolean = false
+    private var scanJob: Job? = null
+    private val seenSessionIds = mutableSetOf<String>()
 
-    // ------------------ Lifecycle ------------------
-
-    /**
-     * Must be called once early (e.g., in a ViewModel init or LaunchedEffect).
-     *
-     * Sets up:
-     * - backend.start()
-     * - mapping backend NetworkState -> MeshUiState
-     * - message listener -> chat stream
-     */
     override suspend fun start() {
         if (started) return
         started = true
 
-        // Starts backend components (Client/Network initialization, etc.)
         backend.start()
         log("Gateway started. ID: $myId")
 
-        // Map backend NetworkState -> UI state
-        // This keeps UI consistent when backend transitions (Idle/Scanning/Joined/Hosting/Error).
         scope.launch {
             backend.state.collect { s ->
                 log("Backend state: ${s::class.simpleName}")
@@ -149,49 +70,28 @@ class RealMeshGateway(
                     is NetworkEvent.PeerConnected -> log("Peer connected: ${event.peer.endpointId}")
                     is NetworkEvent.PeerDisconnected -> log("Peer disconnected: ${event.endpointId}")
                     is NetworkEvent.MessageReceived -> {
-                        val text = event.message.data?.toString(StandardCharsets.UTF_8) ?: "no data"
+                        val text = event.message.data?.toString(StandardCharsets.UTF_8).orEmpty()
                         log("Message from ${event.message.from}: $text")
                     }
                 }
             }
         }
 
-        // Listen for incoming backend messages (Sprint 3: TEXT_MESSAGE only)
-        backend.addMessageListener { msg ->
-            onBackendMessage(msg)
-        }
+        backend.addMessageListener(::onBackendMessage)
     }
 
-    private fun log(message: String) {
-        val time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
-        _logs.tryEmit("[$time] $message")
-    }
-
-    // ------------------ Scanning ------------------
-
-    /**
-     * Starts scanning for networks and emits DiscoveredEventSummary items as session IDs are found.
-     *
-     * IMPORTANT:
-     * - We set MeshUiState.Scanning immediately to avoid being stuck in Idle if backend doesn't
-     *   emit NetworkState.Scanning quickly (or if BackendFacade.scanNetworks() doesn't trigger it).
-     * - backend.scanNetworks() must eventually call into network.startScan() for real discovery.
-     */
     override suspend fun startScanning() {
         log("Start scanning requested")
-        // Optimistic UI state change: user asked to scan, so UI should not remain Idle.
+        seenSessionIds.clear()
         _state.value = MeshUiState.Scanning
 
-        // Only start one collector; repeated calls should be safe no-ops.
-        if (scanningCollectorStarted) return
-        scanningCollectorStarted = true
+        if (scanJob?.isActive == true) return
 
-        // Backend returns a flow of discovered sessionIds.
-        // NOTE: BackendFacade.scanNetworks() should start the scan internally (or you must add that there).
         val discoveredFlow = backend.scanNetworks()
-
-        scope.launch {
+        scanJob = scope.launch {
             discoveredFlow.collect { sessionId ->
+                if (!seenSessionIds.add(sessionId)) return@collect
+
                 log("Discovered nearby network: $sessionId")
                 _discovered.emit(
                     DiscoveredEventSummary(
@@ -204,49 +104,26 @@ class RealMeshGateway(
         }
     }
 
-    /**
-     * Stops scan on the backend.
-     * Depending on backend implementation, discovery may still emit briefly.
-     */
     override suspend fun stopScanning() {
         log("Stop scanning requested")
-        scanningCollectorStarted = false
         backend.stopScan()
+        scanJob?.cancel()
+        scanJob = null
 
-        // If we are not joined/hosting, going back to Idle is reasonable for Sprint 3.
         if (router == null) {
             _state.value = MeshUiState.Idle
         }
     }
 
-    // ------------------ Hosting / Joining ------------------
-
-    /**
-     * Hosts an event (creates network + starts advertising).
-     *
-     * Backend detail:
-     * - Client.createNetwork() calls Network.create(name) then Network.startAdvertising()
-     * - backend.state collector should transition UI to Hosting(sessionId)
-     */
     override suspend fun hostEvent(eventName: String) {
         log("Hosting event: $eventName")
         backend.createNetwork(eventName)
-        // UI state should become Hosting(...) via backend.state mapping.
-        // If backend doesn't emit Hosting, you'll still see the last UI state (often Scanning).
     }
 
-    /**
-     * Joins a session and returns a UI event bundle.
-     *
-     * Sprint 3:
-     * - Backend does not broadcast full event metadata yet.
-     * - We return a mocked JoinedEventBundle so EventDetail UI can be built.
-     */
     override suspend fun joinEvent(sessionId: String): JoinedEventBundle {
         log("Joining event: $sessionId")
         _state.value = MeshUiState.Joining(sessionId)
 
-        // backend.joinNetwork returns the router peer we joined through
         router = backend.joinNetwork(sessionId)
         log("Joined via router: ${router?.endpointId}")
 
@@ -263,36 +140,26 @@ class RealMeshGateway(
         )
     }
 
-    /**
-     * Leaves current event and resets routing state.
-     */
     override suspend fun leaveEvent() {
         log("Leaving event")
+        backend.stopScan()
+        scanJob?.cancel()
+        scanJob = null
+        seenSessionIds.clear()
         router = null
         backend.leave()
-
-        // Force UI back to Idle immediately; backend.state collector should also move to Idle.
         _state.value = MeshUiState.Idle
     }
 
-    // ------------------ Chat ------------------
-
-    /**
-     * Sends a TEXT_MESSAGE to the router endpointId.
-     *
-     * Sprint 3 design:
-     * - Optimistically emit the message locally (so UI feels instant)
-     * - Send UTF-8 payload as bytes
-     */
     override suspend fun sendChat(text: String) {
         val r = router ?: return
         val sessionId = backend.currentSessionId.value ?: "unknown"
 
-        // Optimistic local emit
         _chat.tryEmit(
             ChatMessage(
                 sessionId = sessionId,
                 sender = backend.myId,
+                senderRole = backend.myRole,
                 text = text,
                 timestampMs = System.currentTimeMillis(),
                 isMine = true
@@ -305,22 +172,18 @@ class RealMeshGateway(
             from = backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl = 5
+            ttl = 5,
+            senderRole = backend.myRole
         )
 
         backend.sendMessage(r.endpointId, msg)
     }
 
-    /**
-     * Internal handler for raw backend messages.
-     *
-     * Sprint 3:
-     * - Only TEXT_MESSAGE is converted to ChatMessage.
-     * - Other message types are ignored for UI.
-     */
     private fun onBackendMessage(msg: Message) {
         when (msg.type) {
             MessageType.TEXT_MESSAGE -> {
+                if (msg.from == backend.myId) return
+
                 val sessionId = backend.currentSessionId.value ?: "unknown"
                 val text = msg.data?.toString(StandardCharsets.UTF_8).orEmpty()
                 log("Received chat from ${msg.from}: $text")
@@ -329,13 +192,20 @@ class RealMeshGateway(
                     ChatMessage(
                         sessionId = sessionId,
                         sender = msg.from,
+                        senderRole = msg.senderRole,
                         text = text,
                         timestampMs = System.currentTimeMillis(),
-                        isMine = (msg.from == backend.myId)
+                        isMine = false
                     )
                 )
             }
+
             else -> Unit
         }
+    }
+
+    private fun log(message: String) {
+        val time = System.currentTimeMillis() % 100000 // short timestamp
+        _logs.tryEmit("[$time] $message")
     }
 }

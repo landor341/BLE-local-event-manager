@@ -1,7 +1,5 @@
 package edu.uwm.cs595.goup11.frontend.core.navigation
 
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -55,6 +53,8 @@ import edu.uwm.cs595.goup11.frontend.features.inbox.InboxViewModel
 import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
+import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailViewModel
+import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventViewModel
 import edu.uwm.cs595.goup11.frontend.features.tutorial.TutorialScreen
 import edu.uwm.cs595.goup11.frontend.features.tutorial.introTutorialScreen
 import kotlinx.coroutines.launch
@@ -69,7 +69,6 @@ fun drawerItem(navigate: () -> Unit, navLabel: String) {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun navDrawer(
     navController: NavController,
@@ -151,7 +150,6 @@ fun navDrawer(
     }
 }
 
-@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
@@ -161,6 +159,8 @@ fun AppNavigation() {
     val exploreVm = remember { ExploreViewModel(meshGateway) }
     val userVm = remember { UserViewModel() }
     val inboxVm = remember { InboxViewModel(meshGateway) }
+    val eventDetailVm = remember { EventDetailViewModel(meshGateway) }
+    val createEventVm = remember { CreateEventViewModel(meshGateway) }
 
     val mockConnectedUsers = remember {
         listOf(
@@ -203,8 +203,7 @@ fun AppNavigation() {
                         selectedSessionId = sessionId
                         navController.navigate(SealedDestinations.EVENT_DETAIL.route)
                     },
-                    viewModel = exploreVm,
-                    mesh = meshGateway
+                    viewModel = exploreVm
                 )
             }
 
@@ -212,8 +211,11 @@ fun AppNavigation() {
                 val sessionId = selectedSessionId ?: "unknown"
                 EventDetailScreen(
                     sessionId = sessionId,
+                    viewModel = eventDetailVm,
                     onBack = { navController.popBackStack() },
-                    onOpenChat = {},
+                    onOpenChat = {
+                        navController.navigate("${SealedDestinations.CHAT.route}/router/Event Chat")
+                    },
                     onViewConnectedUsers = {
                         navController.navigate(SealedDestinations.CONNECTED_USERS.route)
                     }
@@ -234,7 +236,12 @@ fun AppNavigation() {
 
             composable(SealedDestinations.CREATE_EVENT.route) {
                 CreateEventScreen(
-                    onBack = { navController.popBackStack() }
+                    viewModel = createEventVm,
+                    onBack = { navController.popBackStack() },
+                    onHostingStarted = { hostedSessionId ->
+                        selectedSessionId = hostedSessionId
+                        navController.navigate(SealedDestinations.EVENT_DETAIL.route)
+                    }
                 )
             }
 
@@ -257,7 +264,7 @@ fun AppNavigation() {
             composable("${SealedDestinations.CHAT.route}/{peerId}/{userName}") { backStackEntry ->
                 val peerId = backStackEntry.arguments?.getString("peerId") ?: "Unknown User"
                 val userName = backStackEntry.arguments?.getString("userName") ?: "Unknown User"
-                val chatVm = remember { ChatViewModel(meshGateway, peerId) }
+                val chatVm = remember(peerId) { ChatViewModel(meshGateway, peerId) }
 
                 ChatScreen(
                     viewModel = chatVm,
