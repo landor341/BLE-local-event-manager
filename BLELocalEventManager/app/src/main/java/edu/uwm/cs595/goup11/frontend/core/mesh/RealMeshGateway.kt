@@ -1,5 +1,7 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
@@ -95,7 +97,11 @@ class RealMeshGateway(
      * Router returned by backend.joinNetwork(). For Sprint 3, chat is routed to this peer.
      * Cleared when leaveEvent() is called.
      */
+    @Suppress("DEPRECATION")
     private var router: Peer? = null
+
+    /** Tracks the current event name locally, replacing the deprecated backend.currentSessionId. */
+    private var currentEventName: String? = null
 
     /**
      * Prevent multiple scanning collectors from being started if startScanning() is called repeatedly.
@@ -118,6 +124,7 @@ class RealMeshGateway(
      * - mapping backend NetworkState -> MeshUiState
      * - message listener -> chat stream
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun start() {
         if (started) return
         started = true
@@ -128,20 +135,23 @@ class RealMeshGateway(
 
         // Map backend NetworkState -> UI state
         // This keeps UI consistent when backend transitions (Idle/Scanning/Joined/Hosting/Error).
+        @Suppress("DEPRECATION")
         scope.launch {
             backend.state.collect { s ->
                 log("Backend state: ${s::class.simpleName}")
                 _state.value = when (s) {
                     is NetworkState.Idle -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning
-                    is NetworkState.Joining -> MeshUiState.Joining(s.sessionId)
+                    is NetworkState.Joining -> MeshUiState.Joining
                     is NetworkState.Joined -> MeshUiState.InEvent(s.sessionId)
                     is NetworkState.Hosting -> MeshUiState.Hosting(s.sessionId)
                     is NetworkState.Error -> MeshUiState.Error(s.reason)
+                    else -> MeshUiState.Error("Unsupported Event")
                 }
             }
         }
 
+        @Suppress("DEPRECATION")
         scope.launch {
             backend.events.collect { event ->
                 when (event) {
@@ -152,6 +162,7 @@ class RealMeshGateway(
                         val text = event.message.data?.toString(StandardCharsets.UTF_8) ?: "no data"
                         log("Message from ${event.message.from}: $text")
                     }
+                    else -> Unit
                 }
             }
         }
@@ -162,6 +173,7 @@ class RealMeshGateway(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun log(message: String) {
         val time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         _logs.tryEmit("[$time] $message")
@@ -228,11 +240,17 @@ class RealMeshGateway(
      * - Client.createNetwork() calls Network.create(name) then Network.startAdvertising()
      * - backend.state collector should transition UI to Hosting(sessionId)
      */
+    @Deprecated("Defaults to SnakeTopology. Use hostEvent(eventName, topology) to specify.",
+        ReplaceWith("hostEvent(eventName, TopologyChoice.SNAKE)"))
     override suspend fun hostEvent(eventName: String) {
-        log("Hosting event: $eventName")
-        backend.createNetwork(eventName)
-        // UI state should become Hosting(...) via backend.state mapping.
-        // If backend doesn't emit Hosting, you'll still see the last UI state (often Scanning).
+        hostEvent(eventName, TopologyChoice.SNAKE)
+    }
+
+    override suspend fun hostEvent(eventName: String, topology: TopologyChoice) {
+        log("Hosting event: $eventName (topology: ${topology.code})")
+        currentEventName = eventName
+        backend.createNetwork(eventName, topology)
+        // UI state transitions to Hosting via backend.state collector.
     }
 
     /**
@@ -244,10 +262,15 @@ class RealMeshGateway(
      */
     override suspend fun joinEvent(sessionId: String): JoinedEventBundle {
         log("Joining event: $sessionId")
-        _state.value = MeshUiState.Joining(sessionId)
+        @Suppress("DEPRECATION")
+        _state.value = MeshUiState.Joining
+
+        currentEventName = sessionId
 
         // backend.joinNetwork returns the router peer we joined through
+        @Suppress("DEPRECATION")
         router = backend.joinNetwork(sessionId)
+        @Suppress("DEPRECATION")
         log("Joined via router: ${router?.endpointId}")
 
         return JoinedEventBundle(
@@ -268,7 +291,9 @@ class RealMeshGateway(
      */
     override suspend fun leaveEvent() {
         log("Leaving event")
+        @Suppress("DEPRECATION")
         router = null
+        currentEventName = null
         backend.leave()
 
         // Force UI back to Idle immediately; backend.state collector should also move to Idle.
@@ -285,8 +310,9 @@ class RealMeshGateway(
      * - Send UTF-8 payload as bytes
      */
     override suspend fun sendChat(text: String) {
+        @Suppress("DEPRECATION")
         val r = router ?: return
-        val sessionId = backend.currentSessionId.value ?: "unknown"
+        val sessionId = currentEventName ?: "unknown"
 
         // Optimistic local emit
         _chat.tryEmit(
@@ -321,7 +347,7 @@ class RealMeshGateway(
     private fun onBackendMessage(msg: Message) {
         when (msg.type) {
             MessageType.TEXT_MESSAGE -> {
-                val sessionId = backend.currentSessionId.value ?: "unknown"
+                val sessionId = currentEventName ?: "unknown"
                 val text = msg.data?.toString(StandardCharsets.UTF_8).orEmpty()
                 log("Received chat from ${msg.from}: $text")
 

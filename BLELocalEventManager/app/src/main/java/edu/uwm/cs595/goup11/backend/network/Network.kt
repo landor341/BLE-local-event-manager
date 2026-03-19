@@ -17,6 +17,12 @@ sealed class NetworkState {
     data object Advertising : NetworkState()
     data object Discovering : NetworkState()
     data class  Error(val reason: String) : NetworkState()
+
+    // Deprecated classes to allow methods to use it
+    @Deprecated("Use Discovering") data object Scanning : NetworkState()
+    @Deprecated("Use Discovering") data class  Joining(val sessionId: String) : NetworkState()
+    @Deprecated("Use Advertising") data class  Joined(val sessionId: String)  : NetworkState()
+    @Deprecated("Use Advertising") data class  Hosting(val sessionId: String) : NetworkState()
 }
 
 /**
@@ -59,7 +65,16 @@ sealed class NetworkEvent {
      * A message arrived from a directly connected endpoint.
      */
     data class MessageReceived(val message: Message) : NetworkEvent()
+
+    // ── Deprecated aliases — kept for RealMeshGateway compatibility ──────────
+    @Deprecated("Use EndpointConnected") data class Joined(val sessionId: String) : NetworkEvent()
+    @Deprecated("Use EndpointConnected") data class PeerConnected(val peer: DeprecatedPeer) : NetworkEvent()
+    @Deprecated("Use EndpointDisconnected") data class PeerDisconnected(val endpointId: String) : NetworkEvent()
 }
+
+/** Compatibility shim for code that still references the old Peer type. */
+@Deprecated("Peer is replaced by TopologyPeer and ConnectedPeer")
+data class DeprecatedPeer(val endpointId: String)
 
 /**
  * Defines the raw transport layer.
