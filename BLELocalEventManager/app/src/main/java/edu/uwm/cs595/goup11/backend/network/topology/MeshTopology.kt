@@ -119,20 +119,26 @@ class MeshTopology(
                 startDiscovery(context)
             }
             else -> {
-                // Between target and max — we're healthy, no action needed
-                // We stay connectable (advertising) so others can reach us,
-                // but we don't actively scan
-                context.startAdvertising(context.encodedName())
+                // Between target and max — stop scanning but keep advertising.
+                // Cancel the discovery job so it can be restarted if we drop
+                // back below target (isActive guard in startDiscovery would
+                // otherwise prevent it from restarting).
+                discoveryJob?.cancel()
+                discoveryJob = null
                 context.stopScan()
+                context.startAdvertising(context.encodedName())
             }
         }
     }
 
     private fun startDiscovery(context: TopologyContext) {
-        if (discoveryJob?.isActive == true) return
-
+        // Always re-advertise and re-scan — e.g. after eviction the scan may have
+        // been stopped internally but the collect job is still alive.
         context.startAdvertising(context.encodedName())
         context.startScan()
+
+        // Only launch a new collect job if one is not already running.
+        if (discoveryJob?.isActive == true) return
 
         discoveryJob = context.launchJob {
             context.events

@@ -13,6 +13,7 @@ import java.security.InvalidParameterException
  * [role] is the role of this client. This does not matter except for hub-and-spoke topology
  * [eventName] is the name of this event
  */
+@Deprecated("This is no longer needed", replaceWith = ReplaceWith("AdvertisedName()"))
 data class Peer(
 
     /**

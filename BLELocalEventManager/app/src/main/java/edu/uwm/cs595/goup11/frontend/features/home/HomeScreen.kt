@@ -108,14 +108,15 @@ private fun StatusCard(state: MeshUiState) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Mesh status", style = MaterialTheme.typography.titleMedium)
-
+            //TODO: Fix deprecated lines
             val line = when (state) {
                 MeshUiState.Idle -> "Idle"
                 MeshUiState.Scanning -> "Scanning for nearby events…"
-                is MeshUiState.Joining -> "Joining: ${state.sessionId}"
+                is MeshUiState.Joining -> "Joining:"
                 is MeshUiState.InEvent -> "Joined event: ${state.sessionId}"
                 is MeshUiState.Hosting -> "Hosting event: ${state.sessionId}"
                 is MeshUiState.Error -> "Error: ${state.reason}"
+                else -> {""}
             }
 
             Spacer(Modifier.height(6.dp))

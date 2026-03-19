@@ -64,6 +64,8 @@ class SnakeTopologyUnitTest {
 
         private val _state  = MutableStateFlow<NetworkState>(NetworkState.Idle)
         override val state: StateFlow<NetworkState> = _state.asStateFlow()
+        override val isAdvertising: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
+        override val isDiscovering: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
 
         private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64, replay = 1)
         override val events: SharedFlow<NetworkEvent> = _events.asSharedFlow()
@@ -82,6 +84,9 @@ class SnakeTopologyUnitTest {
         override suspend fun connect(endpointId: String)      { connectLog.add(endpointId) }
         override fun disconnect(endpointId: String)           {}
         override fun addListener(listener: (Message) -> Unit) {}
+        override fun removeListener(listener: (Message) -> Unit) {}
+        override fun encodedNameToHardwareId(encodedName: String): String? =
+            sent.map { it.first }.firstOrNull { it == encodedName }
         override fun notifyListeners(message: Message)        {}
 
         override fun sendMessage(endpointId: String, message: Message) {
@@ -144,8 +149,9 @@ class SnakeTopologyUnitTest {
 
     private fun enc(name: String) = "EVT:Test|TOP:snk|TYP:p|N:$name"
     private fun aName(id: String) = AdvertisedName.decode(enc(id))!!
+    // Use encoded names so resolveNextHop can match against advertisedName.encode()
     private fun msg(to: String, from: String, type: MessageType = MessageType.TEXT_MESSAGE) =
-        Message(to = to, from = from, type = type, ttl = 10)
+        Message(to = enc(to), from = enc(from), type = type, ttl = 10)
 
     @Before fun setUp() {
         topoScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -255,11 +261,13 @@ class SnakeTopologyUnitTest {
 
     @Test fun `PING is consumed`() {
         val topo = makeTopo(); val tc = makeCtx("A")
+        topo.onPeerConnected(tc.ctx, "B", aName("B"))
         assertTrue(topo.onMessage(tc.ctx, msg("A", "B", MessageType.PING)))
     }
 
     @Test fun `PING sends PONG back`() {
         val topo = makeTopo(); val tc = makeCtx("A")
+        topo.onPeerConnected(tc.ctx, "B", aName("B"))
         val ping = msg("A", "B", MessageType.PING)
         topo.onMessage(tc.ctx, ping)
         val pongs = tc.net.sentTo("B").filter { it.type == MessageType.PONG }

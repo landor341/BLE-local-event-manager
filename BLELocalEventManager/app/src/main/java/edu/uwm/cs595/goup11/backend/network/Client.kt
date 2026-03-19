@@ -199,6 +199,9 @@ class Client(
      */
     suspend fun joinNetwork(eventName: String) {
         val net = requireNetwork()
+        // Re-register after leaveNetwork() removed it and shutdown() cleared listeners.
+        net.removeListener(networkMessageListener)
+        net.addListener(networkMessageListener)
         net.init("JOINING:$displayName", Network.Config(defaultTtl = 5))
         val discoveryJob = scope.launch { net.startDiscovery() }
 

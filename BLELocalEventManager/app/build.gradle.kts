@@ -79,7 +79,7 @@ dependencies {
 
     //Kotlin Testing
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.10")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.23")
 
     // Logging
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")

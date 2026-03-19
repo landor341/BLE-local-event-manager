@@ -7,6 +7,7 @@ import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
 import edu.uwm.cs595.goup11.backend.network.Peer
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -64,6 +65,8 @@ class RealMeshGateway(
 ) : MeshGateway {
 
     override val myId: String get() = backend.myId
+
+    private val logger = KotlinLogging.logger {}
 
     // ------------------ UI State ------------------
 
@@ -124,7 +127,6 @@ class RealMeshGateway(
      * - mapping backend NetworkState -> MeshUiState
      * - message listener -> chat stream
      */
-    @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun start() {
         if (started) return
         started = true
@@ -173,10 +175,10 @@ class RealMeshGateway(
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
+
     private fun log(message: String) {
-        val time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
-        _logs.tryEmit("[$time] $message")
+        logger.debug { message }
+        _logs.tryEmit(message)
     }
 
     // ------------------ Scanning ------------------

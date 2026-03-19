@@ -14,13 +14,13 @@ import java.util.concurrent.ConcurrentHashMap
  * Linear chain ("snake") topology strategy.
  *
  * ## Structure
- * Nodes form a line: A ↔ B ↔ C ↔ D …
+ * Nodes form a line: A <-> B <-> C <-> D etc
  * Each node holds at most [maxPeerCount] (default 2) direct connections —
  * one to its left neighbor, one to its right. End-nodes have only one
  * connection and keep advertising so the chain can grow.
  *
  * ## Ring prevention
- * Without extra bookkeeping a ring can form (A↔B↔C↔A), sealing every node
+ * Without extra bookkeeping a ring can form, sealing every node
  * at max-peers and permanently closing the network. We prevent this with a
  * **chain-membership set**:
  *
@@ -34,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * ## Routing
  * Direct delivery to a known neighbor; otherwise flood to all neighbors
- * except the sender. The TTL field on [Message] prevents infinite loops.
+ * except the sender.
  */
 class SnakeTopology(
     override val maxPeerCount: Int = 2,
@@ -60,9 +60,6 @@ class SnakeTopology(
     private var discoveryJob: Job? = null
     private val logger = KotlinLogging.logger {}
 
-    // -------------------------------------------------------------------------
-    // Lifecycle
-    // -------------------------------------------------------------------------
 
     override fun start(context: TopologyContext) {
         // Cleanup
@@ -83,9 +80,7 @@ class SnakeTopology(
         chainMembers.clear()
     }
 
-    // -------------------------------------------------------------------------
-    // Keepalive
-    // -------------------------------------------------------------------------
+
 
     private fun startKeepalive(context: TopologyContext) {
         keepaliveJob = context.launchJob {
@@ -96,6 +91,9 @@ class SnakeTopology(
         }
     }
 
+    /**
+     * Sends PONG messages to each neighbor to verify status
+     */
     private fun tickKeepalive(context: TopologyContext) {
         val now = System.currentTimeMillis()
 
@@ -119,9 +117,6 @@ class SnakeTopology(
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Health — drives advertising and discovery
-    // -------------------------------------------------------------------------
 
     private fun evaluateHealth(context: TopologyContext) {
         if (peers.size < maxPeerCount) {
@@ -133,6 +128,9 @@ class SnakeTopology(
         }
     }
 
+    /**
+     * Discovers nearby endpoints and attempts to connect to them
+     */
     private fun startDiscovery(context: TopologyContext) {
         if (discoveryJob?.isActive == true) return
 
@@ -159,11 +157,12 @@ class SnakeTopology(
                     // Ring guard — don't connect to known chain members
                     if (chainMembers.contains(ev.endpointId)) return@collect
 
-                    // Tie-breaking: both sides discover each other simultaneously and
-                    // would both call connect(), causing STATUS_ENDPOINT_IO_ERROR.
-                    // Compare encodedNames — both sides see the other's encodedName in
-                    // ev.encodedName, and their own via context.encodedName(). This gives
-                    // a consistent ordering in the same namespace on both devices.
+                    /*
+                        Technically both nodes cannot connect to each other at the same time to fix
+                         this we see who's name is greater then do that\
+
+                         TODO: This can fail if both names are the same
+                     */
                     if (context.encodedName() > ev.encodedName) return@collect
 
                     context.connect(ev.endpointId)
@@ -177,9 +176,6 @@ class SnakeTopology(
         context.stopAdvertising()
     }
 
-    // -------------------------------------------------------------------------
-    // Connection events
-    // -------------------------------------------------------------------------
 
     override suspend fun shouldAcceptConnection(
         context: TopologyContext,
@@ -217,9 +213,7 @@ class SnakeTopology(
 
         logger.info { "Snake peer connected: $endpointId (${peers.size}/$maxPeerCount)" }
 
-        // Broadcast our full chain membership to all neighbors so everyone
-        // can update their ring-guard sets. This propagates knowledge of the
-        // new member across the whole chain segment.
+        // Broadcast our full chain membership to all neighbors
         broadcastChainMembers(context)
 
         evaluateHealth(context)
@@ -228,14 +222,7 @@ class SnakeTopology(
     override fun onPeerDisconnected(context: TopologyContext, endpointId: String) {
         peers.remove(endpointId)
 
-        // When a peer disconnects the chain is broken into two independent
-        // segments. We no longer know which members are reachable, so we
-        // reset chainMembers to only what we can directly confirm: ourselves
-        // and our remaining directly-connected peers.
-        //
-        // This intentionally allows the broken segment ends to reconnect to
-        // nodes that were previously "known" — because those nodes are now
-        // in a completely separate segment and the ring risk is gone.
+        // Rebuild the chain members to keep up to date
         rebuildChainMembers(context)
 
         logger.info { "Snake peer disconnected: $endpointId (${peers.size}/$maxPeerCount)" }
@@ -243,9 +230,6 @@ class SnakeTopology(
         evaluateHealth(context)
     }
 
-    // -------------------------------------------------------------------------
-    // Chain membership helpers
-    // -------------------------------------------------------------------------
 
     /**
      * Rebuild [chainMembers] from scratch using only directly confirmed info:
@@ -283,14 +267,9 @@ class SnakeTopology(
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Message handling
-    // -------------------------------------------------------------------------
 
     override fun onMessage(context: TopologyContext, message: Message): Boolean {
-        // peers is keyed by hardware endpoint ID (the Nearby-assigned short string).
-        // message.from carries the sender's encoded name — look up the peer directly.
-        val senderPeer = peers[message.from]  // works when from == hardwareId (forwarded msgs)
+        val senderPeer = peers[message.from]
             ?: peers.values.find { it.advertisedName.encode() == message.from }
 
         return when (message.type) {
@@ -351,21 +330,17 @@ class SnakeTopology(
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Routing
-    // -------------------------------------------------------------------------
 
     override fun resolveNextHop(context: TopologyContext, message: Message): List<String> {
-        // message.to is the peer's encoded name (logical address).
-        // Find the peer whose advertisedName matches, then use their hardwareId.
+        // Check to see if we are connected to the peer
         val destPeer = peers.values.find { it.advertisedName.encode() == message.to }
-            ?: peers[message.to]  // fallback: message.to is already a hardware ID
+            ?: peers[message.to]
 
         if (destPeer != null) {
             return listOf(destPeer.hardwareId)
         }
 
-        // No direct route — flood to all peers except the sender
+        // Flood to all peers but sender
         val senderPeer = peers.values.find { it.advertisedName.encode() == message.from }
             ?: peers[message.from]
         return peers.values

@@ -66,7 +66,7 @@ sealed class NetworkEvent {
      */
     data class MessageReceived(val message: Message) : NetworkEvent()
 
-    // ── Deprecated aliases — kept for RealMeshGateway compatibility ──────────
+    // Deprecated events
     @Deprecated("Use EndpointConnected") data class Joined(val sessionId: String) : NetworkEvent()
     @Deprecated("Use EndpointConnected") data class PeerConnected(val peer: DeprecatedPeer) : NetworkEvent()
     @Deprecated("Use EndpointDisconnected") data class PeerDisconnected(val endpointId: String) : NetworkEvent()
@@ -78,16 +78,7 @@ data class DeprecatedPeer(val endpointId: String)
 
 /**
  * Defines the raw transport layer.
- *
- * Implementations (LocalNetwork, NearbyConnectionsNetwork) MUST NOT handle
- * any message processing, routing, or application logic. They only move bytes
- * between directly connected endpoints.
- *
- * This interface has no concept of:
- *  - "Networks" or sessions
- *  - Peer roles or topologies
- *  - Message content or meaning
- *  - AdvertisedName (it only sees the raw encoded string)
+ * Any implementation of this class MUST NOT handle anything other than sending messages
  */
 interface Network {
 
@@ -107,14 +98,11 @@ interface Network {
     /** True while this node is actively scanning for nearby advertisers */
     val isDiscovering: StateFlow<Boolean>
 
-    /** Stream of raw network events — Client subscribes and reacts to these */
+    /** Stream of raw network events */
     val events: SharedFlow<NetworkEvent>
 
     /**
      * Resolve a peer's encoded name to the transport-layer hardware endpoint ID.
-     * In ConnectNetwork this is the Nearby-assigned short ID (e.g. "E3C9").
-     * In LocalNetwork encoded name == hardware ID so this is an identity lookup.
-     * Returns null if no connected peer with that encoded name is known.
      */
     fun encodedNameToHardwareId(encodedName: String): String?
 
@@ -124,8 +112,7 @@ interface Network {
      * Called by Client whenever the local identity changes (e.g. role promotion).
      *
      * [localEndpointId] is the encoded advertised name string that represents
-     * this node's current identity. In LocalNetwork this doubles as the node's
-     * address. In real Nearby Connections this is ignored (the OS assigns IDs).
+     * this node's current identity.
      */
     fun init(localEndpointId: String, config: Config)
 
@@ -134,25 +121,19 @@ interface Network {
      */
     fun shutdown()
 
-    // -------------------------------------------------------------------------
-    // Advertising
-    // -------------------------------------------------------------------------
 
     /**
      * Start broadcasting this node as discoverable.
-     * [encodedName] is the full encoded identity string built by AdvertisedName.encode().
+     * [encodedName] is the full encoded identity string built by [AdvertisedName.encode].
      * Network passes this string to the underlying transport verbatim — it never parses it.
      */
     fun startAdvertising(encodedName: String)
 
     /**
-     * Stop broadcasting. The node is no longer discoverable.
+     * Stop broadcasting.
      */
     fun stopAdvertising()
 
-    // -------------------------------------------------------------------------
-    // Discovery
-    // -------------------------------------------------------------------------
 
     /**
      * Start scanning for nearby advertisers.
@@ -165,9 +146,7 @@ interface Network {
      */
     suspend fun stopDiscovery()
 
-    // -------------------------------------------------------------------------
-    // Connections
-    // -------------------------------------------------------------------------
+
 
     /**
      * Initiate a connection request to a discovered endpoint.
@@ -195,16 +174,10 @@ interface Network {
      *  - true  → accept the connection
      *  - false → reject the connection
      *
-     * Client delegates this decision to the topology via
-     * TopologyStrategy.shouldAcceptConnection().
-     *
-     * Defaults to false (reject all) until Client sets it.
+     * This feature is delegated to the topology
      */
     var onConnectionRequest: suspend (endpointId: String, encodedName: String) -> Boolean
 
-    // -------------------------------------------------------------------------
-    // Messaging
-    // -------------------------------------------------------------------------
 
     /**
      * Send a message to a directly connected endpoint.

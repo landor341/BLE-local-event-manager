@@ -449,6 +449,47 @@ class LocalNetworkUnitTest {
         assertTrue(fired)
     }
 
+    @Test
+    fun `removeListener stops invocation on message receive`() = testScope.runTest {
+        val netA = makeNetwork("A")
+        val netB = makeNetwork("B", acceptAll = true)
+        netB.startAdvertising(encodedName(name = "B"))
+        netA.connect("B")
+        advanceTimeBy(100)
+
+        var count = 0
+        val listener: (Message) -> Unit = { count++ }
+        netB.addListener(listener)
+
+        netA.sendMessage("B", Message(to = "B", from = "A", type = MessageType.PING, ttl = 1))
+        advanceTimeBy(100)
+        assertEquals(1, count, "Listener should fire once before removal")
+
+        netB.removeListener(listener)
+        netA.sendMessage("B", Message(to = "B", from = "A", type = MessageType.PING, ttl = 1))
+        advanceTimeBy(100)
+        assertEquals(1, count, "Listener should not fire after removal")
+    }
+
+    @Test
+    fun `encodedNameToHardwareId returns hardwareId for connected peer`() = testScope.runTest {
+        val netA = makeNetwork("A")
+        val netB = makeNetwork("B", acceptAll = true)
+        val name = encodedName(name = "B")
+        netB.startAdvertising(name)
+        netA.connect("B")
+        advanceTimeBy(100)
+
+        // In LocalNetwork, encoded name == hardware ID — returns it if connected
+        assertEquals("B", netA.encodedNameToHardwareId("B"))
+    }
+
+    @Test
+    fun `encodedNameToHardwareId returns null for unknown peer`() = testScope.runTest {
+        val netA = makeNetwork("A")
+        assertNull(netA.encodedNameToHardwareId("NOBODY"))
+    }
+
     // =========================================================================
     // 6. Shutdown
     // =========================================================================
