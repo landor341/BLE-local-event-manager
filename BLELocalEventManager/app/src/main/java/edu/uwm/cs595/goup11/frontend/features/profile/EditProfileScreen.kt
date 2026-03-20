@@ -2,6 +2,8 @@ package edu.uwm.cs595.goup11.frontend.features.profile
 
 // EditProfileScreen.kt
 
+import android.content.Context
+import android.util.Xml
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,11 +36,62 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.R
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
+import io.ktor.http.ContentType
+import io.ktor.http.ContentType.Application.Json
+import kotlinx.io.IOException
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Serializer
+import kotlinx.serialization.serializer
+import org.xmlpull.v1.XmlSerializer
+import java.io.File
+import java.io.StringWriter
 
+
+
+
+
+//this function will take the information from the form and save it to an xml file
+//this information deleted whenever the user uninstalls the app
+fun writeProfileData(userName: String, interests: List<String>, context: Context){
+    val fileName = "profile_data.xml"
+    val file = File(context.filesDir, fileName)
+
+    try {
+        val serializer: XmlSerializer = Xml.newSerializer()
+        val writer = StringWriter()
+
+        serializer.setOutput(writer)
+        serializer.startDocument("UTF-8", true)
+
+        serializer.startTag("", "user")
+
+        serializer.startTag("", "name")
+        serializer.text(userName)
+        serializer.endTag("", "name")
+
+        serializer.startTag("", "interests")
+        for (i in interests) {
+            serializer.startTag("", "interest")
+            serializer.text(i)
+            serializer.endTag("", "interest")
+        }
+        serializer.endTag("", "interests")
+
+        serializer.endTag("", "user")
+        serializer.endDocument()
+
+        file.writeText(writer.toString())
+    }catch(e: IOException){
+        e.printStackTrace()
+    }
+
+
+}
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -49,6 +102,8 @@ fun EditProfileScreen(
     onSave: () -> Unit,
 ) {
     val userState by viewModel.user.collectAsState()
+    val context = LocalContext.current
+    val user = retrieveUserData(context)
 
     var addDialog by remember { mutableStateOf(false) }
     var newInterest by remember { mutableStateOf("") }
@@ -98,7 +153,7 @@ fun EditProfileScreen(
                 Spacer(Modifier.height(20.dp))
 
                 TextField(
-                    value = userState.username,
+                    value = user?.userName ?: "No Username Yet",
                     onValueChange = { newName ->
                         viewModel.updateName(newName)
                     },
@@ -116,7 +171,7 @@ fun EditProfileScreen(
                 style = MaterialTheme.typography.titleLarge,
             )
             Spacer(Modifier.height(12.dp))
-            if (userState.interests.isEmpty()) {
+            if (user == null) {
                 Text(
                     text = "No interests added yet.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -129,7 +184,7 @@ fun EditProfileScreen(
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
                 ){
-                    for (interest in userState.interests) {
+                    for (interest in user.intersts) {
                         InterestCard(
                             text = interest,
                             onClick = { viewModel.removeInterest(interest) }
@@ -144,7 +199,10 @@ fun EditProfileScreen(
 
             Spacer(Modifier.height(20.dp))
             Button(
-                onClick = onSave,
+                onClick = {
+                    writeProfileData(userState.username, userState.interests, context)
+                    onSave()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
