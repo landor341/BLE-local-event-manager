@@ -30,6 +30,7 @@ class Client(
     val id: String,
     val type: ClientType,
     var role: UserRole = UserRole.ATTENDEE,
+    var presentationId: String? = null, // Differentiates which "booth" or "panel" this client belongs to
     var network: Network? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
@@ -120,7 +121,8 @@ class Client(
             from=id,
             type= MessageType.HELLO,
             ttl=1, // Should only send direct
-            senderRole = role
+            senderRole = role,
+            presentationId = presentationId
         ))
 
         return p
@@ -341,7 +343,8 @@ class Client(
                             type = MessageType.PONG,
                             data = null,
                             ttl = 5,
-                            role = role
+                            role = role,
+                            presentationId = presentationId
                         ))
                     }
 
@@ -363,7 +366,8 @@ class Client(
                             type = MessageType.PONG,
                             data = null,
                             ttl = 5,
-                            role = role
+                            role = role,
+                            presentationId = presentationId
                         ))
                     }
 
