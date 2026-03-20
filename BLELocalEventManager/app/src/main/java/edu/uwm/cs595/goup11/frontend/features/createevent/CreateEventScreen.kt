@@ -297,7 +297,7 @@ private fun HeroSection() {
             )
 
             Text(
-                text = "Your current backend hosts by event name right now. Extra details shown here improve the UI experience and can be broadcast later.",
+                text = "",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.86f)
             )

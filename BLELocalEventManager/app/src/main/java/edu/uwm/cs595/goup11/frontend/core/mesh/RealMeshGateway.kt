@@ -2,18 +2,20 @@ package edu.uwm.cs595.goup11.frontend.core.mesh
 
 import android.os.Build
 import androidx.annotation.RequiresApi
+import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
-import edu.uwm.cs595.goup11.backend.network.Peer
+import edu.uwm.cs595.goup11.backend.network.UserRole
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,14 +49,10 @@ class RealMeshGateway(
     private val _logs = MutableSharedFlow<String>(extraBufferCapacity = 500)
     override val logs: Flow<String> = _logs.asSharedFlow()
 
-    // ------------------ Internal Session Tracking ------------------
+    private val _connectedPeers = MutableStateFlow<List<GatewayPeer>>(emptyList())
+    override val connectedPeers: StateFlow<List<GatewayPeer>> = _connectedPeers.asStateFlow()
 
-    /**
-     * Router returned by backend.joinNetwork(). For Sprint 3, chat is routed to this peer.
-     * Cleared when leaveEvent() is called.
-     */
-    @Suppress("DEPRECATION")
-    private var router: Peer? = null
+    // ------------------ Internal Session Tracking ------------------
 
     /** Tracks the current event name locally, replacing the deprecated backend.currentSessionId. */
     private var currentEventName: String? = null
@@ -72,6 +70,11 @@ class RealMeshGateway(
     private var scanJob: Job? = null
     private val seenSessionIds = mutableSetOf<String>()
 
+    override fun setDisplayName(name: String) {
+        backend.setDisplayName(name)
+        log("Display name set to: $name")
+    }
+
     override suspend fun start() {
         if (started) return
         started = true
@@ -88,7 +91,7 @@ class RealMeshGateway(
                 _state.value = when (s) {
                     is NetworkState.Idle -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning
-                    is NetworkState.Joining -> MeshUiState.Joining
+                    is NetworkState.Joining -> MeshUiState.Joining("")
                     is NetworkState.Joined -> MeshUiState.InEvent(s.sessionId)
                     is NetworkState.Hosting -> MeshUiState.Hosting(s.sessionId)
                     is NetworkState.Error -> MeshUiState.Error(s.reason)
@@ -117,10 +120,6 @@ class RealMeshGateway(
     }
 
 
-    private fun log(message: String) {
-        logger.debug { message }
-        _logs.tryEmit(message)
-    }
 
     // ------------------ Scanning ------------------
 
@@ -162,7 +161,7 @@ class RealMeshGateway(
         scanJob?.cancel()
         scanJob = null
 
-        if (router == null) {
+        if (currentEventName == null) {
             _state.value = MeshUiState.Idle
         }
     }
@@ -192,15 +191,12 @@ class RealMeshGateway(
     override suspend fun joinEvent(sessionId: String): JoinedEventBundle {
         log("Joining event: $sessionId")
         @Suppress("DEPRECATION")
-        _state.value = MeshUiState.Joining
+        _state.value = MeshUiState.Joining(sessionId)
 
         currentEventName = sessionId
 
-        // backend.joinNetwork returns the router peer we joined through
-        @Suppress("DEPRECATION")
-        router = backend.joinNetwork(sessionId)
-        @Suppress("DEPRECATION")
-        log("Joined via router: ${router?.endpointId}")
+        backend.joinNetwork(sessionId)
+        log("Joined network: $sessionId")
 
         return JoinedEventBundle(
             sessionId = sessionId,
@@ -217,44 +213,69 @@ class RealMeshGateway(
 
     override suspend fun leaveEvent() {
         log("Leaving event")
-        @Suppress("DEPRECATION")
+        backend.removeMessageListener(::onBackendMessage)
         backend.stopScan()
         scanJob?.cancel()
         scanJob = null
         seenSessionIds.clear()
-        router = null
         currentEventName = null
+        _connectedPeers.value = emptyList()
         backend.leave()
         _state.value = MeshUiState.Idle
+        backend.addMessageListener(::onBackendMessage) // re-register for next session
     }
 
     override suspend fun sendChat(text: String) {
-        @Suppress("DEPRECATION")
-        val r = router ?: return
-        val sessionId = currentEventName ?: "unknown"
+        val sessionId = currentEventName ?: return // not in an event, discard
 
         _chat.tryEmit(
             ChatMessage(
-                sessionId = sessionId,
-                sender = backend.myId,
-                senderRole = backend.myRole,
-                text = text,
+                sessionId   = sessionId,
+                sender      = backend.myId,
+                senderRole  = backend.myRole,
+                text        = text,
                 timestampMs = System.currentTimeMillis(),
-                isMine = true
+                isMine      = true
             )
         )
-        log("Sending chat: $text to ${r.endpointId}")
+        log("Sending chat: $text")
 
+        // to is left empty — the topology's resolveNextHop floods to all
+        // connected peers, so every node in the event receives the message.
         val msg = Message(
-            to = r.endpointId,
+            to   = "",
             from = backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl = 5,
-            senderRole = backend.myRole
+            ttl  = 5
         )
 
-        backend.sendMessage(r.endpointId, msg)
+        backend.sendMessage("", msg)
+    }
+
+    override suspend fun sendDirectMessage(toEncodedName: String, text: String) {
+        val sessionId = currentEventName ?: return
+
+        _chat.tryEmit(
+            ChatMessage(
+                sessionId   = sessionId,
+                sender      = backend.myId,
+                senderRole  = backend.myRole,
+                text        = text,
+                timestampMs = System.currentTimeMillis(),
+                isMine      = true
+            )
+        )
+
+        val msg = Message(
+            to   = toEncodedName,
+            from = backend.myId,
+            type = MessageType.TEXT_MESSAGE,
+            data = text.toByteArray(StandardCharsets.UTF_8),
+            ttl  = 5
+        )
+        backend.sendMessage(toEncodedName, msg)
+        log("Direct message to ${toEncodedName}: $text")
     }
 
     private fun onBackendMessage(msg: Message) {
@@ -266,12 +287,12 @@ class RealMeshGateway(
 
                 _chat.tryEmit(
                     ChatMessage(
-                        sessionId = sessionId,
-                        sender = msg.from,
-                        senderRole = msg.senderRole,
-                        text = text,
+                        sessionId  = sessionId,
+                        sender     = msg.from,
+                        senderRole = UserRole.ATTENDEE, // role not carried in network Message
+                        text       = text,
                         timestampMs = System.currentTimeMillis(),
-                        isMine = false
+                        isMine     = (msg.from == backend.myId)
                     )
                 )
             }
@@ -283,5 +304,6 @@ class RealMeshGateway(
     private fun log(message: String) {
         val time = System.currentTimeMillis() % 100000 // short timestamp
         _logs.tryEmit("[$time] $message")
+        logger.debug { "[$time] $message" }
     }
 }

@@ -32,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,12 +42,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.R
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
-import io.ktor.http.ContentType
-import io.ktor.http.ContentType.Application.Json
 import kotlinx.io.IOException
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.Serializer
-import kotlinx.serialization.serializer
 import org.xmlpull.v1.XmlSerializer
 import java.io.File
 import java.io.StringWriter
@@ -103,7 +99,17 @@ fun EditProfileScreen(
 ) {
     val userState by viewModel.user.collectAsState()
     val context = LocalContext.current
-    val user = retrieveUserData(context)
+
+    // Seed ViewModel from persisted XML on first composition
+    LaunchedEffect(Unit) {
+        val saved = retrieveUserData(context)
+        if (saved != null) {
+            if (userState.username.isBlank()) viewModel.updateName(saved.userName)
+            if (userState.interests.isEmpty()) {
+                saved.intersts.forEach { viewModel.addInterest(it) }
+            }
+        }
+    }
 
     var addDialog by remember { mutableStateOf(false) }
     var newInterest by remember { mutableStateOf("") }
@@ -153,10 +159,8 @@ fun EditProfileScreen(
                 Spacer(Modifier.height(20.dp))
 
                 TextField(
-                    value = user?.userName ?: "No Username Yet",
-                    onValueChange = { newName ->
-                        viewModel.updateName(newName)
-                    },
+                    value = userState.username,
+                    onValueChange = { viewModel.updateName(it) },
                     placeholder = { Text("Enter your name") },
                     singleLine = true
                 )
@@ -171,20 +175,20 @@ fun EditProfileScreen(
                 style = MaterialTheme.typography.titleLarge,
             )
             Spacer(Modifier.height(12.dp))
-            if (user == null) {
+            if (userState.interests.isEmpty()) {
                 Text(
                     text = "No interests added yet.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = androidx.compose.ui.graphics.Color.Gray,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
-            } else{
+            } else {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
-                ){
-                    for (interest in user.intersts) {
+                ) {
+                    for (interest in userState.interests) {
                         InterestCard(
                             text = interest,
                             onClick = { viewModel.removeInterest(interest) }
@@ -284,4 +288,3 @@ fun PreviewEditProfileScreen() {
         )
     }
 }
-

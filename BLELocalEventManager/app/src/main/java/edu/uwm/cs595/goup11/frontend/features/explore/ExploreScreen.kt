@@ -509,6 +509,7 @@ private fun statusTitle(state: MeshUiState): String =
         is MeshUiState.InEvent -> "Connected"
         is MeshUiState.Hosting -> "Hosting"
         is MeshUiState.Error -> "Error"
+        else -> {"Error"}
     }
 
 private fun heroTitle(state: MeshUiState): String =
@@ -519,6 +520,7 @@ private fun heroTitle(state: MeshUiState): String =
         is MeshUiState.InEvent -> "Connected to ${state.sessionId}."
         is MeshUiState.Hosting -> "You’re hosting ${state.sessionId}."
         is MeshUiState.Error -> "Scan needs attention."
+        else -> {"Error"}
     }
 
 private fun heroSubtitle(state: MeshUiState): String =
@@ -540,6 +542,8 @@ private fun heroSubtitle(state: MeshUiState): String =
 
         is MeshUiState.Error ->
             "Something interrupted scanning. Please try again."
+        is MeshUiState.Advertising ->
+            ""
     }
 @Composable
 private fun heroContentColor(state: MeshUiState): Color =
@@ -550,4 +554,5 @@ private fun heroContentColor(state: MeshUiState): Color =
         is MeshUiState.InEvent -> Color.White
         is MeshUiState.Hosting -> Color.White
         is MeshUiState.Error -> MaterialTheme.colorScheme.onError
+        is MeshUiState.Advertising -> Color.White
     }

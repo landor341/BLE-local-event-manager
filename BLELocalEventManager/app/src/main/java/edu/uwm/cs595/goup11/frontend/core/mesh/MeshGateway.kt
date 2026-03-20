@@ -1,103 +1,115 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
-import android.content.Context
-import edu.uwm.cs595.goup11.backend.network.Client
-import edu.uwm.cs595.goup11.backend.network.ClientType
-import edu.uwm.cs595.goup11.backend.network.ConnectNetwork
-import edu.uwm.cs595.goup11.backend.network.LocalNetwork
-import edu.uwm.cs595.goup11.backend.network.Message
-import edu.uwm.cs595.goup11.backend.network.Network
-import edu.uwm.cs595.goup11.backend.network.NetworkEvent
-import edu.uwm.cs595.goup11.backend.network.NetworkState
-import edu.uwm.cs595.goup11.backend.network.Peer
 import edu.uwm.cs595.goup11.backend.network.UserRole
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 
-interface BackendFacade {
-    val myId: String
-    val myRole: UserRole
+data class DiscoveredEventSummary(
+    val sessionId:    String,
+    val title:        String = sessionId,
+    val topologyCode: String = "snk",
+    val hostName:     String = "",
+    val venue:        String = "Nearby"
+)
 
-    val state: StateFlow<NetworkState>
-    val events: SharedFlow<NetworkEvent>
-    val currentSessionId: StateFlow<String?>
+data class ItineraryItem(
+    val id:       String,
+    val title:    String,
+    val time:     String,
+    val location: String,
+    val speaker:  String? = null
+)
 
-    fun start()
+data class JoinedEventBundle(
+    val sessionId:   String,
+    val title:       String,
+    val venue:       String,
+    val description: String,
+    val itinerary:   List<ItineraryItem>
+)
 
-    fun scanNetworks(): Flow<String>
-    suspend fun stopScan()
+/**
+ * A peer currently connected to this node, as seen by the gateway layer.
+ * Populated from [NetworkEvent.EndpointConnected] events.
+ */
+data class GatewayPeer(
+    val endpointId:  String,
+    val displayName: String,
+    val encodedName: String
+)
 
-    suspend fun createNetwork(eventName: String)
-    suspend fun joinNetwork(sessionId: String): Peer
+data class ChatMessage(
+    val sessionId:   String,
+    val sender:      String,
+    val senderName:  String = sender,
+    /** Role of the sender — frontend-only, not carried in the network Message. */
+    val senderRole:  UserRole = UserRole.ATTENDEE,
+    val text:        String,
+    val timestampMs: Long,
+    val isMine:      Boolean
+)
 
-    fun leave()
+sealed class MeshUiState {
+    data object Idle        : MeshUiState()
+    data object Scanning    : MeshUiState()
+    data object Advertising : MeshUiState()
+    data class  InEvent(val sessionId: String) : MeshUiState()
+    data class  Error(val reason: String)      : MeshUiState()
 
-    fun sendMessage(to: String, message: Message)
-
-    fun addMessageListener(listener: (Message) -> Unit)
+    // ── Deprecated variants — kept so RealMeshGateway compiles without changes ─
+    @Deprecated("Use Scanning") data class Joining(val sessionId: String) : MeshUiState()
+    @Deprecated("Use InEvent")  data class Hosting(val sessionId: String) : MeshUiState()
 }
 
-class DefaultBackendFacade(
-    private val context: Context,
-    override val myId: String = "android-client",
-    override val myRole: UserRole = UserRole.ATTENDEE,
-    private val clientType: ClientType = ClientType.LEAF,
-    private val useRealNearby: Boolean = false,
-    private val config: Network.Config = Network.Config(defaultTtl = 5),
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
-) : BackendFacade {
+/**
+ * Topology options exposed to the UI layer.
+ * Maps to backend topology strategy codes without leaking backend types.
+ */
+enum class TopologyChoice(val code: String) {
+    SNAKE("snk"),
+    MESH("msh"),
+    HUB_AND_SPOKE("hub")
+}
 
-    private val network: Network =
-        if (useRealNearby) ConnectNetwork(context) else LocalNetwork()
+/**
+ * UI CONTRACT.
+ * Frontend features/ViewModels MUST ONLY depend on this interface.
+ * backend/network types MUST NOT leak past the gateway/facade.
+ */
+interface MeshGateway {
+    val myId:  String
+    val state: StateFlow<MeshUiState>
 
-    private val client: Client = Client(
-        id = myId,
-        type = clientType,
-        role = myRole
-    )
+    val discoveredEvents: Flow<DiscoveredEventSummary>
+    val chat:             Flow<ChatMessage>
+    val logs:             Flow<String>
 
-    private var started: Boolean = false
+    /** Live list of peers currently connected to this node. */
+    val connectedPeers: StateFlow<List<GatewayPeer>>
 
-    override val state: StateFlow<NetworkState> get() = network.state
-    override val events: SharedFlow<NetworkEvent> get() = network.events
-    override val currentSessionId: StateFlow<String?> get() = network.currentSessionId
+    /**
+     * Update the display name used when hosting or joining events.
+     * Must be called before [hostEvent] or [joinEvent].
+     */
+    fun setDisplayName(name: String)
 
-    override fun start() {
-        if (started) return
-        started = true
-        client.attachNetwork(network, config)
-    }
+    suspend fun start()
 
-    override fun scanNetworks(): Flow<String> {
-        scope.launch { network.startScan() }
-        return network.discoveredNetworks
-    }
+    suspend fun startScanning()
+    suspend fun stopScanning()
 
-    override suspend fun stopScan() {
-        network.stopScan()
-    }
+    /** Host a new event. Uses SnakeTopology by default. */
+    suspend fun hostEvent(eventName: String)
 
-    override suspend fun createNetwork(eventName: String) {
-        client.createNetwork(eventName)
-    }
+    /** Host a new event with an explicit topology choice. */
+    suspend fun hostEvent(eventName: String, topology: TopologyChoice)
 
-    override suspend fun joinNetwork(sessionId: String): Peer {
-        return client.joinNetwork(sessionId)
-    }
+    suspend fun joinEvent(sessionId: String): JoinedEventBundle
+    suspend fun leaveEvent()
 
-    override fun leave() {
-        network.leave()
-    }
+    /** Broadcast a message to all connected peers (topology floods). */
+    suspend fun sendChat(text: String)
 
-    override fun sendMessage(to: String, message: Message) {
-        network.sendMessage(to, message)
-    }
-
-    override fun addMessageListener(listener: (Message) -> Unit) {
-        network.addListener(listener)
-    }
+    /** Send a message directly to a specific peer by their encoded name. */
+    suspend fun sendDirectMessage(toEncodedName: String, text: String)
 }

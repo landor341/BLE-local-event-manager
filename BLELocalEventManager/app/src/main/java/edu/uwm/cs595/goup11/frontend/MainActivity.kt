@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import edu.uwm.cs595.goup11.frontend.core.navigation.AppNavigation
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
+import edu.uwm.cs595.goup11.frontend.dev.NearbyPermissions
 
 /**
  * MainActivity — Application Entry Point (UI Shell Only)
@@ -41,6 +42,8 @@ import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
  */
 class MainActivity : ComponentActivity() {
 
+    private val nearbyPermissions = NearbyPermissions(this)
+
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +66,12 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }*/
+
+        nearbyPermissions.request(this) { granted ->
+            if (!granted) {
+                //TODO: Error message
+            }
+        }
 
         setContent {
             BLELocalEventManagerTheme {
