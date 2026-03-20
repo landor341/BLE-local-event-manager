@@ -1,21 +1,37 @@
 package edu.uwm.cs595.goup11.frontend.features.explore
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,7 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -32,117 +48,99 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
+import edu.uwm.cs595.goup11.frontend.core.mesh.DiscoveredEventSummary
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
-import edu.uwm.cs595.goup11.frontend.features.explore.components.EventCard
 
-/**
- * ExploreScreen — Sprint 3
- *
- * TOP PRIORITY RIGHT NOW:
- * - Make sure mesh status changes from Idle by actually starting + scanning.
- *
- * RULES:
- * - This screen must NOT import backend.network.*
- * - It can call MeshGateway methods only (start/startScanning/stopScanning).
- *
- * NOTE:
- * - We are still rendering mock EventCards for UI until you decide to swap list -> discovered.
- * - But mesh status shown here is REAL (MeshGateway.state).
- */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExploreScreen(
     onBack: () -> Unit,
     onEventClick: (String) -> Unit,
     viewModel: ExploreViewModel,
-    mesh: MeshGateway,
     modifier: Modifier = Modifier
 ) {
-    // UI list (mock for now). Discovery list swap can happen later.
-    val allEvents = remember { ExploreMockData.events() }
-
     var query by rememberSaveable { mutableStateOf("") }
 
-    // Filter UI list (mock for now)
-    val filtered = remember(query, allEvents) {
+    LaunchedEffect(Unit) {
+        viewModel.start()
+    }
+
+    val uiState by viewModel.uiState.collectAsState()
+    val meshState by viewModel.meshState.collectAsState()
+    val discoveredEvents by viewModel.events.collectAsState()
+
+    val filtered = remember(query, discoveredEvents) {
         val q = query.trim().lowercase()
-        if (q.isEmpty()) allEvents
-        else allEvents.filter {
-            it.name.lowercase().contains(q) ||
-                    it.description.lowercase().contains(q) ||
-                    it.hostName.lowercase().contains(q)
+        if (q.isEmpty()) {
+            discoveredEvents
+        } else {
+            discoveredEvents.filter {
+                it.sessionId.lowercase().contains(q) ||
+                        it.title.lowercase().contains(q) ||
+                        it.venue.lowercase().contains(q)
+            }
         }
     }
-
-    // IMPORTANT:
-    // - AppContainer.init() only constructs dependencies.
-    // - Calling mesh.start() is what kicks off state/event collection.
-    // - Calling mesh.startScanning() is what moves status away from Idle.
-    LaunchedEffect(Unit) {
-        mesh.start()
-        mesh.startScanning()
-
-        // Keeping this too (since your VM may also be doing discovery collection).
-        viewModel.start()
-        viewModel.startScanning()
-    }
-
-    // Real mesh status
-    val meshState by mesh.state.collectAsState()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = { Text("Explore") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
+        containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            ExploreHeader(onBack = onBack)
 
+            ExploreHero(state = meshState)
 
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                placeholder = { Text("Search events, hosts, descriptions") }
+            SearchSection(
+                query = query,
+                onQueryChange = { query = it },
+                resultCount = filtered.size
             )
 
-            HorizontalDivider()
+            when {
+                uiState is ExploreUiState.Loading && filtered.isEmpty() -> {
+                    LoadingState()
+                }
 
-            // Mesh status card (REAL)
-            MeshStatusCard(meshState)
+                uiState is ExploreUiState.Error -> {
+                    ErrorState()
+                }
 
-            if (filtered.isEmpty()) {
-                EmptyExploreState()
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(filtered, key = { it.id }) { event ->
-                        EventCard(
-                            event = event,
-                            onClick = { onEventClick(event.id) }
-                        )
+                filtered.isEmpty() -> {
+                    EmptyExploreState()
+                }
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(
+                            items = filtered,
+                            key = { it.sessionId }
+                        ) { event ->
+                            DiscoveredEventCard(
+                                event = event,
+                                onClick = { onEventClick(event.sessionId) }
+                            )
+                        }
                     }
                 }
             }
@@ -151,54 +149,405 @@ fun ExploreScreen(
 }
 
 @Composable
-private fun MeshStatusCard(state: MeshUiState) {
-    val backgroundColor = when (state) {
-        is MeshUiState.Scanning -> MaterialTheme.colorScheme.secondaryContainer
-        is MeshUiState.InEvent, is MeshUiState.Hosting -> Color(0xFFE8F5E9)
-        is MeshUiState.Error -> MaterialTheme.colorScheme.errorContainer
-        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    }
+private fun ExploreHeader(
+    onBack: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)),
+                contentAlignment = Alignment.Center
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back"
+                    )
+                }
+            }
 
-    val contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = "Explore",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Discover nearby events in real time",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExploreHero(
+    state: MeshUiState
+) {
+    val gradient = Brush.verticalGradient(
+        colors = when (state) {
+            MeshUiState.Scanning -> listOf(
+                MaterialTheme.colorScheme.primary,
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.82f)
+            )
+
+            is MeshUiState.InEvent, is MeshUiState.Hosting -> listOf(
+                Color(0xFF246B45),
+                Color(0xFF2E8B57)
+            )
+
+            is MeshUiState.Error -> listOf(
+                MaterialTheme.colorScheme.error,
+                MaterialTheme.colorScheme.error.copy(alpha = 0.82f)
+            )
+
+            else -> listOf(
+                MaterialTheme.colorScheme.secondaryContainer,
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f)
+            )
+        }
+    )
 
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(
-                containerColor = backgroundColor,
-                contentColor = contentColor
-        )
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text("Mesh status", style = MaterialTheme.typography.titleMedium)
-            //TODO: This is deprecated
-            val line = when (state) {
-                MeshUiState.Idle -> "Idle (not started / not scanning)"
-                MeshUiState.Scanning -> "Scanning for nearby events…"
-                is MeshUiState.Joining -> "Joining: "
-                is MeshUiState.InEvent -> "Joined event: ${state.sessionId}"
-                is MeshUiState.Hosting -> "Hosting event: ${state.sessionId}"
-                is MeshUiState.Error -> "Error: ${state.reason}"
-                else -> {""}
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(gradient)
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            StatusPill(state = state)
+
+            Text(
+                text = heroTitle(state),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = heroContentColor(state)
+            )
+
+            Text(
+                text = heroSubtitle(state),
+                style = MaterialTheme.typography.bodyLarge,
+                color = heroContentColor(state).copy(alpha = 0.86f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(
+    state: MeshUiState
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(heroContentColor(state).copy(alpha = 0.14f))
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(heroContentColor(state))
+        )
+
+        Text(
+            text = statusTitle(state),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+            color = heroContentColor(state)
+        )
+    }
+}
+
+@Composable
+private fun SearchSection(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    resultCount: Int
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search"
+                )
+            },
+            placeholder = {
+                Text("Search by name, venue, or session id")
+            },
+            shape = RoundedCornerShape(18.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (resultCount == 1) "1 event nearby" else "$resultCount events nearby",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            TextButton(onClick = { }) {
+                Text("Live scan")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveredEventCard(
+    event: DiscoveredEventSummary,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bluetooth,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = event.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Text(
+                        text = "Tap to view and join",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            Spacer(Modifier.height(6.dp))
-            Text(line, style = MaterialTheme.typography.bodyMedium)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            EventMetaRow(
+                icon = Icons.Default.LocationOn,
+                label = event.venue
+            )
+
+            EventMetaRow(
+                icon = Icons.Default.Groups,
+                label = "Session ID: ${event.sessionId}"
+            )
+        }
+    }
+}
+
+@Composable
+private fun EventMetaRow(
+    icon: ImageVector,
+    label: String
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun LoadingState() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(top = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        CircularProgressIndicator()
+        Text(
+            text = "Scanning for nearby events...",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            text = "Make sure another device or emulator is hosting a session.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ErrorState() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Something went wrong",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Text(
+                text = "We couldn’t complete the scan right now. Try again in a moment.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
         }
     }
 }
 
 @Composable
 private fun EmptyExploreState() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Text("No events found", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Tip: with LocalNetwork, you will discover nothing unless someone is hosting/advertising.",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "No events found",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "Try hosting an event on another device or emulator first, then come back here to scan again.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
+
+private fun statusTitle(state: MeshUiState): String =
+    when (state) {
+        MeshUiState.Idle -> "Ready"
+        MeshUiState.Scanning -> "Scanning"
+        is MeshUiState.Joining -> "Joining"
+        is MeshUiState.InEvent -> "Connected"
+        is MeshUiState.Hosting -> "Hosting"
+        is MeshUiState.Error -> "Error"
+    }
+
+private fun heroTitle(state: MeshUiState): String =
+    when (state) {
+        MeshUiState.Idle -> "Ready to discover nearby events."
+        MeshUiState.Scanning -> "Searching for live nearby events."
+        is MeshUiState.Joining -> "Joining ${state.sessionId}."
+        is MeshUiState.InEvent -> "Connected to ${state.sessionId}."
+        is MeshUiState.Hosting -> "You’re hosting ${state.sessionId}."
+        is MeshUiState.Error -> "Scan needs attention."
+    }
+
+private fun heroSubtitle(state: MeshUiState): String =
+    when (state) {
+        MeshUiState.Idle ->
+            "Your device is ready to scan and discover local event sessions."
+
+        MeshUiState.Scanning ->
+            "We’re actively scanning for nearby sessions available to join."
+
+        is MeshUiState.Joining ->
+            "Connecting to the selected event and preparing the session."
+
+        is MeshUiState.InEvent ->
+            "You’re already connected. You can return to that session anytime."
+
+        is MeshUiState.Hosting ->
+            "Nearby participants can now discover your event."
+
+        is MeshUiState.Error ->
+            "Something interrupted scanning. Please try again."
+    }
+@Composable
+private fun heroContentColor(state: MeshUiState): Color =
+    when (state) {
+        MeshUiState.Idle -> MaterialTheme.colorScheme.onSecondaryContainer
+        MeshUiState.Scanning -> MaterialTheme.colorScheme.onPrimary
+        is MeshUiState.Joining -> MaterialTheme.colorScheme.onSecondaryContainer
+        is MeshUiState.InEvent -> Color.White
+        is MeshUiState.Hosting -> Color.White
+        is MeshUiState.Error -> MaterialTheme.colorScheme.onError
+    }

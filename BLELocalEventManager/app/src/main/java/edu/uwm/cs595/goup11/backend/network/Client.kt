@@ -32,6 +32,10 @@ class Client(
     /** Human-readable display name for this user e.g. "Alice" */
     val displayName: String,
 
+    //val id: String,
+    // val type: ClientType,
+    var role: UserRole = UserRole.ATTENDEE,
+    var presentationId: String? = null, // Differentiates which "booth" or "panel" this client belongs to
     var network: Network? = null,
 
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

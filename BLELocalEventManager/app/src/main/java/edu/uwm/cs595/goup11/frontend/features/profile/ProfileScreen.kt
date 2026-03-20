@@ -3,6 +3,8 @@
 
 package edu.uwm.cs595.goup11.frontend.features.profile
 
+import android.content.Context
+import android.util.Xml
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.Image
@@ -27,13 +29,46 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.R
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
+import org.xmlpull.v1.XmlPullParser
+import java.io.File
 
+class User(val userName: String, val intersts: List<String>)
+fun retrieveUserData(context: Context): User? {
+    val fileName = "profile_data.xml"
+    val file = File(context.filesDir, fileName)
+
+    var userName = ""
+    var interests = mutableListOf<String>()
+
+    try{
+        val parser: XmlPullParser = Xml.newPullParser()
+        parser.setInput(file.inputStream(), null)
+
+       var eventType = parser.eventType
+        while(eventType != XmlPullParser.END_DOCUMENT){
+            if(eventType == XmlPullParser.START_TAG){
+                when(parser.name) {
+                    "name" -> userName = parser.nextText()
+                    "interest" -> interests.add(parser.nextText())
+                }
+            }
+            eventType = parser.next()
+        }
+
+        return User(userName, interests)
+    }catch(e: Exception) {
+        e.printStackTrace()
+    }
+
+    return null
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +79,10 @@ fun ProfileScreen(
 
 ) {
     val userState by viewModel.user.collectAsState()
+    val context = LocalContext.current
+    val user = retrieveUserData(context)
+
+
 
     Scaffold(
         topBar = {
@@ -79,7 +118,7 @@ fun ProfileScreen(
                 Spacer(Modifier.height(20.dp))
 
                 Text(
-                    text = userState.username,
+                    text = user?.userName ?: "No Username Yet",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -93,7 +132,7 @@ fun ProfileScreen(
                 style = MaterialTheme.typography.titleLarge,
             )
             Spacer(Modifier.height(12.dp))
-            if (userState.interests.isEmpty()) {
+            if (user == null) {
                 Text(
                     text = "No interests added yet.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -106,7 +145,7 @@ fun ProfileScreen(
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
                 ){
-                    for (interest in userState.interests) {
+                    for (interest in user.intersts) {
                         InterestCard(text = interest)
                         Spacer(Modifier.width(8.dp))
                     }
