@@ -403,7 +403,9 @@ private fun StatusSection(
                         is MeshUiState.Hosting -> "Broadcasting"
                         is MeshUiState.Joining -> "Joining"
                         is MeshUiState.Error -> "Attention needed"
-                        MeshUiState.Idle -> "Ready"
+                        is MeshUiState.Idle -> "Ready"
+                        is MeshUiState.Advertising ->
+                            "Currently advertising"
                     }
                 )
             }
@@ -552,6 +554,8 @@ private fun statusTitle(state: MeshUiState): String =
         is MeshUiState.InEvent -> "Connected"
         is MeshUiState.Hosting -> "Hosting"
         is MeshUiState.Error -> "Error"
+        is MeshUiState.Advertising ->
+            "Currently advertising"
     }
 
 private fun statusDescription(state: MeshUiState): String =
@@ -573,4 +577,7 @@ private fun statusDescription(state: MeshUiState): String =
 
         is MeshUiState.Error ->
             "Something needs attention: ${state.reason}"
+
+        is MeshUiState.Advertising ->
+            "Currently advertising"
     }

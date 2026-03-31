@@ -39,7 +39,7 @@ object AppContainer {
     fun init(context: Context) {
         // To test between TWO PHYSICAL PHONES, change useRealNearby to TRUE.
         // If useRealNearby is FALSE, it uses an in-memory emulator that only works on one device.
-        val useRealNearby = false
+        val useRealNearby = true
 
         val facade = DefaultBackendFacade(
             context = context,
