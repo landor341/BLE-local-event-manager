@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     kotlin("plugin.serialization") version "1.9.23"
+
 }
 
 android {
@@ -61,7 +62,7 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
     //Ktor
     implementation("io.ktor:ktor-client-core:3.4.0")
     implementation("io.ktor:ktor-client-okhttp:3.4.0")

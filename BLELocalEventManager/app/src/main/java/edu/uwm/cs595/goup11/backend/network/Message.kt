@@ -1,14 +1,20 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import androidx.annotation.ReturnThis
+import com.google.android.gms.common.util.JsonUtils
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ByteArraySerializer
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.UUID
+import kotlinx.serialization.*
+import kotlinx.serialization.json.Json
 
 data class Message(
     val to: String,
     val from: String,
     val type: MessageType,
-    val data: ByteArray? = null,
+    var data: ByteArray? = null,
     var ttl: Int,
     val replyTo: String? = null,
     val id: String = UUID.randomUUID().toString(),
@@ -55,7 +61,25 @@ data class Message(
         return buffer.array()
     }
 
+    /**
+     * Adds a body to the message, and encrypts its contents
+     */
+    fun <T> addBody(serializer: KSerializer<T>, obj: T): Message {
+        // Convert class to byte array
+        val buff = Json.encodeToString(serializer, obj).toByteArray()
+
+       // Encrypt data
+       //TODO: Finish this
+
+
+       data = buff;
+
+        return this
+    }
+
     companion object {
+
+
 
         /**
          * Deserialize from Nearby payload

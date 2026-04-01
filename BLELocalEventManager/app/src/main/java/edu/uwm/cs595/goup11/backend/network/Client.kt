@@ -2,6 +2,7 @@ package edu.uwm.cs595.goup11.backend.network
 
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyContext
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyFactory
+import edu.uwm.cs595.goup11.backend.network.topology.TopologyPeer
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
@@ -373,6 +374,11 @@ class Client(
             }
         }
         handleMessage(message)
+    }
+
+    fun directConnectedPeers(): List<TopologyPeer> {
+        val top = requireTopology()
+        return top.retrieveAllConnectedClients()
     }
 
     /**

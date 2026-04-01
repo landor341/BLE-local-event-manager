@@ -112,6 +112,11 @@ enum class MessageType {
      */
     TEXT_MESSAGE,
 
+    /*
+     * Telemetry
+     */
+    TELEMETRY_RTT
+
 
 
 

@@ -349,6 +349,9 @@ class SnakeTopology(
             .also { if (it.isEmpty()) logger.warn { "No route to ${message.to}" } }
     }
 
+    override fun retrieveAllConnectedClients(): List<TopologyPeer> {
+        return peers.values.toList()
+    }
     // -------------------------------------------------------------------------
     // Advertising
     // -------------------------------------------------------------------------

@@ -135,4 +135,6 @@ interface TopologyStrategy {
      * Sends a leave signal to all connected nodes
      */
     suspend fun disconnectFromAllNodes(context: TopologyContext)
+
+    fun retrieveAllConnectedClients(): List<TopologyPeer>
 }

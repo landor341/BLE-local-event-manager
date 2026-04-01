@@ -266,10 +266,7 @@ class LocalNetwork(
 
         // Ask the remote side whether it accepts
         val accepted = remote.network.onConnectionRequest(localId, localId)
-        //                                                           ^ we pass our own endpointId
-        //                                                             as the encoded name here since
-        //                                                             in LocalNetwork the endpointId
-        //                                                             IS the encoded name
+
 
         if (!accepted) {
             logger.debug { "$endpointId rejected connection from $localId" }

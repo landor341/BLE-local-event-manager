@@ -239,6 +239,11 @@ class HubAndSpokeTopology(
             context.disconnect(endpointId)
         }
     }
+
+    override fun retrieveAllConnectedClients(): List<TopologyPeer> {
+        return peers.values.toList()
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
