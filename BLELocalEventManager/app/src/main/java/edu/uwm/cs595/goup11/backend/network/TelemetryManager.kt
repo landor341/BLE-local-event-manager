@@ -130,6 +130,9 @@ object TelemetryManager {
 
             val res = c.sendMessageAndWait(message)
 
+            if(lastKnownLocation != null) {
+
+            }
 
         }
     }
