@@ -1,19 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <uses-permission android:maxSdkVersion="31" android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:maxSdkVersion="31" android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:maxSdkVersion="30" android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:maxSdkVersion="30" android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:minSdkVersion="31" android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    <uses-permission android:minSdkVersion="31" android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:minSdkVersion="31" android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:minSdkVersion="32" android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
+    <!-- WiFi & Bluetooth for older versions -->
+    <uses-permission
+        android:name="android.permission.ACCESS_WIFI_STATE"
+        />
+    <uses-permission
+        android:name="android.permission.CHANGE_WIFI_STATE"
+        />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
 
-    <uses-permission android:maxSdkVersion="28" android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Bluetooth for Android 12+ (API 31+) -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADVERTISE"
+        />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_CONNECT"
+        />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        />
 
-    <uses-permission android:minSdkVersion="29" android:maxSdkVersion="31" android:name="android.permission.ACCESS_FINE_LOCATION"
+    <!-- WiFi for Android 13+ (API 33+) -->
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        />
+
+    <!-- Location (Required for discovery on most versions) -->
+    <uses-permission
+        android:name="android.permission.ACCESS_COARSE_LOCATION"
+        />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
         tools:ignore="CoarseFineLocation" />
 
     <application
@@ -26,6 +50,11 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BLELocalEventManager">
         <activity
+            android:name=".frontend.dev.DevNetworkActivity"
+            android:exported="false"
+            android:label="Dev · Network"
+            android:windowSoftInputMode="adjustResize"/>
+        <activity
             android:name=".frontend.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
@@ -37,4 +66,5 @@
             </intent-filter>
         </activity>
     </application>
+
 </manifest>

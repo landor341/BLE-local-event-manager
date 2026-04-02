@@ -1,6 +1,7 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
 import android.content.Context
+import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Client
 import edu.uwm.cs595.goup11.backend.network.ClientType
 import edu.uwm.cs595.goup11.backend.network.ConnectNetwork
@@ -9,225 +10,227 @@ import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.Network
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
-import edu.uwm.cs595.goup11.backend.network.Peer
 import edu.uwm.cs595.goup11.backend.network.UserRole
+import edu.uwm.cs595.goup11.backend.network.topology.HubAndSpokeTopology
+import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
+import edu.uwm.cs595.goup11.backend.network.topology.SnakeTopology
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
- * ==========================================================
  * BackendFacade — BACKEND ISOLATION LAYER (Frontend-only)
- * ==========================================================
  *
- * PURPOSE
- * -------
- * This facade is the single choke point between the FRONTEND and the BACKEND networking module.
- * It prevents UI/ViewModels from depending directly on backend.network classes (Client/Network/Message/etc.).
+ * The interface is kept compatible with RealMeshGateway.
+ * DefaultBackendFacade bridges the old API surface to the current backend.
  *
- * In a team environment, this protects the UI from breaking changes when backend APIs shift.
- *
- * PROJECT RULES
- * -------------
- * ✅ Frontend features/ViewModels MUST talk to the backend ONLY through:
- *      MeshGateway (UI contract) -> RealMeshGateway (adapter) -> BackendFacade (this file)
- *
- * ❌ Frontend features/ViewModels MUST NOT:
- *      - import edu.uwm.cs595.goup11.backend.network.*
- *      - instantiate Client, Network, LocalNetwork, ConnectNetwork
- *      - register message listeners directly on Network
- *
- * IMPORTANT BACKEND FACTS (based on current backend code you shared)
- * ---------------------------------------------------------------
- * 1) Client.networkState() and Client.networkEvents() are TODO.
- *    -> Therefore this facade exposes Network.state and Network.events directly.
- *
- * 2) Client.scanNetworks() is unsafe with LocalNetwork:
- *    - Client.scanNetworks() calls Network.startScan() and awaits it.
- *    - LocalNetwork.startScan() loops while scanning (until stopScan is called),
- *      meaning the await NEVER returns.
- *    -> Therefore this facade starts scan in a background coroutine and immediately
- *       returns Network.discoveredNetworks as a Flow<String>.
- *
- * 3) Messaging:
- *    - Client.sendMessage(message) has routing fallthrough behavior right now.
- *    - Client.sendMessage(to, message) contains a peer-list check bug (it checks message.to).
- *    -> For Sprint 3 integration stability, this facade calls Network.sendMessage(...) directly.
- *
- * NETWORK IMPLEMENTATION SELECTION
- * -------------------------------
- * - For Sprint 3 catch-up (stable demo + tests): useRealNearby=false (LocalNetwork)
- * - For real Bluetooth/Nearby behavior later:    useRealNearby=true  (ConnectNetwork)
- *
- * NOTE:
- * ConnectNetwork.create/join may still be incomplete depending on your backend status.
- *
- * FILE MAINTAINER
- * --------------
- * Primary maintainer: Frontend integration (Labib)
- * Any changes that affect public behavior should be coordinated/reviewed.
+ * Key additions from PR:
+ *  - myRole: UserRole — frontend-only concept, not in the backend
+ *  - createNetwork(eventName, topology) — new overload with explicit topology
+ *  - removeMessageListener — needed for clean leaveEvent teardown
  */
 interface BackendFacade {
 
-    /** Stable client identifier used as Message.from */
-    val myId: String
+    val myId:    String
+    /** The local user's role — frontend-only, not carried in backend messages. */
+    val myRole:  UserRole
 
-    /** Reactive backend network state (Idle/Scanning/Joining/Joined/Hosting/Error) */
-    val state: StateFlow<NetworkState>
-
-    /** One-time backend events (PeerConnected/PeerDisconnected/MessageReceived/etc.) */
-    val events: SharedFlow<NetworkEvent>
-
-    /** Current sessionId if joined/hosting, otherwise null */
+    val state:            StateFlow<NetworkState>
+    val events:           SharedFlow<NetworkEvent>
     val currentSessionId: StateFlow<String?>
 
-    /**
-     * Initializes the backend side:
-     * - creates/attaches the Network to Client
-     * - sets up the Client->Network message listener path
-     *
-     * Call once per app lifecycle (e.g., in a ViewModel init or AppContainer.init).
-     */
     fun start()
 
     /**
-     * Starts scanning for networks and returns a flow of discovered session IDs.
-     *
-     * IMPORTANT:
-     * - This function MUST return quickly and MUST NOT suspend forever.
-     * - With LocalNetwork, startScan() runs in a loop, so scan is launched on a background coroutine.
+     * Update the display name used for the next createNetwork/joinNetwork call.
+     * The client is recreated with the new name on the next network operation.
      */
-    fun scanNetworks(): Flow<String>
+    fun setDisplayName(name: String)
 
-    /** Stops scanning (if currently scanning). */
+    fun scanNetworks(): Flow<String>
     suspend fun stopScan()
 
-    /**
-     * Creates/hosts a network and begins advertising.
-     * In backend Client.kt, createNetwork() calls Network.create(eventName) + startAdvertising().
-     */
+    @Deprecated("Defaults to SnakeTopology. Use createNetwork(eventName, topology) instead.",
+        ReplaceWith("createNetwork(eventName, TopologyChoice.SNAKE)"))
     suspend fun createNetwork(eventName: String)
 
-    /**
-     * Joins a network and returns the router Peer selected by the backend.
-     * This Peer.endpointId is used for sending chat (Sprint 3).
-     */
-    suspend fun joinNetwork(sessionId: String): Peer
+    /** Create a network with an explicit topology choice. */
+    suspend fun createNetwork(eventName: String, topology: TopologyChoice)
 
-    /**
-     * Leaves the current network.
-     *
-     * NOTE:
-     * Client.leaveNetwork() is TODO in your backend, so we call Network.leave() directly.
-     */
+    suspend fun joinNetwork(sessionId: String)
+
     fun leave()
 
-    /**
-     * Sends a message to a specific peer endpointId.
-     *
-     * Sprint 3 stability:
-     * We call Network.sendMessage directly to avoid current Client routing quirks.
-     */
     fun sendMessage(to: String, message: Message)
 
-    /**
-     * Adds a listener for raw messages received by this device.
-     *
-     * In your backend:
-     * - Client.attachNetwork already calls Network.addListener { client.onMessageReceived(it) }
-     * - Network.addListener supports multiple listeners (LocalNetwork stores a list)
-     *
-     * So it is safe to register the RealMeshGateway listener here.
-     */
     fun addMessageListener(listener: (Message) -> Unit)
+
+    fun removeMessageListener(listener: (Message) -> Unit)
 }
 
-/**
- * DefaultBackendFacade
- *
- * Concrete implementation used by the frontend.
- * Owns ONE Client and ONE Network instance for the app process.
- */
+@Suppress("DEPRECATION")
 class DefaultBackendFacade(
     private val context: Context,
-    override val myId: String = "android-client",
+    override val myId:   String   = "android-client",
+    override val myRole: UserRole = UserRole.ATTENDEE,
+
+    @Deprecated("Moved to topology")
     private val clientType: ClientType = ClientType.LEAF,
-    private val userRole: UserRole = UserRole.ATTENDEE, // Added to support role-based features
-    private val useRealNearby: Boolean = false, // Sprint 3: keep false (LocalNetwork)
+
+    private val useRealNearby: Boolean = true,
     private val config: Network.Config = Network.Config(defaultTtl = 5),
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
+    private val scope: CoroutineScope  = CoroutineScope(Dispatchers.Default)
 ) : BackendFacade {
 
-    /**
-     * Network selection:
-     * - LocalNetwork: in-memory emulator (good for Sprint 3 wiring + demos in single process)
-     * - ConnectNetwork: real Nearby/Bluetooth layer (enable when backend is ready)
-     */
     private val network: Network =
-        if (useRealNearby) ConnectNetwork(context) else LocalNetwork()
+        if (useRealNearby) ConnectNetwork(context = context, scope = scope)
+        else LocalNetwork()
 
-    /** Backend Client node. Population of role ensures it's attached to outgoing messages. */
-    private val client: Client = Client(id = myId, type = clientType, role = userRole)
+    private var displayName: String = myId
 
-    override val state: StateFlow<NetworkState> get() = network.state
-    override val events: SharedFlow<NetworkEvent> get() = network.events
-    override val currentSessionId: StateFlow<String?> get() = network.currentSessionId
+    // Client is created lazily so the display name can be updated before
+    // the first network operation via setDisplayName().
+    private var _client: Client? = null
+    private val client: Client
+        get() = _client ?: Client(
+            displayName = displayName,
+            network     = network,
+            scope       = scope
+        ).also {
+            // attachNetwork wires onConnectionRequest and the message listener.
+            // Must be called before any createNetwork/joinNetwork/scanNetworks.
+            it.attachNetwork(network, config)
+            _client = it
+        }
 
-    /**
-     * Start backend networking:
-     * - attaches client to network
-     * - network.init(...) is invoked inside client.attachNetwork(...)
-     * - client registers its own message listener on the network
-     */
+    // ── Synthesised state ─────────────────────────────────────────────────────
+
+    private var currentEventName: String? = null
+
+    private val _state = MutableStateFlow<NetworkState>(NetworkState.Idle)
+    override val state: StateFlow<NetworkState> = _state.asStateFlow()
+
+    private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64, replay = 1)
+    override val events: SharedFlow<NetworkEvent> = _events.asSharedFlow()
+
+    @Deprecated("No longer meaningful")
+    override val currentSessionId: StateFlow<String?> = MutableStateFlow(null)
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
     override fun start() {
-        client.attachNetwork(network, config)
+        scope.launch {
+            kotlinx.coroutines.flow.combine(
+                network.isAdvertising,
+                network.isDiscovering
+            ) { advertising, discovering ->
+                val eventName = currentEventName
+                when {
+                    advertising && eventName != null -> NetworkState.Joined(eventName)
+                    advertising                     -> NetworkState.Hosting(eventName ?: "")
+                    discovering                     -> NetworkState.Scanning
+                    else                            -> NetworkState.Idle
+                }
+            }.collect { _state.value = it }
+        }
+
+        scope.launch {
+            network.events.collect { ev ->
+                when (ev) {
+                    is NetworkEvent.EndpointConnected -> {
+                        @Suppress("DEPRECATION")
+                        _events.tryEmit(NetworkEvent.PeerConnected(
+                            edu.uwm.cs595.goup11.backend.network.DeprecatedPeer(ev.endpointId)
+                        ))
+                        currentEventName?.let { _events.tryEmit(NetworkEvent.Joined(it)) }
+                    }
+                    is NetworkEvent.EndpointDisconnected ->
+                        _events.tryEmit(NetworkEvent.PeerDisconnected(ev.endpointId))
+                    else -> _events.tryEmit(ev)
+                }
+            }
+        }
     }
 
-    /**
-     * Starts scanning and returns discoveredNetworks flow.
-     *
-     * WHY this is not suspend:
-     * - LocalNetwork.startScan() loops while scanning.
-     * - Calling client.scanNetworks() would suspend forever because it awaits startScan().
-     *
-     * So we start scan asynchronously and return the discovery flow immediately.
-     */
+    // ── Scanning ──────────────────────────────────────────────────────────────
+
     override fun scanNetworks(): Flow<String> {
-        // IMPORTANT:
-        // Do not block. Start scan on background coroutine.
-        scope.launch { network.startScan() }
-        return network.discoveredNetworks
+        scope.launch {
+            // Init with a transient scanner identity so ConnectNetwork is ready
+            // before startDiscovery() is called. This mirrors what Client.joinNetwork
+            // does with "JOINING:$displayName" before scanning for a host.
+            network.init("SCANNER:${displayName}", Network.Config(defaultTtl = 5))
+            network.startDiscovery()
+        }
+        return network.events
+            .filterIsInstance<NetworkEvent.EndpointDiscovered>()
+            .map { ev -> AdvertisedName.decode(ev.encodedName)?.eventName ?: ev.encodedName }
     }
 
     override suspend fun stopScan() {
-        network.stopScan()
+        network.stopDiscovery()
+        // Reset so a subsequent createNetwork/joinNetwork gets a clean init
+        // with the proper identity rather than the scanner placeholder.
+        currentEventName = null
     }
 
+    // ── Hosting / Joining ─────────────────────────────────────────────────────
+
+    @Deprecated("Defaults to SnakeTopology. Use createNetwork(eventName, topology) instead.",
+        ReplaceWith("createNetwork(eventName, TopologyChoice.SNAKE)"))
     override suspend fun createNetwork(eventName: String) {
-        // Backend handles create + advertising internally.
-        client.createNetwork(eventName)
+        createNetwork(eventName, TopologyChoice.SNAKE)
     }
 
-    override suspend fun joinNetwork(sessionId: String): Peer {
-        return client.joinNetwork(sessionId)
+    override suspend fun createNetwork(eventName: String, topology: TopologyChoice) {
+        currentEventName = eventName
+        val topo = when (topology) {
+            TopologyChoice.SNAKE         -> SnakeTopology()
+            TopologyChoice.MESH          -> MeshTopology()
+            TopologyChoice.HUB_AND_SPOKE -> HubAndSpokeTopology()
+        }
+        client.createNetwork(eventName, topo)
+    }
+
+    override suspend fun joinNetwork(sessionId: String) {
+        currentEventName = sessionId
+        client.joinNetwork(sessionId)
+        // No peer reference returned — topology handles all routing internally.
+    }
+
+    override fun setDisplayName(name: String) {
+        displayName = name
+        // Invalidate the cached client so the next operation uses the new name
+        _client = null
     }
 
     override fun leave() {
-        // Client.leaveNetwork() is TODO, so call Network directly.
-        network.leave()
+        scope.launch {
+            client.leaveNetwork()
+            currentEventName = null
+        }
     }
 
+    // ── Messaging ─────────────────────────────────────────────────────────────
+
     override fun sendMessage(to: String, message: Message) {
-        // Sprint 3: Avoid Client routing quirks; send raw on the network.
-        network.sendMessage(to, message)
+        client.sendMessage(message)
     }
 
     override fun addMessageListener(listener: (Message) -> Unit) {
-        // LocalNetwork supports multiple listeners.
-        // This listener is used by RealMeshGateway to emit ChatMessage flows.
         network.addListener(listener)
+    }
+
+    override fun removeMessageListener(listener: (Message) -> Unit) {
+        network.removeListener(listener)
     }
 }

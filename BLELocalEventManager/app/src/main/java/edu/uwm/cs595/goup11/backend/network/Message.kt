@@ -12,7 +12,8 @@ data class Message(
     var ttl: Int,
     val replyTo: String? = null,
     val id: String = UUID.randomUUID().toString(),
-    val senderRole: UserRole = UserRole.ATTENDEE
+    val senderRole: UserRole = UserRole.ATTENDEE,
+    val presentationId: String? = null
 ) {
 
     /**
@@ -25,6 +26,7 @@ data class Message(
         val idBytes = id.toByteArray(StandardCharsets.UTF_8)
         val replyBytes = replyTo?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
         val roleBytes = senderRole.name.toByteArray(StandardCharsets.UTF_8)
+        val presentationBytes = presentationId?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
         val payload = data ?: ByteArray(0)
 
         val buffer = ByteBuffer.allocate(
@@ -34,6 +36,7 @@ data class Message(
                     4 + idBytes.size +
                     4 + replyBytes.size +
                     4 + roleBytes.size +
+                    4 + presentationBytes.size +
                     4 + payload.size +
                     4 // ttl
         )
@@ -44,6 +47,7 @@ data class Message(
         putWithLength(buffer, idBytes)
         putWithLength(buffer, replyBytes)
         putWithLength(buffer, roleBytes)
+        putWithLength(buffer, presentationBytes)
         putWithLength(buffer, payload)
 
         buffer.putInt(ttl)
@@ -65,6 +69,7 @@ data class Message(
             val id = readString(buffer)
             val replyToRaw = readString(buffer)
             val roleName = readString(buffer)
+            val presentationIdRaw = readString(buffer)
             val data = readBytes(buffer)
             val ttl = buffer.int
 
@@ -76,7 +81,8 @@ data class Message(
                 ttl = ttl,
                 replyTo = replyToRaw.ifEmpty { null },
                 id = id,
-                senderRole = try { UserRole.valueOf(roleName) } catch (e: Exception) { UserRole.ATTENDEE }
+                senderRole = try { UserRole.valueOf(roleName) } catch (e: Exception) { UserRole.ATTENDEE },
+                presentationId = presentationIdRaw.ifEmpty { null }
             )
         }
 
@@ -110,7 +116,8 @@ data class Message(
         type: MessageType,
         data: ByteArray?,
         ttl: Int,
-        role: UserRole = UserRole.ATTENDEE
+        role: UserRole = UserRole.ATTENDEE,
+        presentationId: String? = null
     ): Message {
         return Message(
             to = this.from,
@@ -119,7 +126,8 @@ data class Message(
             data = data,
             ttl = ttl,
             replyTo = this.id,
-            senderRole = role
+            senderRole = role,
+            presentationId = presentationId
         )
     }
 
