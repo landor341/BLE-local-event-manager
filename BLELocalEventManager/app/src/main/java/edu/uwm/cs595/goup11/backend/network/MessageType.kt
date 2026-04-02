@@ -115,7 +115,8 @@ enum class MessageType {
     /*
      * Telemetry
      */
-    TELEMETRY_RTT
+    TELEMETRY_RTT,
+    TELEMETRY_RTT_ACK
 
 
 
