@@ -10,6 +10,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
 
 /**
  * The application layer of the mesh network stack.
@@ -92,6 +93,13 @@ class Client(
     // -------------------------------------------------------------------------
 
     private val messageListeners = mutableListOf<(Message) -> Unit>()
+
+    /** Seen message IDs to prevent duplicate processing and infinite loops */
+    private val seenMessageIds = Collections.newSetFromMap(object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean {
+            return size > 100 // Keep last 100 message IDs
+        }
+    })
 
     /** Stored so we can unregister it from the network on leaveNetwork(). */
     private val networkMessageListener: (Message) -> Unit = { message -> onMessageReceived(message) }
@@ -266,6 +274,9 @@ class Client(
         // shutdown() calls stopAllEndpoints + stopAdvertising and resets state.
         net?.shutdown()
 
+        // Clear seen messages on leave
+        seenMessageIds.clear()
+
         logger.info { "$displayName left the network" }
     }
 
@@ -361,6 +372,24 @@ class Client(
             presentationId = message.presentationId ?: presentationId
         )
 
+        // Record outgoing messages as "seen" so we don't process them if they loop back
+        seenMessageIds.add(enriched.id)
+
+        // Handle local delivery (self or broadcast)
+        // We do this BEFORE encryption so we can deliver the plain-text 'enriched' message
+        // to local listeners without needing a decrypt cycle.
+        if (enriched.to == endpointId || enriched.to == "ALL") {
+            if (enriched.type == MessageType.TEXT_MESSAGE) {
+                val isSamePresentation = enriched.presentationId == presentationId
+                val isAdmin = role == UserRole.ADMIN
+                if (isAdmin || isSamePresentation) {
+                    messageListeners.forEach { it(enriched) }
+                }
+            }
+            // If it was strictly for us, we can stop here.
+            if (enriched.to == endpointId) return
+        }
+
         // Apply encryption for application messages if a key is available
         val finalMessage = if (enriched.type == MessageType.TEXT_MESSAGE && enriched.data != null && Manager.isInitialized()) {
             try {
@@ -411,6 +440,12 @@ class Client(
      * Completes any reply waiters, then routes to topology or application handlers.
      */
     fun onMessageReceived(message: Message) {
+        // Loop prevention: skip if we've already handled this specific message ID
+        if (!seenMessageIds.add(message.id)) {
+            logger.debug { "Skipping duplicate message ${message.id}" }
+            return
+        }
+
         // Unblock any sendMessageAndWait() calls waiting for this reply
         val replyTo = message.replyTo
         if (!replyTo.isNullOrBlank()) {
@@ -457,14 +492,19 @@ class Client(
                         // Deliver to application listeners
                         messageListeners.forEach { it(processedMessage) }
                     } else {
-                        logger.debug { "Ignoring message ${processedMessage.id} — different presentation (${processedMessage.presentationId})" }
+                        logger.debug { "Filtering message ${processedMessage.id} for UI — different presentation (${processedMessage.presentationId})" }
                     }
-                } else if (processedMessage.ttl > 0) {
-                    // Not for us — forward it, decrementing TTL to prevent loops
-                    val forwarded = processedMessage.copy(ttl = processedMessage.ttl - 1)
-                    sendMessage(forwarded)
-                } else {
-                    logger.warn { "Dropping message ${processedMessage.id} — TTL exhausted" }
+                }
+
+                // Forwarding logic: Broadcasts or multi-hop messages MUST be forwarded if budget allows.
+                // budget == 1 means "last hop" — recipient can process it (done above) but cannot forward it further.
+                if (processedMessage.to == "ALL" || processedMessage.to != endpointId) {
+                    if (processedMessage.ttl > 1) {
+                        val forwarded = processedMessage.copy(ttl = processedMessage.ttl - 1)
+                        sendMessage(forwarded)
+                    } else if (processedMessage.to != "ALL" && processedMessage.to != endpointId) {
+                        logger.warn { "Dropping message ${processedMessage.id} to ${processedMessage.to} — TTL exhausted" }
+                    }
                 }
             }
             MessageType.HELLO -> logger.info { "HELLO from ${message.from} (${message.senderRole})" }
