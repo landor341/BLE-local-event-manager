@@ -26,6 +26,14 @@ class ExploreViewModel(
 
     private var started = false
 
+    private fun getSessionId(state: MeshUiState): String? {
+        return when (state) {
+            is MeshUiState.InEvent -> state.sessionId
+            is MeshUiState.Hosting -> state.sessionId
+            else -> null
+        }
+    }
+
     fun start() {
         if (started) return
         started = true
@@ -39,6 +47,22 @@ class ExploreViewModel(
                 _meshState.value = state
                 if (state is MeshUiState.Error) {
                     _uiState.value = ExploreUiState.Error
+                }
+                
+                // If we are hosting or already in an event, ensure it's in the list
+                getSessionId(state)?.let { sessionId ->
+                    _events.update { current ->
+                        if (current.any { it.sessionId == sessionId }) {
+                            current
+                        } else {
+                            current + DiscoveredEventSummary(
+                                sessionId = sessionId,
+                                title = sessionId,
+                                venue = "Hosted by you"
+                            )
+                        }
+                    }
+                    refreshUiState()
                 }
             }
         }
@@ -59,6 +83,18 @@ class ExploreViewModel(
         viewModelScope.launch {
             _events.value = emptyList()
             _uiState.value = ExploreUiState.Loading
+            
+            // Re-add self if already in a session when starting a fresh scan
+            getSessionId(mesh.state.value)?.let { sessionId ->
+                _events.value = listOf(
+                    DiscoveredEventSummary(
+                        sessionId = sessionId,
+                        title = sessionId,
+                        venue = "Hosted by you"
+                    )
+                )
+            }
+
             mesh.startScanning()
             refreshUiState()
         }
