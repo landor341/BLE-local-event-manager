@@ -9,8 +9,9 @@ data class Presentation(
     val id: String,
     val name: String,
     val time: LocalDateTime,
+    val endTime: LocalDateTime,
     val location: String,
-    val speaker: String,
+    val speaker: User,
    // val event: Event,
 
 )

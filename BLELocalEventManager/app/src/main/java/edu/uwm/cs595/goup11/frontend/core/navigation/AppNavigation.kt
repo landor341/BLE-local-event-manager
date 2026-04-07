@@ -66,6 +66,8 @@ import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventViewModel
 import edu.uwm.cs595.goup11.frontend.features.tutorial.TutorialScreen
 import edu.uwm.cs595.goup11.frontend.features.tutorial.introTutorialScreen
 import kotlinx.coroutines.launch
+import edu.uwm.cs595.goup11.frontend.features.createpresentation.CreatePresentationScreen
+import edu.uwm.cs595.goup11.frontend.features.createpresentation.CreatePresentationViewModel
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -170,6 +172,7 @@ fun AppNavigation() {
     val inboxVm = remember { InboxViewModel(meshGateway) }
     val eventDetailVm = remember { EventDetailViewModel(meshGateway) }
     val createEventVm = remember { CreateEventViewModel(meshGateway) }
+    val createPresentationVm = remember { CreatePresentationViewModel(meshGateway) }
 
     val mockConnectedUsers = remember {
         listOf(
@@ -250,6 +253,9 @@ fun AppNavigation() {
                     onHostingStarted = { hostedSessionId ->
                         selectedSessionId = hostedSessionId
                         navController.navigate(SealedDestinations.EVENT_DETAIL.route)
+                    },
+                    onNavigateToCreatePresentation = {
+                        navController.navigate(SealedDestinations.CREATE_PRESENTATION.route)
                     }
                 )
             }
@@ -311,6 +317,16 @@ fun AppNavigation() {
                 DeveloperScreen(
                     mesh = meshGateway,
                     onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(SealedDestinations.CREATE_PRESENTATION.route) {
+                CreatePresentationScreen(
+                    viewModel = createPresentationVm,
+                    onBack = { navController.popBackStack() },
+                    onSuccess = {
+                        navController.popBackStack()
+                    }
                 )
             }
         }

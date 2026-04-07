@@ -70,6 +70,8 @@ class RealMeshGateway(
     private var scanJob: Job? = null
     private val seenSessionIds = mutableSetOf<String>()
 
+    private val customItinerary = mutableListOf<ItineraryItem>()
+
     override fun setDisplayName(name: String) {
         backend.setDisplayName(name)
         log("Display name set to: $name")
@@ -222,11 +224,7 @@ class RealMeshGateway(
             title = sessionId,
             venue = "Venue (host broadcast later)",
             description = "Joined via mesh. Chat is live; event metadata can be synced later.",
-            itinerary = listOf(
-                ItineraryItem("it-1", "Welcome / Announcements", "1:00 PM", "Main Hall"),
-                ItineraryItem("it-2", "Talk: Offline Mesh Networking", "1:30 PM", "Room A", "Group 11"),
-                ItineraryItem("it-3", "Q&A / Chat", "2:15 PM", "Lobby")
-            )
+            itinerary = customItinerary
         )
     }
 
@@ -324,5 +322,10 @@ class RealMeshGateway(
         val time = System.currentTimeMillis() % 100000 // short timestamp
         _logs.tryEmit("[$time] $message")
         logger.debug { "[$time] $message" }
+    }
+
+    override suspend fun addItineraryItem(item: ItineraryItem) {
+        customItinerary.add(item)
+        log("Presentation added to local memory: ${item.title}")
     }
 }

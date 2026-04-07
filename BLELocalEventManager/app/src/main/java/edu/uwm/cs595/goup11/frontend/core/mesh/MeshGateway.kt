@@ -112,4 +112,6 @@ interface MeshGateway {
 
     /** Send a message directly to a specific peer by their encoded name. */
     suspend fun sendDirectMessage(toEncodedName: String, text: String)
+
+    suspend fun addItineraryItem(item: ItineraryItem)
 }
