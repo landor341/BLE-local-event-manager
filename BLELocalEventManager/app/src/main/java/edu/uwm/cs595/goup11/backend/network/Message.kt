@@ -1,5 +1,6 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import kotlinx.serialization.protobuf.ProtoBuf
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -16,6 +17,8 @@ data class Message(
     val presentationId: String? = null
 ) {
 
+    inline fun <reified T : Any> Message.withPayload(payload: T): Message =
+        copy(data = ProtoBuf.encodeToByteArray(payload))
     /**
      * Serialize message into bytes for Nearby Payload
      */

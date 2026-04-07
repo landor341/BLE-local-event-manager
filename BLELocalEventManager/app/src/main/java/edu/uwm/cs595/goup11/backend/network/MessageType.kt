@@ -72,26 +72,34 @@ enum class MessageType {
      */
 
     /**
-     * Sent via router to leaf to inform leaf of all users in network
+     * Sent on endpoint connected. Contains the sender's full peer directory.
      */
-    DIRECTORY_SNAPSHOT,
+    DIRECTORY_SYNC,
 
     /**
-     * When sent, will request a snapshot of all users from the nearest router
+     * Response to DIRECTORY_SYNC. Contains the responder's full peer directory.
      */
-    REQUEST_SNAPSHOT,
+    DIRECTORY_SYNC_ACK,
 
     /**
-     * Sent from ROUTER ONLY. When sent, this message should propagate to every node and each
-     * node should return a [REQUEST_DIRECTORY_UPDATE_ALL_RESPONSE]
+     * Broadcast to all neighbors when a new peer is discovered via directory merge.
      */
-    REQUEST_DIRECTORY_UPDATE_ALL,
+    DIRECTORY_PEER_ADDED,
 
     /**
-     * Sent in response to [REQUEST_DIRECTORY_UPDATE_ALL]
+     * Broadcast to all neighbors when a peer disconnects. Entry is tombstoned, not deleted.
      */
-    REQUEST_DIRECTORY_UPDATE_ALL_RESPONSE,
+    DIRECTORY_PEER_DISCONNECTED,
 
+    /**
+     * Sent to the least-recently-verified peer. Contains a hash of the sender's directory.
+     */
+    DIRECTORY_VERIFY,
+
+    /**
+     * Response to DIRECTORY_VERIFY. Contains OK status, or MISMATCH + full directory.
+     */
+    DIRECTORY_VERIFY_ACK,
     /*
     Security Mesages
      */
