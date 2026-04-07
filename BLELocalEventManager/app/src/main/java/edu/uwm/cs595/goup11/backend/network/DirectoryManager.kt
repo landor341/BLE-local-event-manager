@@ -1,5 +1,6 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import edu.uwm.cs595.goup11.backend.network.payloads.DirectoryPeerAddedPayload
 import kotlinx.coroutines.CoroutineScope
 
 class DirectoryManager(
