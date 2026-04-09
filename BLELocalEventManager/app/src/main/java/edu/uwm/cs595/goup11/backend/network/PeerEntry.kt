@@ -1,5 +1,8 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class PeerEntry(
     val endpointId: String,
     val displayName: String,
@@ -7,7 +10,7 @@ data class PeerEntry(
     val lamportClock: Long,
     val status: PeerStatus,
 )
-
+@Serializable
 enum class PeerStatus {
     ACTIVE,
     DISCONNECTED

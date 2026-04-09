@@ -59,7 +59,6 @@ class DevNetworkActivity : ComponentActivity() {
 
     // Compose-observable state — changing these triggers recomposition
     private val clientState          = mutableStateOf<Client?>(null)
-    private val peersState           = mutableStateListOf<ConnectedPeer>()
     private val eventNameState       = mutableStateOf<String?>(null)
     private val discoveredEvents     = mutableStateListOf<DiscoveredEvent>()
     private val isDiscoveringState   = mutableStateOf(false)
@@ -76,9 +75,25 @@ class DevNetworkActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            // Collect the directory's network-wide active peer list reactively.
+            // Falls back to empty when offline (client is null).
+            val networkPeers by produceState<List<PeerEntry>>(
+                initialValue = emptyList(),
+                key1         = clientState.value
+            ) {
+                val c = clientState.value
+                if (c == null) { value = emptyList() }
+                else c.networkPeersFlow.collect { value = it }
+            }
+
+            // Exclude self so the UI never shows the local node in the peer list
+            val peersExcludingSelf = networkPeers.filter {
+                it.endpointId != clientState.value?.endpointId
+            }
+
             DevNetworkScreen(
                 client             = clientState.value,
-                peers              = peersState,
+                networkPeers       = peersExcludingSelf,
                 eventName          = eventNameState.value,
                 discoveredEvents   = discoveredEvents,
                 isDiscovering      = isDiscoveringState.value,
@@ -111,7 +126,6 @@ class DevNetworkActivity : ComponentActivity() {
                         networkStateJob = null
                         clientState.value?.leaveNetwork()
                         clientState.value = null
-                        peersState.clear()
                         eventNameState.value = null
                         isAdvertisingState.value = false
                         isNodeDiscovering.value = false
@@ -169,29 +183,14 @@ class DevNetworkActivity : ComponentActivity() {
     }
 
     /**
-     * Listen to network events so the UI peer list stays in sync.
-     * Runs on the Main dispatcher so mutableStateListOf updates are safe.
+     * Wire radio state observers. Peer tracking is now handled entirely by the
+     * directory's networkPeersFlow, collected reactively in setContent above.
      */
     private fun wireClientEvents(c: Client) {
-        peersState.clear()
         networkStateJob?.cancel()
         networkStateJob = scope.launch {
             launch { c.network?.isAdvertising?.collect { isAdvertisingState.value = it } }
             launch { c.network?.isDiscovering?.collect { isNodeDiscovering.value  = it } }
-            c.network?.events?.collect { ev ->
-                when (ev) {
-                    is NetworkEvent.EndpointConnected -> {
-                        if (peersState.none { it.endpointId == ev.endpointId }) {
-                            val displayName = AdvertisedName.decode(ev.encodedName)?.displayName
-                                ?: ev.endpointId.shortName()
-                            peersState.add(ConnectedPeer(ev.endpointId, displayName, ev.encodedName))
-                        }
-                    }
-                    is NetworkEvent.EndpointDisconnected ->
-                        peersState.removeAll { it.endpointId == ev.endpointId }
-                    else -> Unit
-                }
-            }
         }
     }
 
@@ -287,7 +286,7 @@ class DevNetworkActivity : ComponentActivity() {
 @Composable
 fun DevNetworkScreen(
     client:                    Client?,
-    peers:                     List<ConnectedPeer>,
+    networkPeers:              List<PeerEntry>,  // all ACTIVE peers network-wide, self excluded
     eventName:                 String?,
     discoveredEvents:          List<DiscoveredEvent>,
     isDiscovering:             Boolean,
@@ -390,7 +389,7 @@ fun DevNetworkScreen(
             when {
                 isOnline && eventName != null && selectedTab == 0 -> EventTab(
                     eventName         = eventName,
-                    peers             = peers,
+                    networkPeers      = networkPeers,
                     selfId            = endpointId ?: "",
                     isAdvertising     = isAdvertising,
                     isNodeDiscovering = isNodeDiscovering,
@@ -438,7 +437,7 @@ fun DevNetworkScreen(
                 selectedTab - offset == 2 -> MessagesTab(
                     isOnline      = isOnline,
                     endpointId    = endpointId,
-                    peers         = peers,
+                    networkPeers  = networkPeers,
                     messages      = messages,
                     onSendMessage = { to, body ->
                         messages.add(ChatMessage(from = endpointId ?: "", body = body, sent = true))
@@ -650,12 +649,12 @@ private fun DiscoverTab(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Event Tab — shown as first tab once online, displays connected peers
+// Event Tab — shows all peers known to the directory, not just direct neighbors
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 private fun EventTab(
     eventName:            String,
-    peers:                List<ConnectedPeer>,
+    networkPeers:         List<PeerEntry>,
     selfId:               String,
     isAdvertising:        Boolean,
     isNodeDiscovering:    Boolean,
@@ -676,23 +675,23 @@ private fun EventTab(
         DevCard(title = "EVENT") {
             DevKV("name",   eventName)
             DevKV("self",   selfId.shortName())
-            DevKV("peers",  peers.size.toString())
+            DevKV("peers",  networkPeers.size.toString())
             DevKV("status", "active", valueColor = GreenColor)
         }
 
         // Radio controls
         RadioControls(
-            isAdvertising     = isAdvertising,
-            isDiscovering     = isNodeDiscovering,
+            isAdvertising        = isAdvertising,
+            isDiscovering        = isNodeDiscovering,
             onStartAdvertising   = onStartAdvertising,
             onStopAdvertising    = onStopAdvertising,
             onStartDiscovering   = onStartNodeDiscovery,
             onStopDiscovering    = onStopNodeDiscovery,
         )
 
-        // Peer list
-        DevCard(title = "CONNECTED PEERS (${peers.size})") {
-            if (peers.isEmpty()) {
+        // Network-wide peer list from the directory
+        DevCard(title = "NETWORK PEERS (${networkPeers.size})") {
+            if (networkPeers.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -700,12 +699,12 @@ private fun EventTab(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "Waiting for peers to connect…",
+                        "Waiting for peers to join…",
                         fontFamily = Mono, fontSize = 11.sp, color = TextDimColor
                     )
                 }
             } else {
-                peers.forEach { peer ->
+                networkPeers.forEach { peer ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -717,16 +716,29 @@ private fun EventTab(
                     ) {
                         Box(modifier = Modifier.size(8.dp).background(GreenColor, RoundedCornerShape(50)))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(peer.displayName, fontFamily = Mono, fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp, color = TextColor)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("nearby:", fontFamily = Mono, fontSize = 9.sp, color = TextDimColor)
-                                Text(peer.endpointId, fontFamily = Mono, fontSize = 9.sp,
-                                    color = BlueColor, maxLines = 1)
-                            }
-                            Text(peer.encodedName, fontFamily = Mono, fontSize = 8.sp,
+                            Text(
+                                peer.displayName,
+                                fontFamily = Mono, fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp, color = TextColor
+                            )
+                            Text(
+                                peer.endpointId.shortName(),
+                                fontFamily = Mono, fontSize = 8.sp,
                                 color = TextDimColor, maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                        // Lamport clock badge — useful for verifying directory convergence on-device
+                        Box(
+                            modifier = Modifier
+                                .background(BlueColor.copy(alpha = 0.08f), RoundedCornerShape(2.dp))
+                                .border(1.dp, BlueColor.copy(alpha = 0.3f), RoundedCornerShape(2.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "c:${peer.lamportClock}",
+                                fontFamily = Mono, fontSize = 8.sp, color = BlueColor
+                            )
                         }
                     }
                 }
@@ -966,18 +978,18 @@ private fun NetworkTab(
 private fun MessagesTab(
     isOnline:      Boolean,
     endpointId:    String?,
-    peers:         List<ConnectedPeer>,
+    networkPeers:  List<PeerEntry>,
     messages:      List<ChatMessage>,
     onSendMessage: (to: String, body: String) -> Unit,
 ) {
-    var selectedPeer by remember { mutableStateOf<ConnectedPeer?>(null) }
+    var selectedPeer by remember { mutableStateOf<PeerEntry?>(null) }
     var body         by remember { mutableStateOf("") }
     val listState    = rememberLazyListState()
 
     // Auto-select the only peer if there's exactly one
-    LaunchedEffect(peers) {
-        if (peers.size == 1) selectedPeer = peers.first()
-        else if (selectedPeer != null && peers.none { it.endpointId == selectedPeer!!.endpointId })
+    LaunchedEffect(networkPeers) {
+        if (networkPeers.size == 1) selectedPeer = networkPeers.first()
+        else if (selectedPeer != null && networkPeers.none { it.endpointId == selectedPeer!!.endpointId })
             selectedPeer = null
     }
 
@@ -991,11 +1003,11 @@ private fun MessagesTab(
     ) {
         // Peer picker
         DevCard(title = "RECIPIENT") {
-            if (peers.isEmpty()) {
-                Text("No connected peers", fontFamily = Mono, fontSize = 11.sp, color = TextDimColor)
+            if (networkPeers.isEmpty()) {
+                Text("No peers in network yet", fontFamily = Mono, fontSize = 11.sp, color = TextDimColor)
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    peers.forEach { peer ->
+                    networkPeers.forEach { peer ->
                         val selected = selectedPeer?.endpointId == peer.endpointId
                         Box(
                             modifier = Modifier
@@ -1009,13 +1021,15 @@ private fun MessagesTab(
                                     RoundedCornerShape(4.dp)
                                 )
                                 .clickable { selectedPeer = peer }
-                                .padding(horizontal = 12.dp, vertical = 10.dp)                        ) {
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
                             Column {
                                 Text(peer.displayName, fontFamily = Mono, fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (selected) GreenColor else TextColor)
                                 Text(peer.endpointId, fontFamily = Mono, fontSize = 9.sp,
-                                    color = TextDimColor)
+                                    color = TextDimColor, maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -1033,7 +1047,7 @@ private fun MessagesTab(
             } else {
                 LazyColumn(state = listState, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(messages) { msg ->
-                        MessageBubble(msg = msg, selfId = endpointId ?: "", peers = peers)
+                        MessageBubble(msg = msg, selfId = endpointId ?: "", networkPeers = networkPeers)
                     }
                 }
             }
@@ -1068,7 +1082,8 @@ private fun MessagesTab(
                     onSend = {
                         val peer = selectedPeer
                         if (body.isNotBlank() && peer != null && isOnline) {
-                            onSendMessage(peer.encodedName, body.trim())
+                            // Route by endpointId — topology handles forwarding to non-direct peers
+                            onSendMessage(peer.endpointId, body.trim())
                             body = ""
                         }
                     }
@@ -1081,7 +1096,7 @@ private fun MessagesTab(
                 modifier = Modifier.size(56.dp)
             ) {
                 selectedPeer?.let { peer ->
-                    onSendMessage(peer.encodedName, body.trim())
+                    onSendMessage(peer.endpointId, body.trim())
                     body = ""
                 }
             }
@@ -1090,10 +1105,10 @@ private fun MessagesTab(
 }
 
 @Composable
-private fun MessageBubble(msg: ChatMessage, selfId: String, peers: List<ConnectedPeer>) {
+private fun MessageBubble(msg: ChatMessage, selfId: String, networkPeers: List<PeerEntry>) {
     val isSent = msg.from == selfId || msg.sent
     val senderName = if (isSent) "me"
-    else peers.find { it.endpointId == msg.from }?.displayName ?: msg.from.shortName()
+    else networkPeers.find { it.endpointId == msg.from }?.displayName ?: msg.from.shortName()
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isSent) Alignment.End else Alignment.Start
@@ -1331,8 +1346,6 @@ private data class ChatMessage(val from: String, val body: String, val sent: Boo
 
 private data class LogLine(val msg: String, val level: LogLevel,
                            val ts: String = nowTs())
-
-data class ConnectedPeer(val endpointId: String, val displayName: String, val encodedName: String)
 
 private enum class LogLevel { OK, INFO, WARN, ERR }
 

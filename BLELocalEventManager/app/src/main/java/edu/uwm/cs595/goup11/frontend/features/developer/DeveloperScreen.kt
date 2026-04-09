@@ -15,7 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,13 +24,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import edu.uwm.cs595.goup11.backend.network.*
+import edu.uwm.cs595.goup11.backend.network.PeerEntry
 import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.network.topology.SnakeTopology
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import edu.uwm.cs595.goup11.frontend.core.mesh.GatewayPeer
 import edu.uwm.cs595.goup11.frontend.core.mesh.TopologyChoice
-import edu.uwm.cs595.goup11.frontend.dev.ConnectedPeer
 import edu.uwm.cs595.goup11.frontend.dev.DevNetworkScreen
 import edu.uwm.cs595.goup11.frontend.dev.DiscoveredEvent
 import android.Manifest
@@ -425,7 +424,6 @@ private fun DirectDevContent() {
 
     // Mirror DevNetworkActivity's state fields
     val clientState        = remember { mutableStateOf<Client?>(null) }
-    val peersState         = remember { mutableStateListOf<ConnectedPeer>() }
     val eventNameState     = remember { mutableStateOf<String?>(null) }
     val discoveredEvents   = remember { mutableStateListOf<DiscoveredEvent>() }
     val isDiscovering      = remember { mutableStateOf(false) }
@@ -477,25 +475,10 @@ private fun DirectDevContent() {
     // ── Helpers (mirrors DevNetworkActivity private funs) ────────────────────
 
     fun wireClientEvents(c: Client) {
-        peersState.clear()
         networkStateJob?.cancel()
         networkStateJob = scope.launch {
             launch { c.network?.isAdvertising?.collect { isAdvertising.value = it } }
             launch { c.network?.isDiscovering?.collect { isNodeDiscovering.value = it } }
-            c.network?.events?.collect { ev ->
-                when (ev) {
-                    is NetworkEvent.EndpointConnected -> {
-                        if (peersState.none { it.endpointId == ev.endpointId }) {
-                            val displayName = AdvertisedName.decode(ev.encodedName)?.displayName
-                                ?: ev.endpointId
-                            peersState.add(ConnectedPeer(ev.endpointId, displayName, ev.encodedName))
-                        }
-                    }
-                    is NetworkEvent.EndpointDisconnected ->
-                        peersState.removeAll { it.endpointId == ev.endpointId }
-                    else -> Unit
-                }
-            }
         }
     }
 
@@ -587,10 +570,23 @@ private fun DirectDevContent() {
         }
     }
 
-    // ── Render existing DevNetworkScreen unchanged ────────────────────────────
+    // Collect the directory's network-wide active peer list reactively
+    val networkPeers by produceState<List<PeerEntry>>(
+        initialValue = emptyList(),
+        key1         = clientState.value
+    ) {
+        val c = clientState.value
+        if (c == null) { value = emptyList() }
+        else c.networkPeersFlow.collect { value = it }
+    }
+    val peersExcludingSelf = networkPeers.filter {
+        it.endpointId != clientState.value?.endpointId
+    }
+
+    // ── Render DevNetworkScreen ───────────────────────────────────────────────
     DevNetworkScreen(
         client             = clientState.value,
-        peers              = peersState,
+        networkPeers       = peersExcludingSelf,
         eventName          = eventNameState.value,
         discoveredEvents   = discoveredEvents,
         isDiscovering      = isDiscovering.value,
@@ -612,7 +608,6 @@ private fun DirectDevContent() {
                 networkStateJob = null
                 clientState.value?.leaveNetwork()
                 clientState.value = null
-                peersState.clear()
                 eventNameState.value = null
                 isAdvertising.value = false
                 isNodeDiscovering.value = false
