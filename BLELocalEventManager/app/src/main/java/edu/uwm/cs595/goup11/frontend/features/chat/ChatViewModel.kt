@@ -19,32 +19,30 @@ class ChatViewModel(
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     init {
-        // Load session history from the gateway and filter for relevance
+        val isEventChat = peerId == "router" || peerId == "ALL"
+
+        // Load session history and filter correctly
         val history = mesh.getChatHistory().filter { msg ->
-            when {
-                // If it's a direct message chat, match the peerId
-                msg.sender == peerId -> true
-                msg.isMine && msg.sender == peerId -> true 
-                
-                // If it's an event-wide chat, include all session messages
-                peerId == "router" || peerId == "ALL" -> true
-                
-                else -> false
+            if (isEventChat) {
+                // Event chat: only show broadcasts
+                msg.isBroadcast
+            } else {
+                // Direct chat: only show private messages between me and this specific peer
+                !msg.isBroadcast && (msg.sender == peerId || (msg.isMine && msg.recipientId == peerId))
             }
         }
         _messages.value = history
 
         viewModelScope.launch {
             mesh.chat.collect { msg ->
-                val isRelevant = when {
-                    msg.sender == peerId -> true
-                    msg.isMine && msg.sender == peerId -> true
-                    peerId == "router" || peerId == "ALL" -> true
-                    else -> false
+                val isRelevant = if (isEventChat) {
+                    msg.isBroadcast
+                } else {
+                    !msg.isBroadcast && (msg.sender == peerId || (msg.isMine && msg.recipientId == peerId))
                 }
 
                 if (isRelevant) {
-                    // Check if message is already in history to avoid double-loading on init
+                    // Avoid double-loading
                     if (_messages.value.none { it.timestampMs == msg.timestampMs && it.text == msg.text }) {
                         _messages.value = _messages.value + msg
                     }

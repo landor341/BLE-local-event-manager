@@ -53,10 +53,6 @@ class RealMeshGateway(
     private val seenSessionIds = mutableSetOf<String>()
     private val customItinerary = mutableListOf<ItineraryItem>()
     
-    /**
-     * In-memory buffer of chat history for the current session.
-     * Cleared only on leaveEvent().
-     */
     private val chatHistory = mutableListOf<ChatMessage>()
 
     override fun setDisplayName(name: String) {
@@ -283,7 +279,8 @@ class RealMeshGateway(
             senderRole = backend.myRole,
             text = text,
             timestampMs = System.currentTimeMillis(),
-            isMine = true
+            isMine = true,
+            isBroadcast = true
         )
         
         synchronized(chatHistory) {
@@ -294,7 +291,7 @@ class RealMeshGateway(
         log("Sending chat: $text")
 
         val msg = Message(
-            to = "",
+            to = "ALL",
             from = backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
@@ -302,7 +299,7 @@ class RealMeshGateway(
         )
 
         runCatching {
-            backend.sendMessage("", msg)
+            backend.sendMessage("ALL", msg)
         }.onFailure { e ->
             log("Chat send failed: ${e.message}")
             _state.value = MeshUiState.Error("Failed to send message.")
@@ -330,7 +327,9 @@ class RealMeshGateway(
             senderRole = backend.myRole,
             text = text,
             timestampMs = System.currentTimeMillis(),
-            isMine = true
+            isMine = true,
+            isBroadcast = false,
+            recipientId = toEncodedName
         )
         
         synchronized(chatHistory) {
@@ -364,13 +363,17 @@ class RealMeshGateway(
                 val text = msg.data?.toString(StandardCharsets.UTF_8).orEmpty()
                 log("Received chat from ${msg.from}: $text")
 
+                val isBroadcast = msg.to == "ALL"
+
                 val chatMessage = ChatMessage(
                     sessionId = sessionId,
                     sender = msg.from,
                     senderRole = UserRole.ATTENDEE,
                     text = text,
                     timestampMs = System.currentTimeMillis(),
-                    isMine = (msg.from == backend.myId)
+                    isMine = (msg.from == backend.myId),
+                    isBroadcast = isBroadcast,
+                    recipientId = if (isBroadcast) null else backend.myId
                 )
                 
                 synchronized(chatHistory) {

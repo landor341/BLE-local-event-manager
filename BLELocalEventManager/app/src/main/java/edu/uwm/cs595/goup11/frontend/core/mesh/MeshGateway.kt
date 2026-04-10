@@ -46,7 +46,11 @@ data class ChatMessage(
     val senderRole:  UserRole = UserRole.ATTENDEE,
     val text:        String,
     val timestampMs: Long,
-    val isMine:      Boolean
+    val isMine:      Boolean,
+    /** Distinguishes between event-wide broadcast and direct peer-to-peer message */
+    val isBroadcast: Boolean = false,
+    /** For direct messages, stores the recipient's endpoint ID. Null for broadcasts. */
+    val recipientId: String? = null
 )
 
 sealed class MeshUiState {
