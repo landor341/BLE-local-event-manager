@@ -93,6 +93,11 @@ interface MeshGateway {
      */
     fun setDisplayName(name: String)
 
+    /**
+     * Returns the list of all chat messages received or sent during the current session.
+     */
+    fun getChatHistory(): List<ChatMessage>
+
     suspend fun start()
 
     suspend fun startScanning()

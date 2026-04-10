@@ -19,10 +19,35 @@ class ChatViewModel(
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     init {
+        // Load session history from the gateway and filter for relevance
+        val history = mesh.getChatHistory().filter { msg ->
+            when {
+                // If it's a direct message chat, match the peerId
+                msg.sender == peerId -> true
+                msg.isMine && msg.sender == peerId -> true 
+                
+                // If it's an event-wide chat, include all session messages
+                peerId == "router" || peerId == "ALL" -> true
+                
+                else -> false
+            }
+        }
+        _messages.value = history
+
         viewModelScope.launch {
             mesh.chat.collect { msg ->
-                if (msg.sender == peerId || (msg.isMine && msg.sessionId == peerId)) {
-                    _messages.value = _messages.value + msg
+                val isRelevant = when {
+                    msg.sender == peerId -> true
+                    msg.isMine && msg.sender == peerId -> true
+                    peerId == "router" || peerId == "ALL" -> true
+                    else -> false
+                }
+
+                if (isRelevant) {
+                    // Check if message is already in history to avoid double-loading on init
+                    if (_messages.value.none { it.timestampMs == msg.timestampMs && it.text == msg.text }) {
+                        _messages.value = _messages.value + msg
+                    }
                 }
             }
         }
@@ -32,12 +57,17 @@ class ChatViewModel(
         if (text.isBlank()) return
 
         val currentState = mesh.state.value
-        if (currentState !is MeshUiState.InEvent && currentState !is MeshUiState.Hosting) {
+        if (currentState !is MeshUiState.InEvent && 
+            @Suppress("DEPRECATION") (currentState !is MeshUiState.Hosting)) {
             return
         }
 
         viewModelScope.launch {
-            mesh.sendChat(text)
+            if (peerId == "router" || peerId == "ALL") {
+                mesh.sendChat(text)
+            } else {
+                mesh.sendDirectMessage(peerId, text)
+            }
         }
     }
 }
