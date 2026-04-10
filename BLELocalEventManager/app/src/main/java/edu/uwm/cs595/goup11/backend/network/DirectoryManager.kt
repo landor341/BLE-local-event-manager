@@ -67,18 +67,12 @@ class DirectoryManager(
 
     /**
      * Emits the full directory including DISCONNECTED tombstones on every change.
-     * Useful for debugging or admin views that need to see the full history.
-     *
-     * In Compose: val allPeers by client.fullDirectoryFlow.collectAsState()
      */
     private val _allPeers = MutableStateFlow<List<PeerEntry>>(emptyList())
     val allPeers: StateFlow<List<PeerEntry>> = _allPeers.asStateFlow()
 
     /**
      * Emits only ACTIVE peers on every change.
-     * This is the primary flow for the frontend to observe who is on the network.
-     *
-     * In Compose: val peers by client.networkPeersFlow.collectAsState()
      */
     private val _activePeers = MutableStateFlow<List<PeerEntry>>(emptyList())
     val activePeers: StateFlow<List<PeerEntry>> = _activePeers.asStateFlow()
@@ -89,7 +83,6 @@ class DirectoryManager(
 
     /**
      * Registers this node in the directory and starts the periodic verify loop.
-     * Called by Client after createNetwork() / joinNetwork() sets the endpoint ID.
      */
     fun start() {
         registerSelf()
@@ -122,7 +115,6 @@ class DirectoryManager(
 
     /**
      * Cancels the verify loop and clears all directory state.
-     * Called by Client from leaveNetwork().
      */
     fun stop() {
         verifyJob?.cancel()
@@ -146,7 +138,7 @@ class DirectoryManager(
     fun onPeerConnected(endpointId: String, advertisedName: AdvertisedName) {
         directNeighbors.add(endpointId)
 
-        // Add a placeholder — the real high-clock entry arrives via DIRECTORY_SYNC_ACK
+        // Add a placeholder for the user
         val existing = directory[endpointId]
         if (existing == null || existing.status == PeerStatus.DISCONNECTED) {
             directory[endpointId] = PeerEntry(
@@ -185,7 +177,7 @@ class DirectoryManager(
     }
 
     // -------------------------------------------------------------------------
-    // Message handler (called by Client from handleMessage)
+    // Message handler
     // -------------------------------------------------------------------------
 
     /**
@@ -224,7 +216,7 @@ class DirectoryManager(
         val payloadMaxClock = payload.peers.maxOfOrNull { it.lamportClock } ?: 0L
         lamportClock = maxOf(lamportClock, payloadMaxClock)
 
-        // Force-mark sender as definitively ACTIVE — a live connection is ground truth
+        // Force-mark sender as definitively ACTIVE
         val existingEntry = directory[message.from]
         val activeEntry = PeerEntry(
             endpointId    = message.from,
@@ -405,12 +397,6 @@ class DirectoryManager(
     /**
      * Merges incoming PeerEntries into the local directory using Lamport clock
      * conflict resolution. Returns entries that actually changed.
-     *
-     * Rules (in priority order):
-     *  1. Higher lamportClock always wins
-     *  2. Tie: ACTIVE beats DISCONNECTED
-     *  3. Tie with same status: keep existing (no change, no propagation)
-     *  4. Never overwrite the local peer's own entry from a remote source
      */
     private fun mergeEntries(incoming: List<PeerEntry>): List<PeerEntry> {
         val changed = mutableListOf<PeerEntry>()
