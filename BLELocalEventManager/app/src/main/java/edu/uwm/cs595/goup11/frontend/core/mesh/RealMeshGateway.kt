@@ -1,8 +1,5 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
-import android.os.Build
-import androidx.annotation.RequiresApi
-import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
@@ -12,31 +9,27 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.nio.charset.StandardCharsets
-
 
 class RealMeshGateway(
     private val backend: BackendFacade,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) : MeshGateway {
 
-    override val myId: String get() = backend.myId
+    override val myId: String
+        get() = backend.myId
 
     private val logger = KotlinLogging.logger {}
 
-    // ------------------ UI State ------------------
-
-    /**
-     * UI-facing state flow. Compose screens read this to show "Idle/Scanning/Joined/etc."
-     */
     private val _state = MutableStateFlow<MeshUiState>(MeshUiState.Idle)
     override val state: StateFlow<MeshUiState> = _state.asStateFlow()
 
@@ -52,24 +45,11 @@ class RealMeshGateway(
     private val _connectedPeers = MutableStateFlow<List<GatewayPeer>>(emptyList())
     override val connectedPeers: StateFlow<List<GatewayPeer>> = _connectedPeers.asStateFlow()
 
-    // ------------------ Internal Session Tracking ------------------
-
-    /** Tracks the current event name locally, replacing the deprecated backend.currentSessionId. */
     private var currentEventName: String? = null
-
-    /**
-     * Prevent multiple scanning collectors from being started if startScanning() is called repeatedly.
-     */
-    private var scanningCollectorStarted: Boolean = false
-
-    /**
-     * Prevent multiple start() collectors being created if start() is called multiple times.
-     * This is a common bug: every start() adds a new backend.state collector.
-     */
     private var started: Boolean = false
     private var scanJob: Job? = null
+    private var scanTimeoutJob: Job? = null
     private val seenSessionIds = mutableSetOf<String>()
-
     private val customItinerary = mutableListOf<ItineraryItem>()
 
     override fun setDisplayName(name: String) {
@@ -84,8 +64,6 @@ class RealMeshGateway(
         backend.start()
         log("Gateway started. ID: $myId")
 
-        // Map backend NetworkState -> UI state
-        // This keeps UI consistent when backend transitions (Idle/Scanning/Joined/Hosting/Error).
         @Suppress("DEPRECATION")
         scope.launch {
             backend.state.collect { s ->
@@ -94,8 +72,14 @@ class RealMeshGateway(
                     is NetworkState.Idle -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning
                     is NetworkState.Joining -> MeshUiState.Joining("")
-                    is NetworkState.Joined -> MeshUiState.InEvent(s.sessionId)
-                    is NetworkState.Hosting -> MeshUiState.Hosting(s.sessionId)
+                    is NetworkState.Joined -> {
+                        currentEventName = s.sessionId
+                        MeshUiState.InEvent(s.sessionId)
+                    }
+                    is NetworkState.Hosting -> {
+                        currentEventName = s.sessionId
+                        MeshUiState.Hosting(s.sessionId)
+                    }
                     is NetworkState.Error -> MeshUiState.Error(s.reason)
                     else -> MeshUiState.Error("Unsupported Event")
                 }
@@ -121,18 +105,6 @@ class RealMeshGateway(
         backend.addMessageListener(::onBackendMessage)
     }
 
-
-
-    // ------------------ Scanning ------------------
-
-    /**
-     * Starts scanning for networks and emits DiscoveredEventSummary items as session IDs are found.
-     *
-     * IMPORTANT:
-     * - We set MeshUiState.Scanning immediately to avoid being stuck in Idle if backend doesn't
-     *   emit NetworkState.Scanning quickly (or if BackendFacade.scanNetworks() doesn't trigger it).
-     * - backend.scanNetworks() must eventually call into network.startScan() for real discovery.
-     */
     override suspend fun startScanning() {
         log("Start scanning requested")
         seenSessionIds.clear()
@@ -141,6 +113,7 @@ class RealMeshGateway(
         if (scanJob?.isActive == true) return
 
         val discoveredFlow = backend.scanNetworks()
+
         scanJob = scope.launch {
             discoveredFlow.collect { sessionId ->
                 if (!seenSessionIds.add(sessionId)) return@collect
@@ -155,30 +128,34 @@ class RealMeshGateway(
                 )
             }
         }
+
+        scanTimeoutJob?.cancel()
+        scanTimeoutJob = scope.launch {
+            delay(120_000)
+            log("Scan timed out after 120 seconds")
+            stopScanning()
+        }
     }
 
     override suspend fun stopScanning() {
         log("Stop scanning requested")
         backend.stopScan()
+
         scanJob?.cancel()
         scanJob = null
+
+        scanTimeoutJob?.cancel()
+        scanTimeoutJob = null
 
         if (currentEventName == null) {
             _state.value = MeshUiState.Idle
         }
     }
 
-    // ------------------ Hosting / Joining ------------------
-
-    /**
-     * Hosts an event (creates network + starts advertising).
-     *
-     * Backend detail:
-     * - Client.createNetwork() calls Network.create(name) then Network.startAdvertising()
-     * - backend.state collector should transition UI to Hosting(sessionId)
-     */
-    @Deprecated("Defaults to SnakeTopology. Use hostEvent(eventName, topology) to specify.",
-        ReplaceWith("hostEvent(eventName, TopologyChoice.SNAKE)"))
+    @Deprecated(
+        "Defaults to SnakeTopology. Use hostEvent(eventName, topology) to specify.",
+        ReplaceWith("hostEvent(eventName, TopologyChoice.SNAKE)")
+    )
     override suspend fun hostEvent(eventName: String) {
         hostEvent(eventName, TopologyChoice.SNAKE)
     }
@@ -187,14 +164,11 @@ class RealMeshGateway(
         log("Hosting event: $eventName (topology: ${topology.code})")
         currentEventName = eventName
         backend.createNetwork(eventName, topology)
-        // UI state transitions to Hosting via backend.state collector.
     }
 
     override suspend fun joinEvent(sessionId: String): JoinedEventBundle {
         log("Joining event: $sessionId")
 
-        // Handle the case where we are already in the session (e.g. as host)
-        // Check currentEventName synchronously first as _state.value is updated asynchronously via flow collection.
         if (currentEventName == sessionId) {
             log("Already in session $sessionId, returning bundle immediately.")
             return createJoinedEventBundle(sessionId)
@@ -202,20 +176,38 @@ class RealMeshGateway(
 
         val currentState = _state.value
         if ((currentState is MeshUiState.Hosting && currentState.sessionId == sessionId) ||
-            (currentState is MeshUiState.InEvent && currentState.sessionId == sessionId)) {
+            (currentState is MeshUiState.InEvent && currentState.sessionId == sessionId)
+        ) {
             log("Already in event $sessionId, returning bundle immediately.")
             return createJoinedEventBundle(sessionId)
         }
 
-        @Suppress("DEPRECATION")
         _state.value = MeshUiState.Joining(sessionId)
 
-        currentEventName = sessionId
+        try {
+            backend.stopScan()
+            scanJob?.cancel()
+            scanJob = null
 
-        backend.joinNetwork(sessionId)
-        log("Joined network: $sessionId")
+            scanTimeoutJob?.cancel()
+            scanTimeoutJob = null
 
-        return createJoinedEventBundle(sessionId)
+            seenSessionIds.clear()
+
+            withTimeout(15_000) {
+                backend.joinNetwork(sessionId)
+            }
+
+            currentEventName = sessionId
+            log("Joined network: $sessionId")
+
+            return createJoinedEventBundle(sessionId)
+        } catch (e: Exception) {
+            currentEventName = null
+            log("Join failed for $sessionId: ${e.message}")
+            _state.value = MeshUiState.Error(e.message ?: "Failed to join event.")
+            throw e
+        }
     }
 
     private fun createJoinedEventBundle(sessionId: String): JoinedEventBundle {
@@ -230,69 +222,116 @@ class RealMeshGateway(
 
     override suspend fun leaveEvent() {
         log("Leaving event")
+
         backend.removeMessageListener(::onBackendMessage)
+
         backend.stopScan()
         scanJob?.cancel()
         scanJob = null
+
+        scanTimeoutJob?.cancel()
+        scanTimeoutJob = null
+
         seenSessionIds.clear()
         currentEventName = null
         _connectedPeers.value = emptyList()
-        backend.leave()
+
+        runCatching {
+            backend.leave()
+        }.onFailure { e ->
+            log("Leave failed: ${e.message}")
+        }
+
         _state.value = MeshUiState.Idle
-        backend.addMessageListener(::onBackendMessage) // re-register for next session
+
+        backend.addMessageListener(::onBackendMessage)
     }
 
     override suspend fun sendChat(text: String) {
-        val sessionId = currentEventName ?: return // not in an event, discard
+        val sessionId = currentEventName
+        if (sessionId == null) {
+            log("Ignoring chat send: no active event")
+            _state.value = MeshUiState.Error("You are not connected to an event.")
+            return
+        }
+
+        val currentState = _state.value
+        if (currentState !is MeshUiState.InEvent && currentState !is MeshUiState.Hosting) {
+            log("Ignoring chat send: invalid state ${currentState::class.simpleName}")
+            _state.value = MeshUiState.Error("You are not connected to an event.")
+            return
+        }
 
         _chat.tryEmit(
             ChatMessage(
-                sessionId   = sessionId,
-                sender      = backend.myId,
-                senderRole  = backend.myRole,
-                text        = text,
+                sessionId = sessionId,
+                sender = backend.myId,
+                senderRole = backend.myRole,
+                text = text,
                 timestampMs = System.currentTimeMillis(),
-                isMine      = true
+                isMine = true
             )
         )
         log("Sending chat: $text")
 
-        // to is left empty — the topology's resolveNextHop floods to all
-        // connected peers, so every node in the event receives the message.
         val msg = Message(
-            to   = "",
+            to = "",
             from = backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl  = 5
+            ttl = 5
         )
 
-        backend.sendMessage("", msg)
+        runCatching {
+            backend.sendMessage("", msg)
+        }.onFailure { e ->
+            log("Chat send failed: ${e.message}")
+            _state.value = MeshUiState.Error("Failed to send message.")
+        }
     }
 
     override suspend fun sendDirectMessage(toEncodedName: String, text: String) {
-        val sessionId = currentEventName ?: return
+        val sessionId = currentEventName
+        if (sessionId == null) {
+            log("Ignoring direct message send: no active event")
+            _state.value = MeshUiState.Error("You are not connected to an event.")
+            return
+        }
+
+        val currentState = _state.value
+        if (currentState !is MeshUiState.InEvent && currentState !is MeshUiState.Hosting) {
+            log("Ignoring direct message send: invalid state ${currentState::class.simpleName}")
+            _state.value = MeshUiState.Error("You are not connected to an event.")
+            return
+        }
 
         _chat.tryEmit(
             ChatMessage(
-                sessionId   = sessionId,
-                sender      = backend.myId,
-                senderRole  = backend.myRole,
-                text        = text,
+                sessionId = sessionId,
+                sender = backend.myId,
+                senderRole = backend.myRole,
+                text = text,
                 timestampMs = System.currentTimeMillis(),
-                isMine      = true
+                isMine = true
             )
         )
 
         val msg = Message(
-            to   = toEncodedName,
+            to = toEncodedName,
             from = backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl  = 5
+            ttl = 5
         )
-        backend.sendMessage(toEncodedName, msg)
-        log("Direct message to ${toEncodedName}: $text")
+
+        runCatching {
+            backend.sendMessage(toEncodedName, msg)
+        }.onFailure { e ->
+            log("Direct message send failed: ${e.message}")
+            _state.value = MeshUiState.Error("Failed to send direct message.")
+        }
+
+        log("Direct message to $toEncodedName: $text")
     }
 
     private fun onBackendMessage(msg: Message) {
@@ -304,12 +343,12 @@ class RealMeshGateway(
 
                 _chat.tryEmit(
                     ChatMessage(
-                        sessionId  = sessionId,
-                        sender     = msg.from,
-                        senderRole = UserRole.ATTENDEE, // role not carried in network Message
-                        text       = text,
+                        sessionId = sessionId,
+                        sender = msg.from,
+                        senderRole = UserRole.ATTENDEE,
+                        text = text,
                         timestampMs = System.currentTimeMillis(),
-                        isMine     = (msg.from == backend.myId)
+                        isMine = (msg.from == backend.myId)
                     )
                 )
             }
@@ -319,7 +358,7 @@ class RealMeshGateway(
     }
 
     private fun log(message: String) {
-        val time = System.currentTimeMillis() % 100000 // short timestamp
+        val time = System.currentTimeMillis() % 100000
         _logs.tryEmit("[$time] $message")
         logger.debug { "[$time] $message" }
     }

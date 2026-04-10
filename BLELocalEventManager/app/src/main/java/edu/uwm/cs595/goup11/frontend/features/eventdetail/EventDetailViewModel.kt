@@ -33,6 +33,22 @@ class EventDetailViewModel(
         viewModelScope.launch {
             mesh.state.collect { state ->
                 _meshState.value = state
+
+                when (state) {
+                    is MeshUiState.Idle -> {
+                        joinedSessionId = null
+                        _uiState.value = EventDetailUiState.Idle
+                    }
+
+                    is MeshUiState.Error -> {
+                        if (_uiState.value is EventDetailUiState.Joining) {
+                            joinedSessionId = null
+                            _uiState.value = EventDetailUiState.Error(state.reason)
+                        }
+                    }
+
+                    else -> Unit
+                }
             }
         }
     }
@@ -42,6 +58,7 @@ class EventDetailViewModel(
 
         viewModelScope.launch {
             _uiState.value = EventDetailUiState.Joining
+
             runCatching {
                 mesh.start()
                 mesh.joinEvent(sessionId)
@@ -49,6 +66,7 @@ class EventDetailViewModel(
                 joinedSessionId = sessionId
                 _uiState.value = EventDetailUiState.Joined(bundle)
             }.onFailure { e ->
+                joinedSessionId = null
                 _uiState.value = EventDetailUiState.Error(
                     e.message ?: "Failed to join event."
                 )
@@ -58,7 +76,15 @@ class EventDetailViewModel(
 
     fun leaveEvent() {
         viewModelScope.launch {
-            runCatching { mesh.leaveEvent() }
+            runCatching {
+                mesh.leaveEvent()
+            }.onFailure { e ->
+                _uiState.value = EventDetailUiState.Error(
+                    e.message ?: "Failed to leave event."
+                )
+                return@launch
+            }
+
             joinedSessionId = null
             _uiState.value = EventDetailUiState.Idle
         }
