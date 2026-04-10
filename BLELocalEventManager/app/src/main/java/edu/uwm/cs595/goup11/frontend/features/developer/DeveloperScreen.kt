@@ -1,305 +1,479 @@
 package edu.uwm.cs595.goup11.frontend.features.developer
 
-import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import edu.uwm.cs595.goup11.backend.network.*
 import edu.uwm.cs595.goup11.backend.network.PeerEntry
+import androidx.core.content.ContextCompat
+import edu.uwm.cs595.goup11.backend.network.AdvertisedName
+import edu.uwm.cs595.goup11.backend.network.Client
+import edu.uwm.cs595.goup11.backend.network.ConnectNetwork
+import edu.uwm.cs595.goup11.backend.network.LocalNetwork
+import edu.uwm.cs595.goup11.backend.network.Message
+import edu.uwm.cs595.goup11.backend.network.MessageType
+import edu.uwm.cs595.goup11.backend.network.MockClient
+import edu.uwm.cs595.goup11.backend.network.Network
+import edu.uwm.cs595.goup11.backend.network.NetworkEvent
+import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.network.topology.SnakeTopology
+import edu.uwm.cs595.goup11.frontend.core.mesh.DiscoveredEventSummary
+import edu.uwm.cs595.goup11.frontend.core.mesh.GatewayPeer
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
-import edu.uwm.cs595.goup11.frontend.core.mesh.GatewayPeer
 import edu.uwm.cs595.goup11.frontend.core.mesh.TopologyChoice
 import edu.uwm.cs595.goup11.frontend.dev.DevNetworkScreen
 import edu.uwm.cs595.goup11.frontend.dev.DiscoveredEvent
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterIsInstance
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.nio.charset.StandardCharsets
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.material3.ExperimentalMaterial3Api
+import kotlinx.coroutines.withContext
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Dev mode selector
-// ─────────────────────────────────────────────────────────────────────────────
+private enum class DevMode {
+    GATEWAY,
+    DIRECT,
+    MOCK
+}
 
-private enum class DevMode { GATEWAY, DIRECT }
-
-/**
- * DeveloperScreen — entry point wired into the nav graph.
- *
- * Presents a toggle between two sub-modes:
- *
- *  • GATEWAY — drives the full MeshGateway stack (BackendFacade → Client →
- *    ConnectNetwork). Useful for testing the frontend integration layer.
- *
- *  • DIRECT — bypasses the gateway entirely and calls Client/ConnectNetwork
- *    functions directly (the original DevNetworkActivity behaviour). Useful
- *    for low-level topology debugging without frontend abstractions in the way.
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeveloperScreen(
-    mesh:   MeshGateway,
+    mesh: MeshGateway,
     onBack: () -> Unit
 ) {
-    var mode by remember { mutableStateOf(DevMode.GATEWAY) }
+    var mode by rememberSaveable { mutableStateOf(DevMode.GATEWAY) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-
-        // ── Top bar ──────────────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFFFFFFFF))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-            }
-            // Mode toggle — placed left of title so it never overlaps the nav FAB
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(end = 8.dp)
-            ) {
-                DevMode.entries.forEach { m ->
-                    val selected = mode == m
-                    Box(
-                        modifier = Modifier
-                            .background(
-                                if (selected) Color(0xFF1B8A4E) else Color(0xFFF1F3F5),
-                                RoundedCornerShape(4.dp)
-                            )
-                            .clickable { mode = m }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
                         Text(
-                            m.name,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = if (selected) Color.White else Color(0xFF6B7280)
+                            text = "Developer",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Gateway, direct, and mock workflow testing",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
                         )
                     }
                 }
-            }
-            Text(
-                "Developer",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                modifier = Modifier.weight(1f)
             )
         }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ModeSelector(
+                selected = mode,
+                onSelected = { mode = it }
+            )
 
-        HorizontalDivider()
-
-        // ── Mode content ─────────────────────────────────────────────────────
-        when (mode) {
-            DevMode.GATEWAY -> GatewayDevContent(mesh = mesh)
-            DevMode.DIRECT  -> DirectDevContent()
+            when (mode) {
+                DevMode.GATEWAY -> GatewayDevContent(mesh = mesh)
+                DevMode.DIRECT -> DirectDevContent()
+                DevMode.MOCK -> MockDevContent()
+            }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GATEWAY MODE — drives MeshGateway
-// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+private fun ModeSelector(
+    selected: DevMode,
+    onSelected: (DevMode) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            DevMode.entries.forEach { mode ->
+                val isSelected = mode == selected
+                val icon = when (mode) {
+                    DevMode.GATEWAY -> Icons.Default.BugReport
+                    DevMode.DIRECT -> Icons.Default.PlayArrow
+                    DevMode.MOCK -> Icons.Default.SmartToy
+                }
+
+                Button(
+                    onClick = { onSelected(mode) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        contentColor = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
+                    ),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = mode.name,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* GATEWAY MODE                                                              */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 @Composable
 private fun GatewayDevContent(mesh: MeshGateway) {
     val scope = rememberCoroutineScope()
     val uiState by mesh.state.collectAsState()
 
-    val logs        = remember { mutableStateListOf<String>() }
+    val logs = remember { mutableStateListOf<String>() }
     val chatMessages = remember { mutableStateListOf<String>() }
+    val discovered = remember { mutableStateListOf<DiscoveredEventSummary>() }
 
-    // Collect gateway logs and chat
     LaunchedEffect(mesh) {
         launch { mesh.start() }
-        launch { mesh.logs.collect  { logs.add(it) } }
-        launch { mesh.chat.collect  { chatMessages.add("[${it.sender.take(8)}] ${it.text}") } }
+        launch {
+            mesh.logs.collect { line ->
+                logs.add(line)
+            }
+        }
+        launch {
+            mesh.chat.collect { message ->
+                chatMessages.add("[${message.sender.take(8)}] ${message.text}")
+            }
+        }
+        launch {
+            mesh.discoveredEvents.collect { event ->
+                if (discovered.none { it.sessionId == event.sessionId }) {
+                    discovered.add(event)
+                }
+            }
+        }
     }
 
     val connectedPeers by mesh.connectedPeers.collectAsState()
     var selectedPeer by remember { mutableStateOf<GatewayPeer?>(null) }
 
-    // Auto-select only peer when there is exactly one
     LaunchedEffect(connectedPeers) {
-        if (connectedPeers.size == 1) selectedPeer = connectedPeers.first()
-        else if (selectedPeer != null && connectedPeers.none { it.endpointId == selectedPeer!!.endpointId })
+        if (connectedPeers.size == 1) {
+            selectedPeer = connectedPeers.first()
+        } else if (
+            selectedPeer != null &&
+            connectedPeers.none { it.endpointId == selectedPeer?.endpointId }
+        ) {
             selectedPeer = null
+        }
     }
 
-    var eventName    by remember { mutableStateOf("") }
-    var displayName  by remember { mutableStateOf("") }
-    var chatText     by remember { mutableStateOf("") }
-    var topoChoice   by remember { mutableStateOf(TopologyChoice.SNAKE) }
-    val logState     = rememberLazyListState()
+    var eventName by rememberSaveable { mutableStateOf("") }
+    var displayName by rememberSaveable { mutableStateOf("") }
+    var chatText by rememberSaveable { mutableStateOf("") }
+    var topoChoice by rememberSaveable { mutableStateOf(TopologyChoice.SNAKE) }
+
+    val logState = rememberLazyListState()
 
     LaunchedEffect(logs.size) {
-        if (logs.isNotEmpty()) logState.animateScrollToItem(logs.size - 1)
+        if (logs.isNotEmpty()) {
+            logState.animateScrollToItem(logs.lastIndex)
+        }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        DevInfoBanner(
+            title = "Gateway Mode",
+            subtitle = "Uses your app's MeshGateway stack for end-to-end integration testing."
+        )
 
-        // Status
-        GwCard("STATUS") {
+        DevCard("STATUS") {
             val label = when (val s = uiState) {
-                is MeshUiState.Idle       -> "Idle"
-                is MeshUiState.Scanning   -> "Scanning…"
+                is MeshUiState.Idle -> "Idle"
+                is MeshUiState.Scanning -> "Scanning"
+                is MeshUiState.Joining -> "Joining ${s.sessionId}"
+                is MeshUiState.Hosting -> "Hosting ${s.sessionId}"
+                is MeshUiState.InEvent -> "In event ${s.sessionId}"
+                is MeshUiState.Error -> "Error: ${s.reason}"
                 is MeshUiState.Advertising -> "Advertising"
-                is MeshUiState.InEvent    -> "In event: ${s.sessionId}"
-                is MeshUiState.Error      -> "Error: ${s.reason}"
-                else                      -> s::class.simpleName ?: "Unknown"
             }
-            Text(label, fontFamily = FontFamily.Monospace, fontSize = 13.sp)
+            DevMonoText(label)
         }
 
-        // Config
-        GwCard("CONFIG") {
-            GwField("Display Name") {
-                GwInput(
-                    value         = displayName,
+        DevCard("CONFIG") {
+            DevField("Display Name") {
+                DevInput(
+                    value = displayName,
                     onValueChange = {
                         displayName = it
                         mesh.setDisplayName(it.trim())
                     },
-                    placeholder   = "e.g. Alice",
-                    enabled       = uiState == MeshUiState.Idle
+                    placeholder = "e.g. Alice",
+                    enabled = uiState == MeshUiState.Idle
                 )
             }
-            GwField("Event Name") {
-                GwInput(eventName, { eventName = it }, "e.g. TechConf",
-                    enabled = uiState == MeshUiState.Idle)
+
+            DevField("Event Name") {
+                DevInput(
+                    value = eventName,
+                    onValueChange = { eventName = it },
+                    placeholder = "e.g. TechConf",
+                    enabled = uiState == MeshUiState.Idle
+                )
             }
-            GwField("Topology") {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TopologyChoice.entries.forEach { t ->
-                        val sel = topoChoice == t
+
+            DevField("Topology") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TopologyChoice.entries.forEach { choice ->
+                        val selected = topoChoice == choice
                         Box(
                             modifier = Modifier
                                 .background(
-                                    if (sel) Color(0xFF0B6EBD).copy(alpha = 0.12f) else Color(0xFFF8F9FA),
-                                    RoundedCornerShape(4.dp)
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                    shape = RoundedCornerShape(12.dp)
                                 )
-                                .border(1.dp,
-                                    if (sel) Color(0xFF0B6EBD) else Color(0xFFDEE2E6),
-                                    RoundedCornerShape(4.dp))
-                                .clickable { topoChoice = t }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .border(
+                                    width = 1.dp,
+                                    color = if (selected) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    },
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { topoChoice = choice }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Text(t.code, fontFamily = FontFamily.Monospace, fontSize = 11.sp,
-                                color = if (sel) Color(0xFF0B6EBD) else Color(0xFF6B7280))
+                            Text(
+                                text = choice.code,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Actions
-        GwCard("ACTIONS") {
+        DevCard("ACTIONS") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GwButton("Host", Color(0xFF1B8A4E),
+                DevButton(
+                    text = "Host",
+                    color = Color(0xFF1B8A4E),
                     enabled = uiState == MeshUiState.Idle && eventName.isNotBlank()
-                ) { scope.launch { mesh.hostEvent(eventName, topoChoice) } }
+                ) {
+                    scope.launch { mesh.hostEvent(eventName.trim(), topoChoice) }
+                }
 
-                GwButton("Scan", Color(0xFF0B6EBD),
+                DevButton(
+                    text = "Scan",
+                    color = Color(0xFF0B6EBD),
                     enabled = uiState == MeshUiState.Idle
-                ) { scope.launch { mesh.startScanning() } }
+                ) {
+                    discovered.clear()
+                    scope.launch { mesh.startScanning() }
+                }
 
-                GwButton("Stop Scan", Color(0xFFB45309),
+                DevButton(
+                    text = "Stop Scan",
+                    color = Color(0xFFB45309),
                     enabled = uiState == MeshUiState.Scanning
-                ) { scope.launch { mesh.stopScanning() } }
+                ) {
+                    scope.launch { mesh.stopScanning() }
+                }
 
-                GwButton("Leave", Color(0xFFDC2626),
-                    enabled = uiState is MeshUiState.InEvent
-                ) { scope.launch { mesh.leaveEvent() } }
+                DevButton(
+                    text = "Leave",
+                    color = Color(0xFFDC2626),
+                    enabled = uiState is MeshUiState.InEvent || uiState is MeshUiState.Hosting
+                ) {
+                    scope.launch { mesh.leaveEvent() }
+                }
             }
         }
 
-        // Peers
-        if (connectedPeers.isNotEmpty() || uiState is MeshUiState.InEvent) {
-            GwCard("PEERS (${connectedPeers.size})") {
+        if (connectedPeers.isNotEmpty() || uiState is MeshUiState.InEvent || uiState is MeshUiState.Hosting) {
+            DevCard("PEERS (${connectedPeers.size})") {
                 if (connectedPeers.isEmpty()) {
-                    Text("No peers connected yet",
-                        fontFamily = FontFamily.Monospace, fontSize = 11.sp,
-                        color = Color(0xFF6B7280))
+                    DevHintText("No peers connected yet")
                 } else {
                     connectedPeers.forEach { peer ->
                         val isSelected = selectedPeer?.endpointId == peer.endpointId
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
-                                    if (isSelected) Color(0xFF1B8A4E).copy(alpha = 0.08f)
-                                    else Color(0xFFF8F9FA),
-                                    RoundedCornerShape(4.dp)
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                                 .border(
-                                    1.dp,
-                                    if (isSelected) Color(0xFF1B8A4E).copy(alpha = 0.5f)
-                                    else Color(0xFFDEE2E6),
-                                    RoundedCornerShape(4.dp)
+                                    width = 1.dp,
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    },
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                                 .clickable {
                                     selectedPeer = if (isSelected) null else peer
                                 }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Box(
-                                Modifier.size(8.dp).background(
-                                    Color(0xFF1B8A4E), RoundedCornerShape(50)
-                                )
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(Color(0xFF1B8A4E), CircleShape)
                             )
-                            Column(Modifier.weight(1f)) {
-                                Text(peer.displayName,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    color = if (isSelected) Color(0xFF1B8A4E) else Color(0xFF1A1D23))
-                                Text(peer.endpointId,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 9.sp, color = Color(0xFF6B7280))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                DevMonoText(peer.displayName, bold = true, size = 12.sp)
+                                DevMonoText(
+                                    text = peer.endpointId,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    size = 10.sp
+                                )
                             }
+
                             if (isSelected) {
-                                Text("selected", fontFamily = FontFamily.Monospace,
-                                    fontSize = 9.sp, color = Color(0xFF1B8A4E))
+                                DevMonoText(
+                                    text = "selected",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    size = 10.sp
+                                )
                             }
                         }
                     }
@@ -307,33 +481,37 @@ private fun GatewayDevContent(mesh: MeshGateway) {
             }
         }
 
-        // Discovered events (only while scanning)
-        if (uiState == MeshUiState.Scanning) {
-            val discovered = remember { mutableStateListOf<edu.uwm.cs595.goup11.frontend.core.mesh.DiscoveredEventSummary>() }
-            LaunchedEffect(mesh) {
-                mesh.discoveredEvents.collect { discovered.add(it) }
-            }
-            GwCard("DISCOVERED (${discovered.size})") {
+        if (uiState == MeshUiState.Scanning || discovered.isNotEmpty()) {
+            DevCard("DISCOVERED (${discovered.size})") {
                 if (discovered.isEmpty()) {
-                    Text("Scanning…", fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp, color = Color(0xFF6B7280))
+                    DevHintText("Scanning…")
                 } else {
-                    discovered.forEach { ev ->
+                    discovered.forEach { event ->
                         Row(
-                            modifier = Modifier.fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(ev.sessionId, fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                Text("host: ${ev.hostName}  topo: ${ev.topologyCode}",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp, color = Color(0xFF6B7280))
+                                DevMonoText(event.title.ifBlank { event.sessionId }, bold = true)
+                                DevMonoText(
+                                    text = "session: ${event.sessionId}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    size = 10.sp
+                                )
+                                DevMonoText(
+                                    text = "venue: ${event.venue}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    size = 10.sp
+                                )
                             }
-                            GwButton("Join", Color(0xFF1B8A4E), modifier = Modifier.height(32.dp)) {
-                                scope.launch { mesh.joinEvent(ev.sessionId) }
+
+                            DevButton(
+                                text = "Join",
+                                color = Color(0xFF1B8A4E),
+                                modifier = Modifier
+                            ) {
+                                scope.launch { mesh.joinEvent(event.sessionId) }
                             }
                         }
                     }
@@ -341,81 +519,505 @@ private fun GatewayDevContent(mesh: MeshGateway) {
             }
         }
 
-        // Chat
-        if (uiState is MeshUiState.InEvent) {
-            val chatTitle = if (selectedPeer != null) "CHAT → ${selectedPeer!!.displayName}"
-            else "CHAT (broadcast)"
-            GwCard(chatTitle) {
+        if (uiState is MeshUiState.InEvent || uiState is MeshUiState.Hosting) {
+            val chatTitle = if (selectedPeer != null) {
+                "CHAT → ${selectedPeer?.displayName}"
+            } else {
+                "CHAT (broadcast)"
+            }
+
+            DevCard(chatTitle) {
                 if (chatMessages.isNotEmpty()) {
-                    chatMessages.takeLast(6).forEach { m ->
-                        Text(m, fontFamily = FontFamily.Monospace, fontSize = 11.sp,
-                            modifier = Modifier.padding(vertical = 2.dp))
+                    chatMessages.takeLast(6).forEach { line ->
+                        DevMonoText(line, size = 11.sp)
                     }
                 } else {
-                    Text("No messages yet", fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp, color = Color(0xFF6B7280))
+                    DevHintText("No messages yet")
                 }
-                if (connectedPeers.isEmpty()) {
-                    Text("No peers connected", fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp, color = Color(0xFF6B7280))
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = chatText,
-                            onValueChange = { chatText = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = {
-                                Text(
-                                    if (selectedPeer != null) "Message ${selectedPeer!!.displayName}…"
-                                    else "Broadcast to all…",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp, color = Color(0xFF6B7280))
-                            },
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                        )
-                        GwButton("Send", Color(0xFF1B8A4E),
-                            enabled = chatText.isNotBlank()
-                        ) {
-                            val text = chatText
-                            val peer = selectedPeer
-                            scope.launch {
-                                if (peer != null) mesh.sendDirectMessage(peer.encodedName, text)
-                                else mesh.sendChat(text)
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = chatText,
+                        onValueChange = { chatText = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = {
+                            Text(
+                                text = if (selectedPeer != null) {
+                                    "Message ${selectedPeer?.displayName}…"
+                                } else {
+                                    "Broadcast to all…"
+                                },
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp
+                            )
+                        },
+                        textStyle = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp
+                        ),
+                        singleLine = true
+                    )
+
+                    DevButton(
+                        text = "Send",
+                        color = Color(0xFF1B8A4E),
+                        enabled = chatText.isNotBlank()
+                    ) {
+                        val outgoing = chatText.trim()
+                        val peer = selectedPeer
+                        scope.launch {
+                            if (peer != null) {
+                                mesh.sendDirectMessage(peer.encodedName, outgoing)
+                            } else {
+                                mesh.sendChat(outgoing)
                             }
-                            chatText = ""
                         }
+                        chatText = ""
                     }
-                    if (connectedPeers.size > 1) {
-                        Text(
-                            if (selectedPeer != null) "Tap peer above to deselect and broadcast"
-                            else "Tap a peer above to send directly",
-                            fontFamily = FontFamily.Monospace, fontSize = 9.sp,
-                            color = Color(0xFF6B7280)
-                        )
-                    }
+                }
+
+                if (connectedPeers.size > 1) {
+                    DevHintText(
+                        if (selectedPeer != null) {
+                            "Tap the selected peer again to switch back to broadcast."
+                        } else {
+                            "Tap a peer above to send a direct message."
+                        }
+                    )
                 }
             }
         }
 
-        // Log
-        GwCard("LOG (${logs.size})", modifier = Modifier.heightIn(min = 80.dp, max = 240.dp)) {
+        DevCard(
+            title = "LOG (${logs.size})",
+            modifier = Modifier.heightIn(min = 100.dp, max = 260.dp)
+        ) {
             LazyColumn(state = logState) {
                 items(logs) { line ->
-                    Text(line, fontFamily = FontFamily.Monospace, fontSize = 10.sp,
-                        color = Color(0xFF374151),
-                        modifier = Modifier.padding(vertical = 1.dp))
+                    DevMonoText(
+                        text = line,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        size = 10.sp
+                    )
                 }
             }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DIRECT MODE — raw Client/ConnectNetwork, no gateway in the way
-// Hosts all the state that DevNetworkActivity previously held as Activity fields.
-// ─────────────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────────── */
+/* MOCK MODE                                                                 */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+private suspend fun safelyLeaveMockClient(client: MockClient?){
+    if (client == null) return
+    runCatching { client.leaveSession() }
+    delay(250)
+}
+
+private suspend fun safelyShutdownMockClient(client: MockClient?) {
+    if (client == null) return
+    runCatching { client.leaveSession() }
+    delay(250)
+    runCatching { client.shutdown() }
+    delay(150)
+}
+
+@Composable
+private fun MockDevContent() {
+    val scope = rememberCoroutineScope()
+
+    var hostClient by remember { mutableStateOf<MockClient?>(null) }
+    var attendeeClient by remember { mutableStateOf<MockClient?>(null) }
+
+    val logs = remember { mutableStateListOf<String>() }
+    val inbox = remember { mutableStateListOf<String>() }
+
+    var sessionName by rememberSaveable { mutableStateOf("MockEvent") }
+    var hostName by rememberSaveable { mutableStateOf("Host") }
+    var attendeeName by rememberSaveable { mutableStateOf("Attendee") }
+    var customMessage by rememberSaveable { mutableStateOf("Hello from Attendee") }
+
+    var hostReady by remember { mutableStateOf(false) }
+    var attendeeReady by remember { mutableStateOf(false) }
+    var isBusy by remember { mutableStateOf(false) }
+
+    val mockLogState = rememberLazyListState()
+
+    fun appendLog(message: String) {
+        logs.add(message)
+    }
+
+    suspend fun resetScenario(clearLogs: Boolean = false) {
+        isBusy = true
+
+        safelyLeaveMockClient(attendeeClient)
+        safelyLeaveMockClient(hostClient)
+
+        attendeeClient = null
+        hostClient = null
+        attendeeReady = false
+        hostReady = false
+        inbox.clear()
+        if (clearLogs) logs.clear()
+
+        runCatching { MockClient.purgeNetwork() }
+        delay(200)
+
+        appendLog("Mock scenario reset")
+        isBusy = false
+    }
+
+    LaunchedEffect(logs.size) {
+        if (logs.isNotEmpty()) {
+            mockLogState.animateScrollToItem(logs.lastIndex)
+        }
+    }
+
+    LaunchedEffect(hostClient) {
+        val current = hostClient ?: return@LaunchedEffect
+        current.messages.collectLatest { message ->
+            val text = message.data?.toString(StandardCharsets.UTF_8).orEmpty()
+            inbox.add("Host received ← ${message.from}: $text")
+            appendLog("Host received message: $text")
+        }
+    }
+
+    LaunchedEffect(attendeeClient) {
+        val current = attendeeClient ?: return@LaunchedEffect
+        current.messages.collectLatest { message ->
+            val text = message.data?.toString(StandardCharsets.UTF_8).orEmpty()
+            inbox.add("Attendee received ← ${message.from}: $text")
+            appendLog("Attendee received message: $text")
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            scope.launch {
+                safelyShutdownMockClient(attendeeClient)
+                safelyShutdownMockClient(hostClient)
+                attendeeClient = null
+                hostClient = null
+                runCatching { MockClient.purgeNetwork() }
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        DevInfoBanner(
+            title = "Mock Mode",
+            subtitle = "Manual test harness for create-event, send-message, and receive-message workflows using MockClient."
+        )
+
+        DevCard("WORKFLOW SETUP") {
+            DevField("Session Name") {
+                DevInput(
+                    value = sessionName,
+                    onValueChange = { sessionName = it },
+                    placeholder = "e.g. MockEvent",
+                    enabled = !isBusy
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    DevField("Host Name") {
+                        DevInput(
+                            value = hostName,
+                            onValueChange = { hostName = it },
+                            placeholder = "Host",
+                            enabled = !isBusy
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    DevField("Attendee Name") {
+                        DevInput(
+                            value = attendeeName,
+                            onValueChange = { attendeeName = it },
+                            placeholder = "Attendee",
+                            enabled = !isBusy
+                        )
+                    }
+                }
+            }
+        }
+
+        DevCard("TASK CHECKLIST") {
+            MockStatusRow(
+                label = "Create event workflow",
+                value = if (hostReady) "Verified" else "Not run"
+            )
+            HorizontalDivider()
+            MockStatusRow(
+                label = "Send message workflow",
+                value = if (logs.any { it.contains("sent message", ignoreCase = true) }) "Verified" else "Not run"
+            )
+            HorizontalDivider()
+            MockStatusRow(
+                label = "Receive message workflow",
+                value = if (inbox.isNotEmpty()) "Verified" else "Not run"
+            )
+        }
+
+        DevCard("ACTIONS") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DevButton(
+                    text = "Create Host",
+                    color = Color(0xFF1B8A4E),
+                    enabled = !isBusy && sessionName.isNotBlank() && hostName.isNotBlank()
+                ) {
+                    scope.launch {
+                        isBusy = true
+                        runCatching {
+                            if (hostClient != null || attendeeClient != null) {
+                                resetScenario(clearLogs = false)
+                            }
+
+                            logs.clear()
+                            inbox.clear()
+
+                            val host = MockClient(
+                                displayName = hostName.trim(),
+                                role = UserRole.ADMIN
+                            )
+                            hostClient = host
+                            host.createSession(sessionName.trim())
+
+                            hostReady = true
+                            attendeeReady = false
+
+                            appendLog("Host '${hostName.trim()}' created session '${sessionName.trim()}'")
+                        }.onFailure { e ->
+                            appendLog("Failed to create host session: ${e.message}")
+                            hostClient = null
+                            hostReady = false
+                        }
+                        isBusy = false
+                    }
+                }
+
+                DevButton(
+                    text = "Join Attendee",
+                    color = Color(0xFF0B6EBD),
+                    enabled = !isBusy && hostReady && !attendeeReady && sessionName.isNotBlank() && attendeeName.isNotBlank()
+                ) {
+                    scope.launch {
+                        isBusy = true
+                        runCatching {
+                            safelyLeaveMockClient(attendeeClient)
+                            attendeeClient = null
+                            delay(150)
+
+                            val attendee = MockClient(
+                                displayName = attendeeName.trim(),
+                                role = UserRole.ATTENDEE
+                            )
+                            attendeeClient = attendee
+                            attendee.joinSession(sessionName.trim())
+
+                            attendeeReady = true
+                            appendLog("Attendee '${attendeeName.trim()}' joined session '${sessionName.trim()}'")
+                        }.onFailure { e ->
+                            appendLog("Failed to join attendee: ${e.message}")
+                            attendeeClient = null
+                            attendeeReady = false
+                        }
+                        isBusy = false
+                    }
+                }
+
+                DevButton(
+                    text = "Reset",
+                    color = Color(0xFFB45309),
+                    enabled = !isBusy && (hostClient != null || attendeeClient != null || logs.isNotEmpty() || inbox.isNotEmpty())
+                ) {
+                    scope.launch {
+                        resetScenario(clearLogs = false)
+                    }
+                }
+            }
+        }
+
+        DevCard("PARTICIPANTS") {
+            MockParticipantRow(
+                title = "Host",
+                name = hostClient?.displayName ?: "Not created",
+                status = if (hostReady) "Session created" else "Idle",
+                endpointId = hostClient?.endpointId
+            )
+
+            HorizontalDivider()
+
+            MockParticipantRow(
+                title = "Attendee",
+                name = attendeeClient?.displayName ?: "Not joined",
+                status = if (attendeeReady) "Joined session" else "Idle",
+                endpointId = attendeeClient?.endpointId
+            )
+        }
+
+        DevCard("MESSAGE TESTING") {
+            OutlinedTextField(
+                value = customMessage,
+                onValueChange = { customMessage = it },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isBusy,
+                singleLine = true,
+                placeholder = {
+                    Text(
+                        text = "Type a test message",
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DevButton(
+                    text = "Attendee → Host",
+                    color = Color(0xFF1B8A4E),
+                    enabled = !isBusy && hostReady && attendeeReady && customMessage.isNotBlank()
+                ) {
+                    val target = hostClient?.endpointId
+                    val sender = attendeeClient
+                    if (target == null || sender == null) {
+                        appendLog("Cannot send: host or attendee not ready")
+                        return@DevButton
+                    }
+
+                    scope.launch {
+                        isBusy = true
+                        runCatching {
+                            sender.sendChat(customMessage.trim(), target)
+                            appendLog("Attendee sent message to host: ${customMessage.trim()}")
+                            delay(150)
+                        }.onFailure { e ->
+                            appendLog("Failed sending attendee → host: ${e.message}")
+                        }
+                        isBusy = false
+                    }
+                }
+
+                DevButton(
+                    text = "Host → Attendee",
+                    color = Color(0xFF7C3AED),
+                    enabled = !isBusy && hostReady && attendeeReady && customMessage.isNotBlank()
+                ) {
+                    val target = attendeeClient?.endpointId
+                    val sender = hostClient
+                    if (target == null || sender == null) {
+                        appendLog("Cannot send: host or attendee not ready")
+                        return@DevButton
+                    }
+
+                    scope.launch {
+                        isBusy = true
+                        runCatching {
+                            sender.sendChat(customMessage.trim(), target)
+                            appendLog("Host sent message to attendee: ${customMessage.trim()}")
+                            delay(150)
+                        }.onFailure { e ->
+                            appendLog("Failed sending host → attendee: ${e.message}")
+                        }
+                        isBusy = false
+                    }
+                }
+            }
+
+            DevHintText(
+                "Recommended order: Create Host → Join Attendee → Send messages. Reset before starting a new scenario."
+            )
+        }
+
+        DevCard("RECEIVED MESSAGES (${inbox.size})") {
+            if (inbox.isEmpty()) {
+                DevHintText("No messages received yet")
+            } else {
+                inbox.takeLast(10).forEach { line ->
+                    DevMonoText(line, size = 11.sp)
+                }
+            }
+        }
+
+        DevCard(
+            title = "MOCK LOG (${logs.size})",
+            modifier = Modifier.heightIn(min = 100.dp, max = 260.dp)
+        ) {
+            LazyColumn(state = mockLogState) {
+                items(logs) { line ->
+                    DevMonoText(
+                        text = line,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        size = 10.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MockParticipantRow(
+    title: String,
+    name: String,
+    status: String,
+    endpointId: String?
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        DevMonoText(name, bold = true, size = 12.sp)
+        DevMonoText(
+            text = "status: $status",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            size = 10.sp
+        )
+        DevMonoText(
+            text = "endpoint: ${endpointId ?: "n/a"}",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            size = 10.sp
+        )
+    }
+}
+
+@Composable
+private fun MockStatusRow(
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* DIRECT MODE                                                                */
+/* ────────────────────────────────────────────────────────────────────────── */
 
 @Composable
 private fun DirectDevContent() {
@@ -442,17 +1044,23 @@ private fun DirectDevContent() {
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_ADVERTISE,
                 Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION
             )
+
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION
             )
-            else -> arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION)
+
+            else -> arrayOf(
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
         }
     }
 
-    fun allGranted() = requiredPerms.all {
-        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    fun allGranted(): Boolean {
+        return requiredPerms.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -461,18 +1069,22 @@ private fun DirectDevContent() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         val granted = requiredPerms.all { results[it] == true }
-        if (granted) pendingAction?.invoke()
-        else permissionError.value = "Bluetooth & location permissions are required"
+        if (granted) {
+            pendingAction?.invoke()
+        } else {
+            permissionError.value = "Bluetooth & location permissions are required"
+        }
         pendingAction = null
     }
 
     fun requestPerms(onGranted: () -> Unit) {
-        if (allGranted()) { onGranted(); return }
+        if (allGranted()) {
+            onGranted()
+            return
+        }
         pendingAction = onGranted
         permLauncher.launch(requiredPerms)
     }
-
-    // ── Helpers (mirrors DevNetworkActivity private funs) ────────────────────
 
     fun wireClientEvents(c: Client) {
         networkStateJob?.cancel()
@@ -486,61 +1098,76 @@ private fun DirectDevContent() {
         val net = ConnectNetwork(context = context, scope = scope)
         val topology = when (topo) {
             "msh" -> MeshTopology(maxPeerCount = maxPeers)
-            else  -> SnakeTopology(maxPeerCount = maxPeers)
+            else -> SnakeTopology(maxPeerCount = maxPeers)
         }
-        val c = Client(displayName = name, network = net, scope = scope)
-        c.attachNetwork(net, Network.Config(defaultTtl = 5))
-        wireClientEvents(c)
-        scope.launch { c.createNetwork(event, topology) }
-        clientState.value    = c
+        val client = Client(displayName = name, network = net, scope = scope)
+        client.attachNetwork(net, Network.Config(defaultTtl = 5))
+        wireClientEvents(client)
+        scope.launch { client.createNetwork(event, topology) }
+        clientState.value = client
         eventNameState.value = event
     }
 
     fun joinNetwork(name: String, event: String) {
         val net = ConnectNetwork(context = context, scope = scope)
-        val c = Client(displayName = name, network = net, scope = scope)
-        c.attachNetwork(net, Network.Config(defaultTtl = 5))
-        wireClientEvents(c)
-        scope.launch { c.joinNetwork(event) }
-        clientState.value    = c
+        val client = Client(displayName = name, network = net, scope = scope)
+        client.attachNetwork(net, Network.Config(defaultTtl = 5))
+        wireClientEvents(client)
+        scope.launch { client.joinNetwork(event) }
+        clientState.value = client
         eventNameState.value = event
     }
 
     fun joinFromDiscover(name: String, event: String) {
-        val net = scanNet ?: run { joinNetwork(name, event); return }
+        val net = scanNet ?: run {
+            joinNetwork(name, event)
+            return
+        }
+
         discoverJob?.cancel()
         discoverJob = null
         isDiscovering.value = false
         scanNet = null
-        val c = Client(displayName = name, network = net, scope = scope)
-        c.attachNetwork(net, Network.Config(defaultTtl = 5))
-        wireClientEvents(c)
-        scope.launch { c.joinNetwork(event) }
-        clientState.value    = c
+
+        val client = Client(displayName = name, network = net, scope = scope)
+        client.attachNetwork(net, Network.Config(defaultTtl = 5))
+        wireClientEvents(client)
+        scope.launch { client.joinNetwork(event) }
+        clientState.value = client
         eventNameState.value = event
     }
 
     fun startDiscover() {
         if (isDiscovering.value) return
+
         discoveredEvents.clear()
         isDiscovering.value = true
+
         val net = ConnectNetwork(context = context, scope = scope)
         net.init("SCANNER:${java.util.UUID.randomUUID()}", Network.Config(defaultTtl = 5))
         scanNet = net
+
         discoverJob = scope.launch {
             net.startDiscovery()
-            net.events.filterIsInstance<NetworkEvent.EndpointDiscovered>().collect { ev ->
-                val decoded = AdvertisedName.decode(ev.encodedName) ?: return@collect
-                val existing = discoveredEvents.indexOfFirst { it.eventName == decoded.eventName }
-                val entry = DiscoveredEvent(
-                    eventName    = decoded.eventName,
-                    topologyCode = decoded.topologyCode,
-                    hostName     = decoded.displayName,
-                    endpointId   = ev.endpointId
-                )
-                if (existing == -1) discoveredEvents.add(entry)
-                else discoveredEvents[existing] = entry
-            }
+            net.events
+                .filterIsInstance<NetworkEvent.EndpointDiscovered>()
+                .collect { event ->
+                    val decoded = AdvertisedName.decode(event.encodedName) ?: return@collect
+                    val existing = discoveredEvents.indexOfFirst {
+                        it.eventName == decoded.eventName
+                    }
+                    val entry = DiscoveredEvent(
+                        eventName = decoded.eventName,
+                        topologyCode = decoded.topologyCode,
+                        hostName = decoded.displayName,
+                        endpointId = event.endpointId
+                    )
+                    if (existing == -1) {
+                        discoveredEvents.add(entry)
+                    } else {
+                        discoveredEvents[existing] = entry
+                    }
+                }
         }
     }
 
@@ -551,18 +1178,19 @@ private fun DirectDevContent() {
     }
 
     fun sendMessage(toEndpointId: String, body: String) {
-        val c    = clientState.value ?: return
-        val from = c.endpointId      ?: return
-        c.sendMessage(Message(
-            to   = toEndpointId,
-            from = from,
-            type = MessageType.TEXT_MESSAGE,
-            ttl  = 5,
-            data = body.toByteArray(Charsets.UTF_8)
-        ))
+        val client = clientState.value ?: return
+        val from = client.endpointId ?: return
+        client.sendMessage(
+            Message(
+                to = toEndpointId,
+                from = from,
+                type = MessageType.TEXT_MESSAGE,
+                ttl = 5,
+                data = body.toByteArray(Charsets.UTF_8)
+            )
+        )
     }
 
-    // Cleanup when composable leaves composition
     DisposableEffect(Unit) {
         onDispose {
             stopDiscover()
@@ -596,13 +1224,13 @@ private fun DirectDevContent() {
         onCreateNetwork    = { name, event, topo, maxPeers ->
             requestPerms { createNetwork(name, event, topo, maxPeers) }
         },
-        onJoinNetwork      = { name, event ->
+        onJoinNetwork = { name, event ->
             requestPerms { joinNetwork(name, event) }
         },
-        onJoinDiscovered   = { name, event ->
+        onJoinDiscovered = { name, event ->
             requestPerms { joinFromDiscover(name, event) }
         },
-        onLeaveNetwork     = {
+        onLeaveNetwork = {
             scope.launch {
                 networkStateJob?.cancel()
                 networkStateJob = null
@@ -614,102 +1242,221 @@ private fun DirectDevContent() {
                 scanNet = null
             }
         },
-        onSendMessage        = { to, body -> sendMessage(to, body) },
-        onStartDiscover      = {
+        onSendMessage = { to, body ->
+            sendMessage(to, body)
+        },
+        onStartDiscover = {
             requestPerms { startDiscover() }
         },
-        onStopDiscover       = { stopDiscover() },
-        onStartAdvertising   = { toggleAdvertising(clientState.value, scope) },
-        onStopAdvertising    = { toggleAdvertising(clientState.value, scope, start = false) },
-        onStartNodeDiscovery = { toggleNodeDiscovery(clientState.value, scope, start = true) },
-        onStopNodeDiscovery  = { toggleNodeDiscovery(clientState.value, scope, start = false) },
-        onPermissionErrorDismissed = { permissionError.value = null }
+        onStopDiscover = {
+            stopDiscover()
+        },
+        onStartAdvertising = {
+            toggleAdvertising(clientState.value, scope)
+        },
+        onStopAdvertising = {
+            toggleAdvertising(clientState.value, scope, start = false)
+        },
+        onStartNodeDiscovery = {
+            toggleNodeDiscovery(clientState.value, scope, start = true)
+        },
+        onStopNodeDiscovery = {
+            toggleNodeDiscovery(clientState.value, scope, start = false)
+        },
+        onPermissionErrorDismissed = {
+            permissionError.value = null
+        }
     )
 }
 
-private fun toggleAdvertising(client: Client?, scope: CoroutineScope, start: Boolean = true) {
-    val net         = client?.network ?: return
-    val encodedName = client.endpointId ?: return
-    if (start) net.startAdvertising(encodedName) else net.stopAdvertising()
-}
-
-private fun toggleNodeDiscovery(client: Client?, scope: CoroutineScope, start: Boolean) {
-    val net = client?.network ?: return
-    if (start) scope.launch { net.startDiscovery() }
-    else       scope.launch { net.stopDiscovery() }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Gateway mode UI helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun GwCard(
-    title:    String,
-    modifier: Modifier = Modifier,
-    content:  @Composable ColumnScope.() -> Unit
+private fun toggleAdvertising(
+    client: Client?,
+    scope: CoroutineScope,
+    start: Boolean = true
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(Color.White, RoundedCornerShape(6.dp))
-            .border(1.dp, Color(0xFFDEE2E6), RoundedCornerShape(6.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    val network = client?.network ?: return
+    val encodedName = client.endpointId ?: return
+    if (start) {
+        network.startAdvertising(encodedName)
+    } else {
+        network.stopAdvertising()
+    }
+}
+
+private fun toggleNodeDiscovery(
+    client: Client?,
+    scope: CoroutineScope,
+    start: Boolean
+) {
+    val network = client?.network ?: return
+    if (start) {
+        scope.launch { network.startDiscovery() }
+    } else {
+        scope.launch { network.stopDiscovery() }
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Shared helpers                                                             */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+@Composable
+private fun DevInfoBanner(
+    title: String,
+    subtitle: String
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Text(title, fontFamily = FontFamily.Monospace, fontSize = 10.sp,
-            color = Color(0xFF6B7280), letterSpacing = 0.1.sp)
-        content()
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
 @Composable
-private fun GwField(label: String, content: @Composable () -> Unit) {
+private fun DevCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = title,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun DevField(
+    label: String,
+    content: @Composable () -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = Color(0xFF6B7280))
+        Text(
+            text = label,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         content()
     }
 }
 
 @Composable
-private fun GwInput(
-    value:         String,
+private fun DevInput(
+    value: String,
     onValueChange: (String) -> Unit,
-    placeholder:   String,
-    enabled:       Boolean = true
+    placeholder: String,
+    enabled: Boolean = true
 ) {
     OutlinedTextField(
-        value = value, onValueChange = onValueChange,
+        value = value,
+        onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth(),
         enabled = enabled,
-        placeholder = { Text(placeholder, fontFamily = FontFamily.Monospace,
-            fontSize = 12.sp, color = Color(0xFF6B7280)) },
-        textStyle = androidx.compose.ui.text.TextStyle(
-            fontFamily = FontFamily.Monospace, fontSize = 12.sp),
+        placeholder = {
+            Text(
+                text = placeholder,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+        },
+        textStyle = TextStyle(
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp
+        ),
         singleLine = true
     )
 }
 
 @Composable
-private fun GwButton(
-    text:     String,
-    color:    Color,
-    enabled:  Boolean = true,
+private fun DevButton(
+    text: String,
+    color: Color,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
-    onClick:  () -> Unit
+    onClick: () -> Unit
 ) {
     Button(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
         colors = ButtonDefaults.buttonColors(
-            containerColor         = color.copy(alpha = 0.12f),
-            contentColor           = color,
-            disabledContainerColor = color.copy(alpha = 0.04f),
-            disabledContentColor   = color.copy(alpha = 0.3f)
+            containerColor = color.copy(alpha = 0.12f),
+            contentColor = color,
+            disabledContainerColor = color.copy(alpha = 0.05f),
+            disabledContentColor = color.copy(alpha = 0.35f)
         ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        Text(text, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text(
+            text = text,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp
+        )
     }
+}
+
+@Composable
+private fun DevMonoText(
+    text: String,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+    size: androidx.compose.ui.unit.TextUnit = 12.sp,
+    bold: Boolean = false
+) {
+    Text(
+        text = text,
+        fontFamily = FontFamily.Monospace,
+        fontSize = size,
+        fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+        color = color
+    )
+}
+
+@Composable
+private fun DevHintText(
+    text: String
+) {
+    Text(
+        text = text,
+        fontFamily = FontFamily.Monospace,
+        fontSize = 10.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }

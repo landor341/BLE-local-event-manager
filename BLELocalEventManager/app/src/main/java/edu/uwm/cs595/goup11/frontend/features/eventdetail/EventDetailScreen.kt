@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,12 +45,20 @@ fun EventDetailScreen(
     viewModel: EventDetailViewModel,
     onBack: () -> Unit,
     onOpenChat: (String) -> Unit = {},
-    onViewConnectedUsers: () -> Unit = {}
+    onViewConnectedUsers: () -> Unit = {},
+    onLeaveSuccess: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val meshState by viewModel.meshState.collectAsState()
 
     LaunchedEffect(sessionId) {
         viewModel.joinEvent(sessionId)
+    }
+
+    LaunchedEffect(meshState) {
+        if (meshState is MeshUiState.Idle) {
+            onLeaveSuccess()
+        }
     }
 
     Scaffold(
@@ -84,10 +93,21 @@ fun EventDetailScreen(
             }
 
             is EventDetailUiState.Joined -> {
+                val canOpenEventActions =
+                    meshState is MeshUiState.InEvent || meshState is MeshUiState.Hosting
+
                 JoinedEventContent(
                     event = state.event,
-                    onOpenChat = { onOpenChat(state.event.sessionId) },
-                    onViewConnectedUsers = onViewConnectedUsers,
+                    onOpenChat = {
+                        if (canOpenEventActions) {
+                            onOpenChat(state.event.sessionId)
+                        }
+                    },
+                    onViewConnectedUsers = {
+                        if (canOpenEventActions) {
+                            onViewConnectedUsers()
+                        }
+                    },
                     onLeave = { viewModel.leaveEvent() },
                     modifier = Modifier.padding(innerPadding)
                 )
