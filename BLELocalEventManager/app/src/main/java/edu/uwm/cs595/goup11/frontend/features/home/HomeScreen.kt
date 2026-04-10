@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,7 +24,6 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Podcasts
-import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -36,7 +34,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,43 +51,47 @@ import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 fun HomeScreen(
     onExploreClick: () -> Unit,
     onProfileClick: () -> Unit,
+    onHostClick: () -> Unit,
     mesh: MeshGateway? = null
 ) {
     val uiState: MeshUiState = if (mesh == null) {
         MeshUiState.Idle
     } else {
-        val s by mesh.state.collectAsState()
-        s
+        val state by mesh.state.collectAsState()
+        state
     }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
-    ) { inner ->
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(inner)
+                .padding(innerPadding)
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             HomeHeader(onProfileClick = onProfileClick)
 
             HeroSection(
                 state = uiState,
-                onExploreClick = onExploreClick
+                onExploreClick = onExploreClick,
+                onHostClick = onHostClick
             )
 
-            QuickActionsSection(
+            PrimaryActionsSection(
+                state = uiState,
                 onExploreClick = onExploreClick,
+                onHostClick = onHostClick,
                 onProfileClick = onProfileClick
             )
 
-            StatusSection(state = uiState)
+            SecondaryActionsSection()
 
-            DiscoverSection()
+            StatusSection(state = uiState)
         }
     }
 }
@@ -108,12 +109,7 @@ private fun HomeHeader(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = "Welcome back",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "BLE Event Manager",
+                text = " ",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -140,7 +136,8 @@ private fun HomeHeader(
 @Composable
 private fun HeroSection(
     state: MeshUiState,
-    onExploreClick: () -> Unit
+    onExploreClick: () -> Unit,
+    onHostClick: () -> Unit
 ) {
     val gradient = Brush.verticalGradient(
         colors = listOf(
@@ -152,7 +149,9 @@ private fun HeroSection(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primary
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -168,7 +167,7 @@ private fun HeroSection(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Discover nearby events.",
+                    text = heroTitle(state),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary
@@ -177,7 +176,7 @@ private fun HeroSection(
                 Text(
                     text = statusDescription(state),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f)
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.84f)
                 )
             }
 
@@ -202,7 +201,7 @@ private fun HeroSection(
                 }
 
                 FilledTonalButton(
-                    onClick = { },
+                    onClick = onHostClick,
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.12f),
@@ -239,6 +238,7 @@ private fun StateBadge(
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.onPrimary)
         )
+
         Text(
             text = statusTitle(state),
             style = MaterialTheme.typography.labelLarge,
@@ -249,33 +249,37 @@ private fun StateBadge(
 }
 
 @Composable
-private fun QuickActionsSection(
+private fun PrimaryActionsSection(
+    state: MeshUiState,
     onExploreClick: () -> Unit,
+    onHostClick: () -> Unit,
     onProfileClick: () -> Unit
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SectionTitle("Quick actions")
+        SectionTitle("Get started")
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            QuickActionTile(
+            ActionTile(
                 modifier = Modifier.weight(1f),
                 title = "Explore",
-                subtitle = "Nearby events",
+                subtitle = "Find nearby events",
                 icon = Icons.AutoMirrored.Filled.BluetoothSearching,
-                onClick = onExploreClick
+                onClick = onExploreClick,
+                enabled = true
             )
 
-            QuickActionTile(
+            ActionTile(
                 modifier = Modifier.weight(1f),
-                title = "Profile",
-                subtitle = "Your info",
-                icon = Icons.Default.Person,
-                onClick = onProfileClick
+                title = "Host",
+                subtitle = "Create an event",
+                icon = Icons.Default.Podcasts,
+                onClick = onHostClick,
+                enabled = true
             )
         }
 
@@ -283,38 +287,71 @@ private fun QuickActionsSection(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            QuickActionTile(
+            ActionTile(
                 modifier = Modifier.weight(1f),
-                title = "Sessions",
-                subtitle = "Recent activity",
-                icon = Icons.Default.CalendarMonth,
-                onClick = { }
+                title = "Profile",
+                subtitle = "Manage your info",
+                icon = Icons.Default.Person,
+                onClick = onProfileClick,
+                enabled = true
             )
 
-            QuickActionTile(
+            StatusSummaryTile(
                 modifier = Modifier.weight(1f),
-                title = "Peers",
-                subtitle = "Connections",
-                icon = Icons.Default.Groups,
-                onClick = { }
+                state = stateSummary(state)
             )
         }
     }
 }
 
 @Composable
-private fun QuickActionTile(
+private fun SecondaryActionsSection() {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SectionTitle("More")
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ActionTile(
+                modifier = Modifier.weight(1f),
+                title = "Sessions",
+                subtitle = "Will be wired soon",
+                icon = Icons.Default.CalendarMonth,
+                onClick = { },
+                enabled = false
+            )
+
+            ActionTile(
+                modifier = Modifier.weight(1f),
+                title = "Peers",
+                subtitle = "Will be wired soon",
+                icon = Icons.Default.Groups,
+                onClick = { },
+                enabled = false
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionTile(
     modifier: Modifier = Modifier,
     title: String,
     subtitle: String,
     icon: ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean
 ) {
     Card(
-        modifier = modifier.clickable { onClick() },
+        modifier = if (enabled) modifier.clickable { onClick() } else modifier,
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                alpha = if (enabled) 0.45f else 0.24f
+            )
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -326,24 +363,38 @@ private fun QuickActionTile(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+                    .background(
+                        if (enabled) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                        } else {
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.50f)
+                        }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = if (enabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
             }
 
             Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                 )
                 Text(
                     text = subtitle,
@@ -351,6 +402,39 @@ private fun QuickActionTile(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun StatusSummaryTile(
+    modifier: Modifier = Modifier,
+    state: String
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "Status",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Text(
+                text = state,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -404,8 +488,7 @@ private fun StatusSection(
                         is MeshUiState.Joining -> "Joining"
                         is MeshUiState.Error -> "Attention needed"
                         is MeshUiState.Idle -> "Ready"
-                        is MeshUiState.Advertising ->
-                            "Currently advertising"
+                        is MeshUiState.Advertising -> "Currently advertising"
                     }
                 )
             }
@@ -439,102 +522,6 @@ private fun StatusRow(
 }
 
 @Composable
-private fun DiscoverSection() {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            SectionTitle("Discover")
-            TextButton(onClick = { }) {
-                Text("See all")
-            }
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                DiscoverRow(
-                    icon = Icons.Default.WifiTethering,
-                    title = "Nearby networking events",
-                    subtitle = "Find sessions around you instantly"
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                DiscoverRow(
-                    icon = Icons.Default.Groups,
-                    title = "Fast local join",
-                    subtitle = "Connect to event routers and start chatting"
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                DiscoverRow(
-                    icon = Icons.Default.CalendarMonth,
-                    title = "Offline-first flow",
-                    subtitle = "Built for local discovery and resilient event access"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiscoverRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-        }
-
-        Column(
-            verticalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
 private fun SectionTitle(
     text: String
 ) {
@@ -546,6 +533,28 @@ private fun SectionTitle(
     )
 }
 
+private fun heroTitle(state: MeshUiState): String =
+    when (state) {
+        MeshUiState.Idle -> "Find or host local events."
+        MeshUiState.Scanning -> "Looking for nearby events."
+        is MeshUiState.Joining -> "Joining ${state.sessionId}."
+        is MeshUiState.InEvent -> "You’re connected."
+        is MeshUiState.Hosting -> "Your event is live."
+        is MeshUiState.Error -> "Something needs attention."
+        is MeshUiState.Advertising -> "Currently advertising."
+    }
+
+private fun stateSummary(state: MeshUiState): String =
+    when (state) {
+        MeshUiState.Idle -> "Ready to explore or host"
+        MeshUiState.Scanning -> "Scanning nearby"
+        is MeshUiState.Joining -> "Joining event"
+        is MeshUiState.InEvent -> "In active event"
+        is MeshUiState.Hosting -> "Hosting now"
+        is MeshUiState.Error -> "Check connection state"
+        is MeshUiState.Advertising -> "Advertising"
+    }
+
 private fun statusTitle(state: MeshUiState): String =
     when (state) {
         MeshUiState.Idle -> "Ready"
@@ -554,17 +563,16 @@ private fun statusTitle(state: MeshUiState): String =
         is MeshUiState.InEvent -> "Connected"
         is MeshUiState.Hosting -> "Hosting"
         is MeshUiState.Error -> "Error"
-        is MeshUiState.Advertising ->
-            "Currently advertising"
+        is MeshUiState.Advertising -> "Advertising"
     }
 
 private fun statusDescription(state: MeshUiState): String =
     when (state) {
         MeshUiState.Idle ->
-            "Your device is ready to discover nearby events and connect locally."
+            "Start by exploring nearby events or host your own event."
 
         MeshUiState.Scanning ->
-            "Searching for active events around you."
+            "Searching for active local sessions."
 
         is MeshUiState.Joining ->
             "Connecting to ${state.sessionId}."

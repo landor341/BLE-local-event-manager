@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.uwm.cs595.goup11.frontend.core.mesh.ChatMessage
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
+import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,7 +19,6 @@ class ChatViewModel(
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     init {
-        // Collect incoming chat stream
         viewModelScope.launch {
             mesh.chat.collect { msg ->
                 if (msg.sender == peerId || (msg.isMine && msg.sessionId == peerId)) {
@@ -30,6 +30,11 @@ class ChatViewModel(
 
     fun send(text: String) {
         if (text.isBlank()) return
+
+        val currentState = mesh.state.value
+        if (currentState !is MeshUiState.InEvent && currentState !is MeshUiState.Hosting) {
+            return
+        }
 
         viewModelScope.launch {
             mesh.sendChat(text)
