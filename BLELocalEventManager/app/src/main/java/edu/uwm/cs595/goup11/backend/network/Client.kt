@@ -390,13 +390,30 @@ class Client(
             if (enriched.to == endpointId) return
         }
 
-        // Apply encryption for application messages if a key is available
-        val finalMessage = if (enriched.type == MessageType.TEXT_MESSAGE && enriched.data != null && Manager.isInitialized()) {
+        // Apply encryption and signature for application messages if a key is available
+        val finalMessage = if (enriched.type == MessageType.TEXT_MESSAGE && Manager.isInitialized()) {
             try {
-                val encryptedData = Crypto.encryptMessage(enriched.data, Manager.getKey())
-                enriched.copy(data = encryptedData)
+                var signedMessage = enriched
+                
+                // If it's an admin, sign the message content
+                if (role == UserRole.ADMIN) {
+                    val dataToSign = enriched.data ?: ByteArray(0)
+                    val signature = Manager.sign(dataToSign)
+                    signedMessage = enriched.copy(
+                        signature = signature,
+                        senderPublicKey = Manager.getPublicKey()
+                    )
+                }
+
+                // Encrypt data if it exists
+                if (signedMessage.data != null) {
+                    val encryptedData = Crypto.encryptMessage(signedMessage.data!!, Manager.getKey())
+                    signedMessage.copy(data = encryptedData)
+                } else {
+                    signedMessage
+                }
             } catch (e: Exception) {
-                logger.error(e) { "Failed to encrypt message ${enriched.id}" }
+                logger.error(e) { "Failed to secure message ${enriched.id}" }
                 enriched
             }
         } else {
@@ -469,9 +486,9 @@ class Client(
         when (message.type) {
             MessageType.TEXT_MESSAGE -> {
                 // Decrypt if necessary
-                val processedMessage = if (message.data != null && Manager.isInitialized()) {
+                val decryptedMessage = if (message.data != null && Manager.isInitialized()) {
                     try {
-                        val decryptedData = Crypto.decryptMessage(message.data, Manager.getKey())
+                        val decryptedData = Crypto.decryptMessage(message.data!!, Manager.getKey())
                         message.copy(data = decryptedData)
                     } catch (e: Exception) {
                         logger.warn { "Failed to decrypt message ${message.id} — possibly wrong key or corrupted" }
@@ -479,6 +496,25 @@ class Client(
                     }
                 } else {
                     message
+                }
+
+                // Verify signature if it's an Admin message
+                val processedMessage = if (decryptedMessage.senderRole == UserRole.ADMIN && decryptedMessage.signature != null && decryptedMessage.senderPublicKey != null) {
+                    val isValid = Manager.verify(
+                        decryptedMessage.data ?: ByteArray(0),
+                        decryptedMessage.signature!!,
+                        decryptedMessage.senderPublicKey!!
+                    )
+                    if (!isValid) {
+                        logger.error { "SECURITY ALERT: Signature verification failed for Admin message ${decryptedMessage.id}" }
+                        // We could drop the message here, or mark it as unverified
+                        decryptedMessage 
+                    } else {
+                        logger.info { "Verified Admin message ${decryptedMessage.id}" }
+                        decryptedMessage
+                    }
+                } else {
+                    decryptedMessage
                 }
 
                 val isForMe = processedMessage.to == endpointId || processedMessage.to == "ALL" // ALL for broadcast

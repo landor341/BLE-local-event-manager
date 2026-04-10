@@ -8,6 +8,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertArrayEquals
 import org.junit.Before
 import org.junit.Test
 
@@ -224,5 +225,74 @@ class DifferentiationUnitTest {
         val deserialized = Message.fromBytes(bytes)
 
         assertEquals(null, deserialized.presentationId)
+    }
+
+    // --- Admin Verification Tests ---
+
+    @Test
+    fun message_preservesSignatureAndPublicKey_afterSerialization() {
+        val original = Message(
+            to = "B",
+            from = "A",
+            type = MessageType.TEXT_MESSAGE,
+            ttl = 5,
+            senderRole = UserRole.ADMIN,
+            signature = "sig-bytes".toByteArray(),
+            senderPublicKey = "pub-key-bytes".toByteArray()
+        )
+
+        val bytes = original.toBytes()
+        val deserialized = Message.fromBytes(bytes)
+
+        assertArrayEquals("Signature should match", original.signature, deserialized.signature)
+        assertArrayEquals("Public key should match", original.senderPublicKey, deserialized.senderPublicKey)
+    }
+
+    @Test
+    fun adminMessage_isSignedAndVerified_byClient() = runBlocking {
+        // Setup Host (Admin)
+        val hostScope = makeScope()
+        val hostClient = Client("HOST", UserRole.ADMIN, scope = hostScope)
+        val hostNet = LocalNetwork(scope = hostScope)
+        hostClient.attachNetwork(hostNet, Network.Config(5))
+        hostClient.createNetwork("VERIFY_NET", MeshTopology())
+
+        // Setup Attendee
+        val attendeeScope = makeScope()
+        val attendeeClient = Client("ATTENDEE", UserRole.ATTENDEE, scope = attendeeScope)
+        val attendeeNet = LocalNetwork(scope = attendeeScope)
+        attendeeClient.attachNetwork(attendeeNet, Network.Config(5))
+        
+        attendeeScope.launch { attendeeClient.joinNetwork("VERIFY_NET") }
+
+        // Wait for connection and key exchange
+        delay(2000)
+
+        val receivedMessages = Channel<Message>(Channel.UNLIMITED)
+        attendeeClient.addMessageListener { receivedMessages.trySend(it) }
+
+        // Admin sends a signed message
+        val adminMsg = Message(
+            to = "ALL",
+            from = hostClient.endpointId!!,
+            type = MessageType.TEXT_MESSAGE,
+            data = "Signed Admin Bulletin".toByteArray(),
+            ttl = 5
+        )
+        hostClient.sendMessage(adminMsg)
+
+        val received = withTimeoutOrNull(5000) { receivedMessages.receive() }
+        assertNotNull("Attendee should receive message", received)
+        assertEquals("Content should match", "Signed Admin Bulletin", String(received!!.data!!))
+        assertNotNull("Message should have a signature", received.signature)
+        assertNotNull("Message should have a sender public key", received.senderPublicKey)
+        
+        // Manual verification check using Manager
+        val isValid = Manager.verify(
+            received.data!!,
+            received.signature!!,
+            received.senderPublicKey!!
+        )
+        assertTrue("Signature must be cryptographically valid", isValid)
     }
 }
