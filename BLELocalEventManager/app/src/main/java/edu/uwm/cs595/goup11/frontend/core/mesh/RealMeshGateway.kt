@@ -192,6 +192,21 @@ class RealMeshGateway(
 
     override suspend fun joinEvent(sessionId: String): JoinedEventBundle {
         log("Joining event: $sessionId")
+
+        // Handle the case where we are already in the session (e.g. as host)
+        // Check currentEventName synchronously first as _state.value is updated asynchronously via flow collection.
+        if (currentEventName == sessionId) {
+            log("Already in session $sessionId, returning bundle immediately.")
+            return createJoinedEventBundle(sessionId)
+        }
+
+        val currentState = _state.value
+        if ((currentState is MeshUiState.Hosting && currentState.sessionId == sessionId) ||
+            (currentState is MeshUiState.InEvent && currentState.sessionId == sessionId)) {
+            log("Already in event $sessionId, returning bundle immediately.")
+            return createJoinedEventBundle(sessionId)
+        }
+
         @Suppress("DEPRECATION")
         _state.value = MeshUiState.Joining(sessionId)
 
@@ -200,6 +215,10 @@ class RealMeshGateway(
         backend.joinNetwork(sessionId)
         log("Joined network: $sessionId")
 
+        return createJoinedEventBundle(sessionId)
+    }
+
+    private fun createJoinedEventBundle(sessionId: String): JoinedEventBundle {
         return JoinedEventBundle(
             sessionId = sessionId,
             title = sessionId,
