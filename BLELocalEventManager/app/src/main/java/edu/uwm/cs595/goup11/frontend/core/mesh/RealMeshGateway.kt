@@ -5,6 +5,7 @@ import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
 import edu.uwm.cs595.goup11.backend.network.UserRole
+import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,10 +52,16 @@ class RealMeshGateway(
     private var scanTimeoutJob: Job? = null
     private val seenSessionIds = mutableSetOf<String>()
     private val customItinerary = mutableListOf<ItineraryItem>()
+    
+    private val chatHistory = mutableListOf<ChatMessage>()
 
     override fun setDisplayName(name: String) {
         backend.setDisplayName(name)
         log("Display name set to: $name")
+    }
+
+    override fun getChatHistory(): List<ChatMessage> = synchronized(chatHistory) {
+        chatHistory.toList()
     }
 
     override suspend fun start() {
@@ -235,6 +242,10 @@ class RealMeshGateway(
         seenSessionIds.clear()
         currentEventName = null
         _connectedPeers.value = emptyList()
+        
+        synchronized(chatHistory) {
+            chatHistory.clear()
+        }
 
         runCatching {
             backend.leave()
@@ -262,20 +273,25 @@ class RealMeshGateway(
             return
         }
 
-        _chat.tryEmit(
-            ChatMessage(
-                sessionId = sessionId,
-                sender = backend.myId,
-                senderRole = backend.myRole,
-                text = text,
-                timestampMs = System.currentTimeMillis(),
-                isMine = true
-            )
+        val chatMessage = ChatMessage(
+            sessionId = sessionId,
+            sender = backend.myId,
+            senderRole = backend.myRole,
+            text = text,
+            timestampMs = System.currentTimeMillis(),
+            isMine = true,
+            isBroadcast = true
         )
+        
+        synchronized(chatHistory) {
+            chatHistory.add(chatMessage)
+        }
+        
+        _chat.tryEmit(chatMessage)
         log("Sending chat: $text")
 
         val msg = Message(
-            to = "",
+            to = "ALL",
             from = backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
@@ -283,7 +299,7 @@ class RealMeshGateway(
         )
 
         runCatching {
-            backend.sendMessage("", msg)
+            backend.sendMessage("ALL", msg)
         }.onFailure { e ->
             log("Chat send failed: ${e.message}")
             _state.value = MeshUiState.Error("Failed to send message.")
@@ -305,16 +321,22 @@ class RealMeshGateway(
             return
         }
 
-        _chat.tryEmit(
-            ChatMessage(
-                sessionId = sessionId,
-                sender = backend.myId,
-                senderRole = backend.myRole,
-                text = text,
-                timestampMs = System.currentTimeMillis(),
-                isMine = true
-            )
+        val chatMessage = ChatMessage(
+            sessionId = sessionId,
+            sender = backend.myId,
+            senderRole = backend.myRole,
+            text = text,
+            timestampMs = System.currentTimeMillis(),
+            isMine = true,
+            isBroadcast = false,
+            recipientId = toEncodedName
         )
+        
+        synchronized(chatHistory) {
+            chatHistory.add(chatMessage)
+        }
+
+        _chat.tryEmit(chatMessage)
 
         val msg = Message(
             to = toEncodedName,
@@ -341,16 +363,24 @@ class RealMeshGateway(
                 val text = msg.data?.toString(StandardCharsets.UTF_8).orEmpty()
                 log("Received chat from ${msg.from}: $text")
 
-                _chat.tryEmit(
-                    ChatMessage(
-                        sessionId = sessionId,
-                        sender = msg.from,
-                        senderRole = UserRole.ATTENDEE,
-                        text = text,
-                        timestampMs = System.currentTimeMillis(),
-                        isMine = (msg.from == backend.myId)
-                    )
+                val isBroadcast = msg.to == "ALL"
+
+                val chatMessage = ChatMessage(
+                    sessionId = sessionId,
+                    sender = msg.from,
+                    senderRole = UserRole.ATTENDEE,
+                    text = text,
+                    timestampMs = System.currentTimeMillis(),
+                    isMine = (msg.from == backend.myId),
+                    isBroadcast = isBroadcast,
+                    recipientId = if (isBroadcast) null else backend.myId
                 )
+                
+                synchronized(chatHistory) {
+                    chatHistory.add(chatMessage)
+                }
+                
+                _chat.tryEmit(chatMessage)
             }
 
             else -> Unit

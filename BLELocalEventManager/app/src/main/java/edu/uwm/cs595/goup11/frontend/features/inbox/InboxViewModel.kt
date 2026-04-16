@@ -25,11 +25,29 @@ class InboxViewModel(private val meshGateway: MeshGateway) : ViewModel() {
     private val peerNames = MutableStateFlow<Map<String, String>>(emptyMap())
 
     init {
+        // Load history first to populate initial inbox state
+        meshGateway.getChatHistory().forEach { message ->
+            if (!message.isBroadcast) {
+                // Determine the other person's ID (either sender or recipient)
+                val peerId = if (message.isMine) message.recipientId else message.sender
+                if (peerId != null) {
+                    peerNames.update { it + (peerId to (if (message.isMine) "User ${peerId.take(4)}" else message.senderName)) }
+                    lastMessages.update { it + (peerId to message.text) }
+                    lastTimestamps.update { it + (peerId to formatTime(message.timestampMs)) }
+                }
+            }
+        }
+
         meshGateway.chat
             .onEach { message ->
-                peerNames.update { it + (message.sessionId to message.sender) }
-                lastMessages.update { it + (message.sessionId to message.text) }
-                lastTimestamps.update { it + (message.sessionId to formatTime(message.timestampMs)) }
+                if (!message.isBroadcast) {
+                    val peerId = if (message.isMine) message.recipientId else message.sender
+                    if (peerId != null) {
+                        peerNames.update { it + (peerId to (if (message.isMine) "User ${peerId.take(4)}" else message.senderName)) }
+                        lastMessages.update { it + (peerId to message.text) }
+                        lastTimestamps.update { it + (peerId to formatTime(message.timestampMs)) }
+                    }
+                }
             }
             .launchIn(viewModelScope)
     }
@@ -40,37 +58,17 @@ class InboxViewModel(private val meshGateway: MeshGateway) : ViewModel() {
         lastMessages,
         lastTimestamps
     ) { names, state, messages, times ->
-        when (state) {
-            is MeshUiState.InEvent -> {
-                val sid = state.sessionId
-                listOf(
-                    ChatPeer(
-                        user = User(
-                            id = sid,
-                            username = names[sid] ?: "User ${sid.take(4)}"
-                        ),
-                        lastMessage = messages[sid] ?: "No messages yet",
-                        timestamp = times[sid] ?: ""
-                    )
-                )
-            }
-
-            is MeshUiState.Hosting -> {
-                val sid = state.sessionId
-                listOf(
-                    ChatPeer(
-                        user = User(
-                            id = sid,
-                            username = names[sid] ?: "User ${sid.take(4)}"
-                        ),
-                        lastMessage = messages[sid] ?: "No messages yet",
-                        timestamp = times[sid] ?: ""
-                    )
-                )
-            }
-
-            else -> emptyList()
-        }
+        // Convert the maps into a sorted list of unique peers
+        names.keys.map { pid ->
+            ChatPeer(
+                user = User(
+                    id = pid,
+                    username = names[pid] ?: "User ${pid.take(4)}"
+                ),
+                lastMessage = messages[pid] ?: "",
+                timestamp = times[pid] ?: ""
+            )
+        }.sortedByDescending { it.timestamp }
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),

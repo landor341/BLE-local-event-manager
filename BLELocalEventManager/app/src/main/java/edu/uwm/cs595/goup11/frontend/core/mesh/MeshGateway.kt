@@ -46,7 +46,11 @@ data class ChatMessage(
     val senderRole:  UserRole = UserRole.ATTENDEE,
     val text:        String,
     val timestampMs: Long,
-    val isMine:      Boolean
+    val isMine:      Boolean,
+    /** Distinguishes between event-wide broadcast and direct peer-to-peer message */
+    val isBroadcast: Boolean = false,
+    /** For direct messages, stores the recipient's endpoint ID. Null for broadcasts. */
+    val recipientId: String? = null
 )
 
 sealed class MeshUiState {
@@ -92,6 +96,11 @@ interface MeshGateway {
      * Must be called before [hostEvent] or [joinEvent].
      */
     fun setDisplayName(name: String)
+
+    /**
+     * Returns the list of all chat messages received or sent during the current session.
+     */
+    fun getChatHistory(): List<ChatMessage>
 
     suspend fun start()
 
