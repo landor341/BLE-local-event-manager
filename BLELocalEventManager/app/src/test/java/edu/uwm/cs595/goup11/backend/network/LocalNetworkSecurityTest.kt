@@ -1,70 +1,115 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.security.Manager
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.*
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
 import java.nio.charset.StandardCharsets
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class LocalNetworkSecurityTest {
 
-//    @After
-//    fun cleanup() {
-//        LocalNetwork.purge()
-//        Manager.reset()
-//    }
-//
-//    @Test
-//    fun hostAndJoiner_exchangeKey_andCommunicateSecurely() = runTest {
-//        // 1. Setup Host
-//        val hostClient = Client("HOST", ClientType.ROUTER)
-//        val hostNet = LocalNetwork().apply { init(hostClient, Network.Config(5)) }
-//        hostNet.create("SECURE_NET")
-//
-//        // 2. Setup Joiner
-//        val joinerClient = Client("JOINER", ClientType.LEAF)
-//        val joinerNet = LocalNetwork().apply { init(joinerClient, Network.Config(5)) }
-//
-//        // 3. Joiner joins - this should trigger the KEY_EXCHANGE in LocalNetwork.onPeerConnect
-//        joinerNet.join("SECURE_NET")
-//
-//        // 4. Verify Joiner received the key (Manager should be initialized via the KEY_EXCHANGE handler)
-//        // Note: In runTest, we might need a small delay or to wait for the message event
-//        // But LocalNetwork emulator is largely synchronous for deliveries.
-//
-//        assertTrue("Manager should be initialized on Joiner", Manager.isInitialized())
-//
-//        // 5. Send a chat message from Joiner to Host
-//        val receivedOnHost = CompletableDeferred<Message>()
-//        hostNet.addListener { msg ->
-//            if (msg.type == MessageType.TEXT_MESSAGE) {
-//                receivedOnHost.complete(msg)
-//            }
-//        }
-//
-//        val chatText = "Hello Secure World!"
-//        val chatMsg = Message(
-//            to = "HOST",
-//            from = "JOINER",
-//            type = MessageType.TEXT_MESSAGE,
-//            data = chatText.toByteArray(StandardCharsets.UTF_8),
-//            ttl = 5
-//        )
-//
-//        joinerNet.sendMessage("HOST", chatMsg)
-//
-//        // 6. Verify Host received and decrypted the message
-//        val decryptedMsg = receivedOnHost.await()
-//        assertEquals("HOST", decryptedMsg.to)
-//        assertEquals("JOINER", decryptedMsg.from)
-//        assertEquals(chatText, decryptedMsg.data?.toString(StandardCharsets.UTF_8))
-//
-//        // 7. (Optional) Verify the message was actually encrypted during transit
-//        // We can do this by inspecting the message inside the sendMessage logic
-//        // but since we've already tested the round-trip, we know the crypto logic was invoked.
-//    }
+    private val scopes = mutableListOf<CoroutineScope>()
+
+    private fun makeScope(): CoroutineScope {
+        val s = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        scopes.add(s)
+        return s
+    }
+
+    @After
+    fun cleanup() {
+        scopes.forEach { it.cancel() }
+        scopes.clear()
+        LocalNetwork.purge()
+        Manager.reset()
+    }
+
+    @Test
+    fun hostAndJoiner_exchangeKey_andCommunicateSecurely() = runBlocking {
+        // 1. Setup Host
+        val hostScope = makeScope()
+        val hostClient = Client("HOST", UserRole.ADMIN, scope = hostScope)
+        val hostNet = LocalNetwork(scope = hostScope)
+        hostClient.attachNetwork(hostNet, Network.Config(5))
+        
+        // Host initializes Manager during createNetwork
+        hostClient.createNetwork("SECURE_NET", MeshTopology(
+            keepaliveIntervalMs = 500,
+            keepaliveTimeoutMs = 2000,
+            discoveryIntervalMs = 500
+        ))
+        
+        val hostId = hostClient.endpointId!!
+        val hostKey = Manager.getKey()
+        
+        // 2. Setup Joiner
+        val joinerScope = makeScope()
+        val joinerClient = Client("JOINER", UserRole.ATTENDEE, scope = joinerScope)
+        val joinerNet = LocalNetwork(scope = joinerScope)
+        joinerClient.attachNetwork(joinerNet, Network.Config(5))
+
+        // Monitor Joiner's network for KEY_EXCHANGE
+        // Since Manager is a singleton, we verify the message arrives rather than checking Manager state
+        val keyExchangeReceived = CompletableDeferred<Message>()
+        joinerNet.addListener { msg ->
+            if (msg.type == MessageType.KEY_EXCHANGE) {
+                keyExchangeReceived.complete(msg)
+            }
+        }
+        
+        // 3. Joiner joins in a separate coroutine so it doesn't block this one
+        joinerScope.launch { 
+            joinerClient.joinNetwork("SECURE_NET") 
+        }
+        
+        // 4. Wait for connection to be established at the network layer
+        var connected = false
+        val deadline = System.currentTimeMillis() + 10_000
+        var joinerId: String? = null
+        while (!connected && System.currentTimeMillis() < deadline) {
+            joinerId = joinerClient.endpointId
+            if (joinerId != null && joinerId.contains("SECURE_NET")) {
+                val hostNode = LocalNetwork.InMemoryNetworkHolder.getNode(hostId)
+                if (hostNode != null && hostNode.connections.contains(joinerId)) {
+                    connected = true
+                }
+            }
+            if (!connected) delay(100)
+        }
+        
+        assertTrue("Connection should be established within timeout", connected)
+        assertNotNull("Joiner should have an endpointId", joinerId)
+
+        // 5. Verify KEY_EXCHANGE message arrived at Joiner
+        val keyMsg = withTimeoutOrNull(5000) { keyExchangeReceived.await() }
+        assertNotNull("Joiner should receive KEY_EXCHANGE message", keyMsg)
+        assertArrayEquals("Key received should match Host key", hostKey, keyMsg!!.data)
+
+        // 6. Communication Test (Encryption/Decryption)
+        // Note: Because Manager is a singleton, it's already initialized with hostKey.
+        // We verify that a message sent from Joiner (which will be encrypted using hostKey)
+        // is successfully received and decrypted by Host.
+        
+        val receivedOnHost = CompletableDeferred<Message>()
+        hostClient.addMessageListener { msg ->
+            if (msg.type == MessageType.TEXT_MESSAGE) {
+                receivedOnHost.complete(msg)
+            }
+        }
+        
+        val chatText = "Hello Secure World!"
+        joinerClient.sendMessage(Message(
+            to = hostId,
+            from = joinerId!!,
+            type = MessageType.TEXT_MESSAGE,
+            data = chatText.toByteArray(StandardCharsets.UTF_8),
+            ttl = 5
+        ))
+        
+        val decryptedMsg = withTimeoutOrNull(5000) { receivedOnHost.await() }
+        assertNotNull("Host should receive the message", decryptedMsg)
+        assertEquals("Decrypted text should match original", chatText, decryptedMsg!!.data?.toString(StandardCharsets.UTF_8))
+    }
 }

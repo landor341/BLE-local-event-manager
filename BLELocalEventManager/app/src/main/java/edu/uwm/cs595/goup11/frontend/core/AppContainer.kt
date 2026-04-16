@@ -37,9 +37,10 @@ object AppContainer {
     lateinit var meshGateway: MeshGateway
 
     fun init(context: Context) {
-        // To test between TWO PHYSICAL PHONES, change useRealNearby to TRUE.
-        // If useRealNearby is FALSE, it uses an in-memory emulator that only works on one device.
-        val useRealNearby = true
+        // IMPORTANT for Emulator testing:
+        // Set useRealNearby to FALSE to use the in-memory network emulator.
+        // Set to TRUE only for testing on REAL physical hardware.
+        val useRealNearby = false
 
         val facade = DefaultBackendFacade(
             context = context,

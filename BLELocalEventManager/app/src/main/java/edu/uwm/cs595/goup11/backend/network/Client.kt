@@ -3,12 +3,15 @@ package edu.uwm.cs595.goup11.backend.network
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyContext
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyFactory
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
+import edu.uwm.cs595.goup11.backend.security.Crypto
+import edu.uwm.cs595.goup11.backend.security.Manager
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
 
 /**
  * The application layer of the mesh network stack.
@@ -149,6 +152,13 @@ class Client(
 
     private val messageListeners = mutableListOf<(Message) -> Unit>()
 
+    /** Seen message IDs to prevent duplicate processing and infinite loops */
+    private val seenMessageIds = Collections.newSetFromMap(object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean {
+            return size > 100 // Keep last 100 message IDs
+        }
+    })
+
     /** Stored so we can unregister it from the network on leaveNetwork(). */
     private val networkMessageListener: (Message) -> Unit = { message -> onMessageReceived(message) }
 
@@ -243,6 +253,12 @@ class Client(
         // Start directory now that endpointId is valid, before topology connects peers
         directoryManager.start()
 
+        // Restore: Automatically initialize Manager if we are creating the network
+        if (!Manager.isInitialized()) {
+            Manager.init()
+        }
+
+
         topo.start(topologyContext)
 
         logger.info { "$displayName created network '$eventName' with topology ${topo.topologyCode}" }
@@ -316,6 +332,9 @@ class Client(
 
         net?.shutdown()
 
+        // Clear seen messages on leave
+        seenMessageIds.clear()
+
         logger.info { "$displayName left the network" }
     }
 
@@ -325,7 +344,7 @@ class Client(
 
     /**
      * Called by TopologyContext when the topology promotes or demotes this node.
-     * Updates the encoded advertised name and re-advertises so future joiners
+     * Updates the encoded advertised name and re-advertise so future joiners
      * see the correct role.
      */
     private fun handleRoleChange(newRole: TopologyStrategy.Role) {
@@ -359,6 +378,24 @@ class Client(
                             // Use encodedName as the directory key — consistent with our own identity
                             if (currentAdvertisedName != null) {
                                 directoryManager.onPeerConnected(ev.encodedName, advertisedName)
+                            
+                            // Send a HELLO message to announce our presence and metadata
+                            sendMessage(Message(
+                                to = ev.endpointId,
+                                from = endpointId ?: "UNKNOWN",
+                                type = MessageType.HELLO,
+                                ttl = 1
+                            ))
+
+                            // Restore: initiate key exchange if we have a key (we are likely the host/router)
+                            if (Manager.isInitialized()) {
+                                sendMessage(Message(
+                                    to = ev.endpointId,
+                                    from = endpointId ?: "UNKNOWN",
+                                    type = MessageType.KEY_EXCHANGE,
+                                    data = Manager.getKey(),
+                                    ttl = 1
+                                ))
                             }
                         } else {
                             logger.warn { "Connected to ${ev.endpointId} but could not decode name: ${ev.encodedName}" }
@@ -400,14 +437,69 @@ class Client(
      */
     fun sendMessage(message: Message) {
         val net  = requireNetwork()
-        val hops = requireTopology().resolveNextHop(topologyContext, message)
+
+        // Automatically populate metadata if missing
+        val enriched = message.copy(
+            senderRole = role,
+            presentationId = message.presentationId ?: presentationId
+        )
+
+        // Record outgoing messages as "seen" so we don't process them if they loop back
+        seenMessageIds.add(enriched.id)
+
+        // Handle local delivery (self or broadcast)
+        // We do this BEFORE encryption so we can deliver the plain-text 'enriched' message
+        // to local listeners without needing a decrypt cycle.
+        if (enriched.to == endpointId || enriched.to == "ALL") {
+            if (enriched.type == MessageType.TEXT_MESSAGE) {
+                val isSamePresentation = enriched.presentationId == presentationId
+                val isAdmin = role == UserRole.ADMIN
+                if (isAdmin || isSamePresentation) {
+                    messageListeners.forEach { it(enriched) }
+                }
+            }
+            // If it was strictly for us, we can stop here.
+            if (enriched.to == endpointId) return
+        }
+
+        // Apply encryption and signature for application messages if a key is available
+        val finalMessage = if (enriched.type == MessageType.TEXT_MESSAGE && Manager.isInitialized()) {
+            try {
+                var signedMessage = enriched
+                
+                // If it's an admin, sign the message content
+                if (role == UserRole.ADMIN) {
+                    val dataToSign = enriched.data ?: ByteArray(0)
+                    val signature = Manager.sign(dataToSign)
+                    signedMessage = enriched.copy(
+                        signature = signature,
+                        senderPublicKey = Manager.getPublicKey()
+                    )
+                }
+
+                // Encrypt data if it exists
+                if (signedMessage.data != null) {
+                    val encryptedData = Crypto.encryptMessage(signedMessage.data!!, Manager.getKey())
+                    signedMessage.copy(data = encryptedData)
+                } else {
+                    signedMessage
+                }
+            } catch (e: Exception) {
+                logger.error(e) { "Failed to secure message ${enriched.id}" }
+                enriched
+            }
+        } else {
+            enriched
+        }
+
+        val hops = requireTopology().resolveNextHop(topologyContext, finalMessage)
 
         if (hops.isEmpty()) {
-            logger.warn { "No route found for message to ${message.to}" }
+            logger.warn { "No route found for message to ${finalMessage.to}" }
             return
         }
 
-        hops.forEach { hop -> net.sendMessage(hop, message) }
+        hops.forEach { hop -> net.sendMessage(hop, finalMessage) }
     }
 
     /**
@@ -450,6 +542,13 @@ class Client(
      * Completes any reply waiters, then routes to the correct layer.
      */
     fun onMessageReceived(message: Message) {
+        // Loop prevention: skip if we've already handled this specific message ID
+        if (!seenMessageIds.add(message.id)) {
+            logger.debug { "Skipping duplicate message ${message.id}" }
+            return
+        }
+
+        // Unblock any sendMessageAndWait() calls waiting for this reply
         val replyTo = message.replyTo
         if (!replyTo.isNullOrBlank()) {
             replyWaiters.remove(replyTo)?.let { deferred ->
@@ -476,16 +575,71 @@ class Client(
 
         when (message.type) {
             MessageType.TEXT_MESSAGE -> {
-                if (message.to == endpointId) {
-                    messageListeners.forEach { it(message) }
-                } else if (message.ttl > 0) {
-                    val forwarded = message.copy(ttl = message.ttl - 1)
-                    sendMessage(forwarded)
+                // Decrypt if necessary
+                val decryptedMessage = if (message.data != null && Manager.isInitialized()) {
+                    try {
+                        val decryptedData = Crypto.decryptMessage(message.data!!, Manager.getKey())
+                        message.copy(data = decryptedData)
+                    } catch (e: Exception) {
+                        logger.warn { "Failed to decrypt message ${message.id} — possibly wrong key or corrupted" }
+                        message
+                    }
                 } else {
-                    logger.warn { "Dropping message ${message.id} — TTL exhausted" }
+                    message
+                }
+
+                // Verify signature if it's an Admin message
+                val processedMessage = if (decryptedMessage.senderRole == UserRole.ADMIN && decryptedMessage.signature != null && decryptedMessage.senderPublicKey != null) {
+                    val isValid = Manager.verify(
+                        decryptedMessage.data ?: ByteArray(0),
+                        decryptedMessage.signature!!,
+                        decryptedMessage.senderPublicKey!!
+                    )
+                    if (!isValid) {
+                        logger.error { "SECURITY ALERT: Signature verification failed for Admin message ${decryptedMessage.id}" }
+                        // We could drop the message here, or mark it as unverified
+                        decryptedMessage 
+                    } else {
+                        logger.info { "Verified Admin message ${decryptedMessage.id}" }
+                        decryptedMessage
+                    }
+                } else {
+                    decryptedMessage
+                }
+
+                val isForMe = processedMessage.to == endpointId || processedMessage.to == "ALL" // ALL for broadcast
+
+                if (isForMe) {
+                    // Check presentation differentiation & admin visibility
+                    val isSamePresentation = processedMessage.presentationId == presentationId
+                    val isAdmin = role == UserRole.ADMIN
+
+                    if (isAdmin || isSamePresentation) {
+                        // Deliver to application listeners
+                        messageListeners.forEach { it(processedMessage) }
+                    } else {
+                        logger.debug { "Filtering message ${processedMessage.id} for UI — different presentation (${processedMessage.presentationId})" }
+                    }
+                }
+
+                // Forwarding logic: Broadcasts or multi-hop messages MUST be forwarded if budget allows.
+                // budget == 1 means "last hop" — recipient can process it (done above) but cannot forward it further.
+                if (processedMessage.to == "ALL" || processedMessage.to != endpointId) {
+                    if (processedMessage.ttl > 1) {
+                        val forwarded = processedMessage.copy(ttl = processedMessage.ttl - 1)
+                        sendMessage(forwarded)
+                    } else if (processedMessage.to != "ALL" && processedMessage.to != endpointId) {
+                        logger.warn { "Dropping message ${processedMessage.id} to ${processedMessage.to} — TTL exhausted" }
+                    }
                 }
             }
-            MessageType.HELLO -> logger.info { "HELLO from ${message.from}" }
+            MessageType.HELLO -> logger.info { "HELLO from ${message.from} (${message.senderRole})" }
+            MessageType.KEY_EXCHANGE -> {
+                if (message.data != null) {
+                    Manager.init(message.data)
+                    logger.info { "Security Manager initialized with key from ${message.from}" }
+                }
+            }
             else -> logger.warn { "Unhandled message type: ${message.type}" }
         }
     }
