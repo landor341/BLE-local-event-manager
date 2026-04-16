@@ -7,6 +7,7 @@ import edu.uwm.cs595.goup11.backend.security.Crypto
 import edu.uwm.cs595.goup11.backend.security.Manager
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.ConcurrentHashMap
@@ -22,12 +23,14 @@ import java.util.Collections
  *  - Handling application-layer messages (TEXT_MESSAGE, HELLO, etc.)
  *  - Managing the reply-waiter queue for request/response flows
  *  - Re-advertising when this node's role changes
+ *  - Owning the DirectoryManager and wiring it to network events
  *
  * Client is NOT responsible for:
  *  - Peer lists or connection tracking (topology owns those)
  *  - Routing decisions (topology owns those)
  *  - Keepalive / PING-PONG (topology owns those)
  *  - Raw transport (network owns that)
+ *  - Directory merge logic (DirectoryManager owns that)
  *
  * OSI analogy: Network ≈ layers 1-2, Topology ≈ layer 3, Client ≈ layers 4-7.
  */
@@ -35,10 +38,8 @@ class Client(
     /** Human-readable display name for this user e.g. "Alice" */
     val displayName: String,
 
-    //val id: String,
-    // val type: ClientType,
     var role: UserRole = UserRole.ATTENDEE,
-    var presentationId: String? = null, // Differentiates which "booth" or "panel" this client belongs to
+    var presentationId: String? = null,
     var network: Network? = null,
 
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -78,6 +79,56 @@ class Client(
         get() = currentAdvertisedName?.encode()
 
     // -------------------------------------------------------------------------
+    // Directory
+    // -------------------------------------------------------------------------
+
+    /**
+     * Maintains the network-wide peer directory for this client.
+     * Initialized lazily so the localEndpointId lambda is only evaluated after
+     * createNetwork() / joinNetwork() sets the identity.
+     *
+     * All directory sends go through [sendDirectoryMessage] which routes directly
+     * to the network transport, bypassing topology routing. Directory messages are
+     * always point-to-point between direct neighbors.
+     */
+    val directoryManager: DirectoryManager by lazy {
+        DirectoryManager(
+            // Our directory identity is the encoded name — consistent across all peers
+            localEndpointId = { endpointId ?: error("$displayName is not on a network") },
+            // Resolve encoded name → hardware ID before handing off to the network
+            send            = { toEncodedName, message ->
+                val hardwareId = requireNetwork().encodedNameToHardwareId(toEncodedName)
+                if (hardwareId != null) {
+                    sendDirectoryMessage(hardwareId, message)
+                } else {
+                    logger.warn { "DirectoryManager: no hardware ID for encoded name '$toEncodedName', dropping message" }
+                }
+            },
+            scope           = scope
+        )
+    }
+
+    /**
+     * Reactive flow of all ACTIVE peers in the network directory.
+     * Emits a new list whenever any peer joins or leaves.
+     *
+     * Usage in Compose:
+     *   val peers by client.networkPeersFlow.collectAsState()
+     */
+    val networkPeersFlow: StateFlow<List<PeerEntry>>
+        get() = directoryManager.activePeers
+
+    /**
+     * Reactive flow of the full directory including DISCONNECTED tombstones.
+     * Useful for admin or debug screens.
+     *
+     * Usage in Compose:
+     *   val allPeers by client.fullDirectoryFlow.collectAsState()
+     */
+    val fullDirectoryFlow: StateFlow<List<PeerEntry>>
+        get() = directoryManager.allPeers
+
+    // -------------------------------------------------------------------------
     // Reply-waiter queue
     // -------------------------------------------------------------------------
 
@@ -87,6 +138,13 @@ class Client(
      * Value = deferred that completes when the reply arrives.
      */
     private val replyWaiters = ConcurrentHashMap<String, CompletableDeferred<Message>>()
+
+    /**
+     * Maps hardware Nearby endpoint ID → encoded advertised name.
+     * ConnectNetwork clears knownEndpoints on disconnect before firing the event,
+     * so we keep our own copy for the directory's onPeerDisconnected lookup.
+     */
+    private val hardwareToEncoded = ConcurrentHashMap<String, String>()
 
     // -------------------------------------------------------------------------
     // Message listeners (application layer callbacks)
@@ -131,9 +189,9 @@ class Client(
             },
             onRoleChanged        = { role -> handleRoleChange(role) },
             coroutineScope       = scope,
-            onConnect = {endpointId -> requireNetwork().connect(endpointId)},
-            networkEvents = requireNetwork().events,
-            disconnectFromEndpoint = {endpointId -> requireNetwork().disconnect(endpointId)}
+            onConnect            = { endpointId -> requireNetwork().connect(endpointId) },
+            networkEvents        = requireNetwork().events,
+            disconnectFromEndpoint = { endpointId -> requireNetwork().disconnect(endpointId) }
         )
     }
 
@@ -150,7 +208,6 @@ class Client(
 
         // Wire up the connection-request callback — topology decides accept/reject
         network.onConnectionRequest = { endpointId, encodedName ->
-            //TODO: Should reject based off of topo type and event name (if currently connected)
             val advertisedName = AdvertisedName.decode(encodedName)
             if (advertisedName == null) {
                 logger.warn { "Rejecting $endpointId — unparseable name: $encodedName" }
@@ -191,15 +248,16 @@ class Client(
             displayName  = displayName
         )
 
-        // Initialise the network with our identity. Advertising is started by the
-        // topology itself inside topo.start() — don't call startAdvertising() here
-        // or Nearby will see STATUS_ALREADY_ADVERTISING when the topology does it.
         requireNetwork().init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
+
+        // Start directory now that endpointId is valid, before topology connects peers
+        directoryManager.start()
 
         // Restore: Automatically initialize Manager if we are creating the network
         if (!Manager.isInitialized()) {
             Manager.init()
         }
+
 
         topo.start(topologyContext)
 
@@ -212,21 +270,16 @@ class Client(
      * Starts discovery, waits for an endpoint advertising the matching event name,
      * infers the topology from its advertised name, then requests a connection.
      *
-     * The connection result (accepted or rejected) arrives asynchronously via
-     * NetworkEvent.EndpointConnected or NetworkEvent.ConnectionRejected on the
-     * events flow, which listenToNetworkEvents() handles.
+     * The connection result arrives asynchronously via NetworkEvent.EndpointConnected
+     * or NetworkEvent.ConnectionRejected, handled by listenToNetworkEvents().
      */
     suspend fun joinNetwork(eventName: String) {
         val net = requireNetwork()
-        // Re-register after leaveNetwork() removed it and shutdown() cleared listeners.
         net.removeListener(networkMessageListener)
         net.addListener(networkMessageListener)
         net.init("JOINING:$displayName", Network.Config(defaultTtl = 5))
         val discoveryJob = scope.launch { net.startDiscovery() }
 
-        // Wait for exactly one matching endpoint then stop — using collect here
-        // causes the loop to re-fire on every Nearby re-announcement of the same
-        // endpoint, triggering repeated init()/topo.start()/connect() calls.
         val ev = net.events
             .filterIsInstance<NetworkEvent.EndpointDiscovered>()
             .first { ev ->
@@ -248,10 +301,13 @@ class Client(
         val topo = TopologyFactory.create(advertisedName)
         topology = topo
         net.init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
+
+        // Start directory now that endpointId is valid, before topology connects peers
+        directoryManager.start()
+
         topo.start(topologyContext)
-        // Do NOT call net.connect() — topo.start() → evaluateHealth() → startDiscovery()
-        // will rediscover the host and connect via the topology's own logic.
     }
+
     /**
      * Leave the current network gracefully.
      * Stops advertising, stops topology background jobs, and resets identity.
@@ -260,18 +316,20 @@ class Client(
         val net  = network
         val topo = topology
 
-        // Unregister message listener first — stops PING/PONG processing immediately.
+        // Stop directory first — cancels verify loop before identity is cleared
+        directoryManager.stop()
+
+        // Unregister message listener — stops PING/PONG processing immediately
         net?.removeListener(networkMessageListener)
 
         // Null out topology so disconnect events don't re-trigger evaluateHealth
-        // → startDiscovery and spawn new keepalive jobs.
         topology = null
         currentAdvertisedName = null
+        hardwareToEncoded.clear()
 
-        topo?.stop()                            // cancel keepalive/discovery jobs
-        topo?.disconnectFromAllNodes(topologyContext) // notify peers we're gone
+        topo?.stop()
+        topo?.disconnectFromAllNodes(topologyContext)
 
-        // shutdown() calls stopAllEndpoints + stopAdvertising and resets state.
         net?.shutdown()
 
         // Clear seen messages on leave
@@ -314,7 +372,12 @@ class Client(
                     is NetworkEvent.EndpointConnected -> {
                         val advertisedName = AdvertisedName.decode(ev.encodedName)
                         if (advertisedName != null) {
+                            // Track hardware ID → encoded name for disconnect resolution
+                            hardwareToEncoded[ev.endpointId] = ev.encodedName
                             topology?.onPeerConnected(topologyContext, ev.endpointId, advertisedName)
+                            // Use encodedName as the directory key — consistent with our own identity
+                            if (currentAdvertisedName != null) {
+                                directoryManager.onPeerConnected(ev.encodedName, advertisedName)
                             
                             // Send a HELLO message to announce our presence and metadata
                             sendMessage(Message(
@@ -335,18 +398,27 @@ class Client(
                                 ))
                             }
                         } else {
-                            logger.warn { "Connected to ${ ev.endpointId} but could not decode name: ${ev.encodedName}" }
+                            logger.warn { "Connected to ${ev.endpointId} but could not decode name: ${ev.encodedName}" }
                         }
                     }
 
                     is NetworkEvent.EndpointDisconnected -> {
                         topology?.onPeerDisconnected(topologyContext, ev.endpointId)
+                        // Resolve hardware ID back to encoded name for directory lookup
+                        if (currentAdvertisedName != null) {
+                            // knownEndpoints is already cleared by ConnectNetwork before this event,
+                            // so we search the directory for any entry whose hardware send would have
+                            // used this endpointId. Simplest: store the mapping ourselves.
+                            val encodedName = hardwareToEncoded[ev.endpointId]
+                            if (encodedName != null) {
+                                directoryManager.onPeerDisconnected(encodedName)
+                                hardwareToEncoded.remove(ev.endpointId)
+                            }
+                        }
                     }
 
                     is NetworkEvent.ConnectionRejected -> {
-                        // Topology may want to try a different advertiser
                         logger.info { "Connection to ${ev.endpointId} was rejected" }
-                        // TODO: expose this to topology so it can retry or adjust
                     }
 
                     else -> Unit
@@ -431,6 +503,19 @@ class Client(
     }
 
     /**
+     * Sends a directory message directly to a peer, bypassing topology routing.
+     * Directory messages are always point-to-point between direct neighbors and
+     * must never be routed through intermediaries.
+     */
+    private fun sendDirectoryMessage(toEndpointId: String, message: Message) {
+        try {
+            requireNetwork().sendMessage(toEndpointId, message)
+        } catch (e: Exception) {
+            logger.warn { "Failed to send directory message to $toEndpointId: ${e.message}" }
+        }
+    }
+
+    /**
      * Send a message and suspend until a reply arrives or [timeoutMillis] elapses.
      * Returns null on timeout.
      */
@@ -454,7 +539,7 @@ class Client(
 
     /**
      * Called by the Network implementation when a message arrives.
-     * Completes any reply waiters, then routes to topology or application handlers.
+     * Completes any reply waiters, then routes to the correct layer.
      */
     fun onMessageReceived(message: Message) {
         // Loop prevention: skip if we've already handled this specific message ID
@@ -474,14 +559,19 @@ class Client(
     }
 
     /**
-     * Route an inbound message to the topology or application layer.
-     * Topology gets first refusal — if it returns true the message is consumed.
+     * Routes an inbound message to the correct layer.
+     *
+     * Priority order:
+     *  1. Topology — structural/routing messages (PING, PONG, ATTACH, etc.)
+     *  2. Directory — DIRECTORY_* messages
+     *  3. Application — TEXT_MESSAGE and other app-layer messages
      */
     private fun handleMessage(message: Message) {
-        val consumed = topology?.onMessage(topologyContext, message) ?: false
-        if (consumed) return
+        val consumedByTopology = topology?.onMessage(topologyContext, message) ?: false
+        if (consumedByTopology) return
 
-        // Application-layer messages
+        val consumedByDirectory = directoryManager.onMessage(message)
+        if (consumedByDirectory) return
 
         when (message.type) {
             MessageType.TEXT_MESSAGE -> {
@@ -555,10 +645,31 @@ class Client(
     }
 
     // -------------------------------------------------------------------------
+    // Public directory access
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns a snapshot of all currently ACTIVE peers.
+     * For reactive UI, prefer [networkPeersFlow].
+     */
+    fun networkPeers(): List<PeerEntry> = directoryManager.activePeersSnapshot()
+
+    /**
+     * Returns a snapshot of the full directory including DISCONNECTED tombstones.
+     * For reactive UI, prefer [fullDirectoryFlow].
+     */
+    fun fullDirectory(): List<PeerEntry> = directoryManager.allPeersSnapshot()
+
+    // -------------------------------------------------------------------------
     // State
     // -------------------------------------------------------------------------
 
     fun isConnected(): Boolean = currentAdvertisedName != null
+
+    fun directConnectedPeers(): List<edu.uwm.cs595.goup11.backend.network.topology.TopologyPeer> {
+        val top = topology ?: return emptyList()
+        return top.retrieveAllConnectedClients()
+    }
 
     // -------------------------------------------------------------------------
     // Guards

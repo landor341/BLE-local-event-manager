@@ -30,6 +30,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.PlayArrow
@@ -69,6 +72,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import edu.uwm.cs595.goup11.backend.network.*
+import edu.uwm.cs595.goup11.backend.network.PeerEntry
 import androidx.core.content.ContextCompat
 import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Client
@@ -87,7 +92,6 @@ import edu.uwm.cs595.goup11.frontend.core.mesh.GatewayPeer
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import edu.uwm.cs595.goup11.frontend.core.mesh.TopologyChoice
-import edu.uwm.cs595.goup11.frontend.dev.ConnectedPeer
 import edu.uwm.cs595.goup11.frontend.dev.DevNetworkScreen
 import edu.uwm.cs595.goup11.frontend.dev.DiscoveredEvent
 import kotlinx.coroutines.CoroutineScope
@@ -1018,21 +1022,22 @@ private fun MockStatusRow(
 @Composable
 private fun DirectDevContent() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope   = rememberCoroutineScope()
 
-    val clientState = remember { mutableStateOf<Client?>(null) }
-    val peersState = remember { mutableStateListOf<ConnectedPeer>() }
-    val eventNameState = remember { mutableStateOf<String?>(null) }
-    val discoveredEvents = remember { mutableStateListOf<DiscoveredEvent>() }
-    val isDiscovering = remember { mutableStateOf(false) }
-    val isAdvertising = remember { mutableStateOf(false) }
-    val isNodeDiscovering = remember { mutableStateOf(false) }
-    val permissionError = remember { mutableStateOf<String?>(null) }
+    // Mirror DevNetworkActivity's state fields
+    val clientState        = remember { mutableStateOf<Client?>(null) }
+    val eventNameState     = remember { mutableStateOf<String?>(null) }
+    val discoveredEvents   = remember { mutableStateListOf<DiscoveredEvent>() }
+    val isDiscovering      = remember { mutableStateOf(false) }
+    val isAdvertising      = remember { mutableStateOf(false) }
+    val isNodeDiscovering  = remember { mutableStateOf(false) }
+    val permissionError    = remember { mutableStateOf<String?>(null) }
 
-    var networkStateJob by remember { mutableStateOf<Job?>(null) }
-    var discoverJob by remember { mutableStateOf<Job?>(null) }
-    var scanNet by remember { mutableStateOf<ConnectNetwork?>(null) }
+    var networkStateJob    by remember { mutableStateOf<Job?>(null) }
+    var discoverJob        by remember { mutableStateOf<Job?>(null) }
+    var scanNet            by remember { mutableStateOf<ConnectNetwork?>(null) }
 
+    // Permissions required by Nearby Connections
     val requiredPerms = remember {
         when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> arrayOf(
@@ -1082,38 +1087,10 @@ private fun DirectDevContent() {
     }
 
     fun wireClientEvents(c: Client) {
-        peersState.clear()
         networkStateJob?.cancel()
         networkStateJob = scope.launch {
-            launch {
-                c.network?.isAdvertising?.collect { isAdvertising.value = it }
-            }
-            launch {
-                c.network?.isDiscovering?.collect { isNodeDiscovering.value = it }
-            }
-            c.network?.events?.collect { event ->
-                when (event) {
-                    is NetworkEvent.EndpointConnected -> {
-                        if (peersState.none { it.endpointId == event.endpointId }) {
-                            val displayName = AdvertisedName.decode(event.encodedName)?.displayName
-                                ?: event.endpointId
-                            peersState.add(
-                                ConnectedPeer(
-                                    endpointId = event.endpointId,
-                                    displayName = displayName,
-                                    encodedName = event.encodedName
-                                )
-                            )
-                        }
-                    }
-
-                    is NetworkEvent.EndpointDisconnected -> {
-                        peersState.removeAll { it.endpointId == event.endpointId }
-                    }
-
-                    else -> Unit
-                }
-            }
+            launch { c.network?.isAdvertising?.collect { isAdvertising.value = it } }
+            launch { c.network?.isDiscovering?.collect { isNodeDiscovering.value = it } }
         }
     }
 
@@ -1221,16 +1198,30 @@ private fun DirectDevContent() {
         }
     }
 
+    // Collect the directory's network-wide active peer list reactively
+    val networkPeers by produceState<List<PeerEntry>>(
+        initialValue = emptyList(),
+        key1         = clientState.value
+    ) {
+        val c = clientState.value
+        if (c == null) { value = emptyList() }
+        else c.networkPeersFlow.collect { value = it }
+    }
+    val peersExcludingSelf = networkPeers.filter {
+        it.endpointId != clientState.value?.endpointId
+    }
+
+    // ── Render DevNetworkScreen ───────────────────────────────────────────────
     DevNetworkScreen(
-        client = clientState.value,
-        peers = peersState,
-        eventName = eventNameState.value,
-        discoveredEvents = discoveredEvents,
-        isDiscovering = isDiscovering.value,
-        isAdvertising = isAdvertising.value,
-        isNodeDiscovering = isNodeDiscovering.value,
-        permissionError = permissionError.value,
-        onCreateNetwork = { name, event, topo, maxPeers ->
+        client             = clientState.value,
+        networkPeers       = peersExcludingSelf,
+        eventName          = eventNameState.value,
+        discoveredEvents   = discoveredEvents,
+        isDiscovering      = isDiscovering.value,
+        isAdvertising      = isAdvertising.value,
+        isNodeDiscovering  = isNodeDiscovering.value,
+        permissionError    = permissionError.value,
+        onCreateNetwork    = { name, event, topo, maxPeers ->
             requestPerms { createNetwork(name, event, topo, maxPeers) }
         },
         onJoinNetwork = { name, event ->
@@ -1245,7 +1236,6 @@ private fun DirectDevContent() {
                 networkStateJob = null
                 clientState.value?.leaveNetwork()
                 clientState.value = null
-                peersState.clear()
                 eventNameState.value = null
                 isAdvertising.value = false
                 isNodeDiscovering.value = false

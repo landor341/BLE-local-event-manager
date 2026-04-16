@@ -91,6 +91,8 @@ dependencies {
     // image loading
     implementation("io.coil-kt.coil3:coil-compose:3.0.0")
 
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.10.0")
+
     //enables Java 8+ library desugaring for java.time support on older APIs
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

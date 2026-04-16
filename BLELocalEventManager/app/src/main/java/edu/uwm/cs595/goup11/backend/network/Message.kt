@@ -1,5 +1,9 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.protobuf.ProtoBuf
+import kotlinx.serialization.encodeToByteArray
+import kotlinx.serialization.decodeFromByteArray
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -18,6 +22,12 @@ data class Message(
     val senderPublicKey: ByteArray? = null
 ) {
 
+    @OptIn(ExperimentalSerializationApi::class)
+    inline fun <reified T : Any> withPayload(payload: T): Message =
+        copy(data = ProtoBuf.encodeToByteArray(payload))
+    @OptIn(ExperimentalSerializationApi::class)
+    inline fun <reified T : Any> decodePayload(): T =
+        ProtoBuf.decodeFromByteArray(data ?: error("Message ${id} has no payload"))
     /**
      * Serialize message into bytes for Nearby Payload
      */
