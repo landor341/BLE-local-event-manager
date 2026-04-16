@@ -110,6 +110,21 @@ class Client(
         )
     }
 
+    private val messageHandlers = mutableListOf<MessageHandler>()
+
+    fun addMessageHandler(handler: MessageHandler) {
+        android.util.Log.d("Client", "message handler added: ${handler::class.simpleName}")
+        messageHandlers.add(handler);
+    }
+
+    fun removeMessageHandler(handler: MessageHandler): Boolean {
+        val mod = messageHandlers.remove(handler);
+        if(mod) {
+            android.util.Log.d("Client", "message handler removed: ${handler::class.simpleName}")
+        }
+        return mod;
+    }
+
     /**
      * Reactive flow of all ACTIVE peers in the network directory.
      * Emits a new list whenever any peer joins or leaves.
@@ -622,6 +637,13 @@ class Client(
         val consumedByDirectory = directoryManager.onMessage(message)
         android.util.Log.d("Client", "handleMessage: consumedByDirectory=$consumedByDirectory")
         if (consumedByDirectory) return
+
+        for(handler in messageHandlers) {
+            if(handler.processMessage(message)) {
+                android.util.Log.d("Client", "handleMessage: consumed by ${handler::class.simpleName}")
+                return;
+            }
+        }
 
         when (message.type) {
             MessageType.TEXT_MESSAGE -> {

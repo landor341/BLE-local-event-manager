@@ -101,10 +101,7 @@ class DefaultBackendFacade(
 
     // ── Client ────────────────────────────────────────────────────────────────
 
-    // Client is created lazily so the display name can be updated before
-    // the first network operation via setDisplayName().
-    // _client is nulled in leave() so each session gets a fresh instance
-    // with attachNetwork() called, which re-registers networkMessageListener.
+    // Lazy created client.
     private var _client: Client? = null
     private val client: Client
         get() = _client ?: Client(
@@ -140,8 +137,6 @@ class DefaultBackendFacade(
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     override fun start() {
-        // Eagerly create client so networkPeersFlow is stable from the start
-        // and attachNetwork() + listener bridge are wired before any events arrive
         val c = client
 
         scope.launch {
@@ -225,7 +220,7 @@ class DefaultBackendFacade(
     override fun setDisplayName(name: String) {
         if (name == displayName) return
         displayName = name
-        // Only invalidate client if not in a session — name takes effect next session
+        // Only invalidate client if not in a session.
         if (currentEventName == null) {
             _client = null
         }
@@ -234,9 +229,7 @@ class DefaultBackendFacade(
     override suspend fun leave() {
         client.leaveNetwork()
         currentEventName = null
-        // Null client so the next session gets a fresh instance — this ensures
-        // attachNetwork() is called again, re-registering networkMessageListener
-        // with the network transport which leaveNetwork() removed.
+        // Null client so the next session gets a fresh instance
         _client = null
     }
 

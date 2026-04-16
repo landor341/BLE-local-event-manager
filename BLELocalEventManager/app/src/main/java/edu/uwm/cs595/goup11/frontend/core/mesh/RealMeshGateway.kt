@@ -87,7 +87,7 @@ class RealMeshGateway(
                     return@collect
                 }
 
-                log("Backend state: ${s::class.simpleName}")
+                //log("Backend state: ${s::class.simpleName}")
                 _state.value = when (s) {
                     is NetworkState.Idle     -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning

@@ -238,10 +238,6 @@ class ConnectNetwork(
 
     override suspend fun connect(endpointId: String) {
         val localId = requireLocalEndpointId()
-        if (knownEndpoints[endpointId] != null && false) {
-            // already tracked — but we still allow re-attempts since knownEndpoints
-            // is populated on discovery too. Real guard is STATUS_ALREADY_CONNECTED.
-        }
         cn("[CN] connect() localId='$localId' target='$endpointId'")
 
         connectionsClient.requestConnection(localId, endpointId, connectionLifecycleCallback)
@@ -368,12 +364,12 @@ class ConnectNetwork(
                 cn("[CN] onEndpointFound ignoring self (endpointId=$endpointId)")
                 return
             }
-            // Ignore transient scanner/joiner identities — these are stale cache entries
+            // Ignore transient scanner/joiner identities, these are used for seeing what networks exist
             if (encodedName.startsWith("SCANNER:") || encodedName.startsWith("JOINING:")) {
                 cn("[CN] onEndpointFound ignoring transient '$encodedName'")
                 return
             }
-            // Ignore anything we can't decode — also a stale cache entry
+            // Ignore anything we can't decode
             if (AdvertisedName.decode(encodedName) == null) {
                 cn("[CN] onEndpointFound ignoring undecodable '$encodedName'")
                 return
