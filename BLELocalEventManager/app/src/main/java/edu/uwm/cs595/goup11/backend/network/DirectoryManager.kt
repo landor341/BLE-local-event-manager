@@ -1,5 +1,6 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import android.util.Log
 import edu.uwm.cs595.goup11.backend.network.payloads.DirectoryPeerPayload
 import edu.uwm.cs595.goup11.backend.network.payloads.DirectorySyncPayload
 import edu.uwm.cs595.goup11.backend.network.payloads.DirectoryVerifyAckPayload
@@ -36,6 +37,9 @@ class DirectoryManager(
     private val initialClock: Long = 0L
 ) {
     private val logger = KotlinLogging.logger {}
+
+    private fun log(msg: String)  = Log.w("CN", msg)
+    private fun logError(msg: String) = Log.e("CN", msg)
 
     // -------------------------------------------------------------------------
     // Internal directory state
@@ -137,7 +141,7 @@ class DirectoryManager(
      */
     fun onPeerConnected(endpointId: String, advertisedName: AdvertisedName) {
         directNeighbors.add(endpointId)
-
+        log("onPeerConnected: $endpointId, (${advertisedName.displayName})")
         // Add a placeholder for the user
         val existing = directory[endpointId]
         if (existing == null || existing.status == PeerStatus.DISCONNECTED) {
@@ -408,11 +412,11 @@ class DirectoryManager(
             val existing = directory[entry.endpointId]
 
             val winner = when {
-                existing == null                                                                 -> entry
-                entry.lamportClock > existing.lamportClock                                      -> entry
-                entry.lamportClock < existing.lamportClock                                      -> existing
+                existing == null -> entry
+                entry.lamportClock > existing.lamportClock -> entry
+                entry.lamportClock < existing.lamportClock  -> existing
                 entry.status == PeerStatus.ACTIVE && existing.status == PeerStatus.DISCONNECTED -> entry
-                else                                                                             -> existing
+                else -> existing
             }
 
             if (winner !== existing) {
@@ -540,6 +544,7 @@ class DirectoryManager(
      */
     private fun notifyDirectoryChanged() {
         val snapshot       = directory.values.toList()
+        log("directory changed: ${snapshot.map { "${it.displayName}=${it.status}" }}")
         _allPeers.value    = snapshot
         _activePeers.value = snapshot.filter { it.status == PeerStatus.ACTIVE }
     }

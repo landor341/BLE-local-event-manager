@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.frontend.core.mesh.ChatMessage
 
@@ -24,6 +25,8 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     var input by remember { mutableStateOf("") }
+    val keyboardController = LocalSoftwareKeyboardController.current  // ← add this
+
 
     Scaffold(
         topBar = {
@@ -71,6 +74,7 @@ fun ChatScreen(
                         if (input.isNotBlank()) {
                             viewModel.send(input)
                             input = ""
+                            keyboardController?.hide()  // ← add this
                         }
                     },
                     colors = IconButtonDefaults.iconButtonColors(
@@ -102,7 +106,7 @@ private fun ChatBubble(message: ChatMessage) {
     ) {
         if (!message.isMine) {
             Text(
-                text = message.sender,
+                text = message.senderName,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
             )

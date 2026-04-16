@@ -43,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +70,7 @@ import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatViewModel
 import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUserUi
 import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUsersScreen
+import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUsersViewModel
 import edu.uwm.cs595.goup11.frontend.features.connectedusers.PeerStatus
 import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventScreen
 import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventViewModel
@@ -331,28 +333,10 @@ fun AppNavigation() {
     val createPresentationVm = remember { CreatePresentationViewModel(meshGateway) }
 
     val userState by userVm.user.collectAsState()
+
     val drawerDisplayName = userState.username.ifBlank { "Guest" }
 
-    val mockConnectedUsers = remember {
-        listOf(
-            ConnectedUserUi(
-                user = User(id = "1", username = "Matthew", role = UserRole.ADMIN),
-                status = PeerStatus.CONNECTED
-            ),
-            ConnectedUserUi(
-                user = User(id = "2", username = "Angelo", role = UserRole.ATTENDEE),
-                status = PeerStatus.NEARBY
-            ),
-            ConnectedUserUi(
-                user = User(id = "3", username = "Labib", role = UserRole.ATTENDEE),
-                status = PeerStatus.OUT_OF_RANGE
-            ),
-            ConnectedUserUi(
-                user = User(id = "4", username = "Landon", role = UserRole.ATTENDEE),
-                status = PeerStatus.NEARBY
-            )
-        )
-    }
+    val connectedUsersVm = remember { ConnectedUsersViewModel(meshGateway) }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
@@ -371,6 +355,13 @@ fun AppNavigation() {
             SealedDestinations.DEVELOPER.route
         )
     } == true && currentRoute != PROFILE_SETUP_ROUTE
+
+
+    LaunchedEffect(userState.username) {
+        if (userState.username.isNotBlank()) {
+            meshGateway.setDisplayName(userState.username)
+        }
+    }
 
     AppDrawer(
         navController = navController,
@@ -427,7 +418,13 @@ fun AppNavigation() {
             }
 
             composable(SealedDestinations.EVENT_DETAIL.route) {
-                val sessionId = selectedSessionId ?: "unknown"
+                val sessionId = selectedSessionId
+
+                if (sessionId == null) {
+                    // No valid session, go back to home
+                    navController.popBackStack(SealedDestinations.HOME.route, false)
+                    return@composable
+                }
 
                 EventDetailScreen(
                     sessionId = sessionId,
@@ -447,11 +444,9 @@ fun AppNavigation() {
             }
 
             composable(SealedDestinations.CONNECTED_USERS.route) {
-                val sessionId = selectedSessionId ?: "unknown"
-
                 ConnectedUsersScreen(
-                    sessionId = sessionId,
-                    users = mockConnectedUsers,
+                    sessionId = selectedSessionId ?: "unknown",
+                    viewModel = connectedUsersVm,
                     onBack = { navController.popBackStack() },
                     onUserClick = { user ->
                         navController.navigate("${SealedDestinations.CHAT.route}/${user.id}/${user.username}")
@@ -494,6 +489,7 @@ fun AppNavigation() {
             }
 
             composable(SealedDestinations.EDIT_PROFILE.route) {
+
                 EditProfileScreen(
                     viewModel = userVm,
                     onBack = { navController.popBackStack() },

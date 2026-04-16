@@ -7,9 +7,11 @@ import edu.uwm.cs595.goup11.backend.security.Crypto
 import edu.uwm.cs595.goup11.backend.security.Manager
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Collections
 
@@ -164,6 +166,40 @@ class Client(
 
     fun addMessageListener(listener: (Message) -> Unit) {
         messageListeners.add(listener)
+    }
+
+    suspend fun startScan() {
+        check(currentAdvertisedName == null) {
+            "Cannot start scanning while connected to a network"
+        }
+        val net = requireNetwork()
+        android.util.Log.d("Client", "startScan: calling init")
+        net.init("SCANNING:$displayName", Network.Config(defaultTtl = 5))
+        android.util.Log.d("Client", "startScan: launching startDiscovery")
+        scope.launch {
+            android.util.Log.d("Client", "startScan: inside launch, calling startDiscovery")
+            runCatching {
+                net.startDiscovery()
+            }.onFailure { e ->
+                android.util.Log.e("Client", "startScan: startDiscovery FAILED: ${e::class.simpleName}: ${e.message}")
+            }
+            android.util.Log.d("Client", "startScan: startDiscovery returned")
+        }
+        android.util.Log.d("Client", "startScan: done")
+    }
+
+    suspend fun stopScan() {
+        requireNetwork().stopDiscovery()
+    }
+
+    fun discoveredEvents(): Flow<String> {
+        android.util.Log.d("Client", "discoveredEvents: flow requested")
+        return requireNetwork().events
+            .filterIsInstance<NetworkEvent.EndpointDiscovered>()
+            .map { ev ->
+                android.util.Log.d("Client", "discoveredEvents: found ${ev.encodedName}")
+                AdvertisedName.decode(ev.encodedName)?.eventName ?: ev.encodedName
+            }
     }
 
     // -------------------------------------------------------------------------
@@ -374,31 +410,40 @@ class Client(
                         if (advertisedName != null) {
                             // Track hardware ID → encoded name for disconnect resolution
                             hardwareToEncoded[ev.endpointId] = ev.encodedName
-                            topology?.onPeerConnected(topologyContext, ev.endpointId, advertisedName)
+                            topology?.onPeerConnected(
+                                topologyContext,
+                                ev.endpointId,
+                                advertisedName
+                            )
                             // Use encodedName as the directory key — consistent with our own identity
                             if (currentAdvertisedName != null) {
                                 directoryManager.onPeerConnected(ev.encodedName, advertisedName)
-                            
-                            // Send a HELLO message to announce our presence and metadata
-                            sendMessage(Message(
-                                to = ev.endpointId,
-                                from = endpointId ?: "UNKNOWN",
-                                type = MessageType.HELLO,
-                                ttl = 1
-                            ))
 
-                            // Restore: initiate key exchange if we have a key (we are likely the host/router)
-                            if (Manager.isInitialized()) {
-                                sendMessage(Message(
-                                    to = ev.endpointId,
-                                    from = endpointId ?: "UNKNOWN",
-                                    type = MessageType.KEY_EXCHANGE,
-                                    data = Manager.getKey(),
-                                    ttl = 1
-                                ))
+                                // Send a HELLO message to announce our presence and metadata
+                                sendMessage(
+                                    Message(
+                                        to = ev.endpointId,
+                                        from = endpointId ?: "UNKNOWN",
+                                        type = MessageType.HELLO,
+                                        ttl = 1
+                                    )
+                                )
+
+                                // Restore: initiate key exchange if we have a key (we are likely the host/router)
+                                if (Manager.isInitialized()) {
+                                    sendMessage(
+                                        Message(
+                                            to = ev.endpointId,
+                                            from = endpointId ?: "UNKNOWN",
+                                            type = MessageType.KEY_EXCHANGE,
+                                            data = Manager.getKey(),
+                                            ttl = 1
+                                        )
+                                    )
+                                }
+                            } else {
+                                logger.warn { "Connected to ${ev.endpointId} but could not decode name: ${ev.encodedName}" }
                             }
-                        } else {
-                            logger.warn { "Connected to ${ev.endpointId} but could not decode name: ${ev.encodedName}" }
                         }
                     }
 
@@ -542,6 +587,7 @@ class Client(
      * Completes any reply waiters, then routes to the correct layer.
      */
     fun onMessageReceived(message: Message) {
+        android.util.Log.d("Client", "onMessageReceived: type=${message.type} id=${message.id}")
         // Loop prevention: skip if we've already handled this specific message ID
         if (!seenMessageIds.add(message.id)) {
             logger.debug { "Skipping duplicate message ${message.id}" }
@@ -567,14 +613,19 @@ class Client(
      *  3. Application — TEXT_MESSAGE and other app-layer messages
      */
     private fun handleMessage(message: Message) {
+        android.util.Log.d("Client", "handleMessage: type=${message.type} to=${message.to} from=${message.from} endpointId=$endpointId")
+
         val consumedByTopology = topology?.onMessage(topologyContext, message) ?: false
+        android.util.Log.d("Client", "handleMessage: consumedByTopology=$consumedByTopology")
         if (consumedByTopology) return
 
         val consumedByDirectory = directoryManager.onMessage(message)
+        android.util.Log.d("Client", "handleMessage: consumedByDirectory=$consumedByDirectory")
         if (consumedByDirectory) return
 
         when (message.type) {
             MessageType.TEXT_MESSAGE -> {
+
                 // Decrypt if necessary
                 val decryptedMessage = if (message.data != null && Manager.isInitialized()) {
                     try {
@@ -607,8 +658,9 @@ class Client(
                     decryptedMessage
                 }
 
-                val isForMe = processedMessage.to == endpointId || processedMessage.to == "ALL" // ALL for broadcast
 
+                val isForMe = processedMessage.to == endpointId || processedMessage.to == "ALL" // ALL for broadcast
+                android.util.Log.d("Client", "TEXT_MESSAGE: to=${processedMessage.to} endpointId=$endpointId isForMe=$isForMe presentationId=${processedMessage.presentationId} myPresentationId=$presentationId role=$role")
                 if (isForMe) {
                     // Check presentation differentiation & admin visibility
                     val isSamePresentation = processedMessage.presentationId == presentationId

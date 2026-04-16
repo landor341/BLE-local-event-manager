@@ -36,8 +36,10 @@ class EventDetailViewModel(
 
                 when (state) {
                     is MeshUiState.Idle -> {
-                        joinedSessionId = null
-                        _uiState.value = EventDetailUiState.Idle
+                        if (_uiState.value !is EventDetailUiState.Joining) {
+                            joinedSessionId = null
+                            _uiState.value = EventDetailUiState.Idle
+                        }
                     }
 
                     is MeshUiState.Error -> {

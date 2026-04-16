@@ -40,7 +40,7 @@ object AppContainer {
         // IMPORTANT for Emulator testing:
         // Set useRealNearby to FALSE to use the in-memory network emulator.
         // Set to TRUE only for testing on REAL physical hardware.
-        val useRealNearby = false
+        val useRealNearby = true
 
         val facade = DefaultBackendFacade(
             context = context,

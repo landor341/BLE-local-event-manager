@@ -1,5 +1,6 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
+import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
@@ -25,6 +26,8 @@ class RealMeshGateway(
     private val backend: BackendFacade,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) : MeshGateway {
+
+    private var isLeaving = false
 
     override val myId: String
         get() = backend.myId
@@ -71,35 +74,57 @@ class RealMeshGateway(
         backend.start()
         log("Gateway started. ID: $myId")
 
-        @Suppress("DEPRECATION")
         scope.launch {
             backend.state.collect { s ->
+
+                log("collector fired: ${s::class.simpleName} isLeaving=$isLeaving")
+                if (isLeaving) {
+                    if (s is NetworkState.Idle) {
+                        log("backend settled to Idle, clearing isLeaving")
+                        isLeaving = false
+                    }
+
+                    return@collect
+                }
+
                 log("Backend state: ${s::class.simpleName}")
                 _state.value = when (s) {
-                    is NetworkState.Idle -> MeshUiState.Idle
+                    is NetworkState.Idle     -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning
-                    is NetworkState.Joining -> MeshUiState.Joining("")
-                    is NetworkState.Joined -> {
+                    is NetworkState.Joining  -> MeshUiState.Scanning
+                    is NetworkState.Joined   -> {
                         currentEventName = s.sessionId
                         MeshUiState.InEvent(s.sessionId)
                     }
-                    is NetworkState.Hosting -> {
+                    is NetworkState.Hosting  -> {
                         currentEventName = s.sessionId
-                        MeshUiState.Hosting(s.sessionId)
+                        MeshUiState.InEvent(s.sessionId)
                     }
-                    is NetworkState.Error -> MeshUiState.Error(s.reason)
-                    else -> MeshUiState.Error("Unsupported Event")
+                    is NetworkState.Error    -> MeshUiState.Error(s.reason)
+                    else                     -> MeshUiState.Error("Unsupported Event")
                 }
             }
         }
-
-        @Suppress("DEPRECATION")
+        scope.launch {
+            backend.networkPeers.collect { peers ->
+                val localId = backend.localEncodedName
+                _connectedPeers.value = peers
+                    .filter { it.endpointId != localId }
+                    .map { entry ->
+                        GatewayPeer(
+                            endpointId  = entry.endpointId,
+                            displayName = entry.displayName,
+                            encodedName = entry.endpointId
+                        )
+                    }
+            }
+        }
         scope.launch {
             backend.events.collect { event ->
                 when (event) {
                     is NetworkEvent.Joined -> log("Joined network: ${event.sessionId}")
-                    is NetworkEvent.PeerConnected -> log("Peer connected: ${event.peer.endpointId}")
-                    is NetworkEvent.PeerDisconnected -> log("Peer disconnected: ${event.endpointId}")
+                    is NetworkEvent.EndpointConnected -> { log("endpoint connected event fired: ${event.encodedName}")}
+                    is NetworkEvent.EndpointDisconnected -> { log("endpoint disconnected event fired: ${event.endpointId}")}
                     is NetworkEvent.MessageReceived -> {
                         val text = event.message.data?.toString(StandardCharsets.UTF_8).orEmpty()
                         log("Message from ${event.message.from}: $text")
@@ -182,14 +207,12 @@ class RealMeshGateway(
         }
 
         val currentState = _state.value
-        if ((currentState is MeshUiState.Hosting && currentState.sessionId == sessionId) ||
-            (currentState is MeshUiState.InEvent && currentState.sessionId == sessionId)
-        ) {
-            log("Already in event $sessionId, returning bundle immediately.")
+        if (currentState is MeshUiState.InEvent && currentState.sessionId == sessionId) {
+            log("Already InEvent $sessionId, returning bundle immediately.")
             return createJoinedEventBundle(sessionId)
         }
 
-        _state.value = MeshUiState.Joining(sessionId)
+        _state.value = MeshUiState.Scanning
 
         try {
             backend.stopScan()
@@ -206,6 +229,7 @@ class RealMeshGateway(
             }
 
             currentEventName = sessionId
+            _state.value = MeshUiState.InEvent(sessionId)
             log("Joined network: $sessionId")
 
             return createJoinedEventBundle(sessionId)
@@ -229,23 +253,20 @@ class RealMeshGateway(
 
     override suspend fun leaveEvent() {
         log("Leaving event")
+        isLeaving = true
 
         backend.removeMessageListener(::onBackendMessage)
 
         backend.stopScan()
         scanJob?.cancel()
         scanJob = null
-
         scanTimeoutJob?.cancel()
         scanTimeoutJob = null
 
         seenSessionIds.clear()
         currentEventName = null
         _connectedPeers.value = emptyList()
-        
-        synchronized(chatHistory) {
-            chatHistory.clear()
-        }
+        synchronized(chatHistory) { chatHistory.clear() }
 
         runCatching {
             backend.leave()
@@ -291,11 +312,11 @@ class RealMeshGateway(
         log("Sending chat: $text")
 
         val msg = Message(
-            to = "ALL",
-            from = backend.myId,
+            to   = "ALL",
+            from = backend.localEncodedName ?: backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl = 5
+            ttl  = 5
         )
 
         runCatching {
@@ -339,11 +360,11 @@ class RealMeshGateway(
         _chat.tryEmit(chatMessage)
 
         val msg = Message(
-            to = toEncodedName,
-            from = backend.myId,
+            to   = toEncodedName,
+            from = backend.localEncodedName ?: backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl = 5
+            ttl  = 5
         )
 
         runCatching {
@@ -366,8 +387,9 @@ class RealMeshGateway(
                 val isBroadcast = msg.to == "ALL"
 
                 val chatMessage = ChatMessage(
-                    sessionId = sessionId,
-                    sender = msg.from,
+                    sessionId  = sessionId,
+                    sender     = msg.from,
+                    senderName = AdvertisedName.decode(msg.from)?.displayName ?: msg.from,
                     senderRole = UserRole.ATTENDEE,
                     text = text,
                     timestampMs = System.currentTimeMillis(),
@@ -389,8 +411,9 @@ class RealMeshGateway(
 
     private fun log(message: String) {
         val time = System.currentTimeMillis() % 100000
-        _logs.tryEmit("[$time] $message")
-        logger.debug { "[$time] $message" }
+        val formatted = "[$time] $message"
+        _logs.tryEmit(formatted)
+        android.util.Log.d("MeshGateway", formatted)
     }
 
     override suspend fun addItineraryItem(item: ItineraryItem) {
