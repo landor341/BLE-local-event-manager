@@ -68,6 +68,7 @@ fun ConnectedUsersScreen(
     onUserClick: (User) -> Unit
 ) {
     val users by viewModel.users.collectAsState()
+
     ConnectedUsersScreenContent(
         sessionId = sessionId,
         users = users,
@@ -114,24 +115,23 @@ private fun ConnectedUsersScreenContent(
                 userCount = users.size
             )
 
-            when {
-                users.isEmpty() -> EmptyConnectedUsersState()
-                else -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(
-                            items = users,
-                            key = { it.user.id }
-                        ) { item ->
-                            ConnectedUserCard(
-                                user = item.user,
-                                status = item.status,
-                                onClick = { onUserClick(item.user) }
-                            )
-                        }
+            if (users.isEmpty()) {
+                EmptyConnectedUsersState()
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(
+                        items = users,
+                        key = { it.user.id }
+                    ) { item ->
+                        ConnectedUserCard(
+                            user = item.user,
+                            status = item.status,
+                            onClick = { onUserClick(item.user) }
+                        )
                     }
                 }
             }
@@ -184,8 +184,13 @@ private fun ConnectedUsersHero(
                             shape = CircleShape
                         )
                 )
+
                 Text(
-                    text = if (userCount == 1) "1 visible participant" else "$userCount visible participants",
+                    text = if (userCount == 1) {
+                        "1 visible participant"
+                    } else {
+                        "$userCount visible participants"
+                    },
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimary,
                     fontWeight = FontWeight.Medium
@@ -304,7 +309,7 @@ private fun ConnectedUserCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AssistChip(
-                    onClick = { },
+                    onClick = {},
                     label = { Text(user.role.displayName()) },
                     leadingIcon = {
                         Icon(
@@ -402,16 +407,16 @@ private fun UserRole.displayName(): String {
 private fun ConnectedUsersPreview() {
     val previewUsers = listOf(
         ConnectedUserUi(
-            user = User(id = "1", username = "Matthew", role = UserRole.ADMIN),
+            user = User(id = "peer-1", username = "Matthew", role = UserRole.ATTENDEE),
             status = PeerStatus.CONNECTED
         ),
         ConnectedUserUi(
-            user = User(id = "2", username = "Angelo", role = UserRole.ATTENDEE),
-            status = PeerStatus.NEARBY
+            user = User(id = "peer-2", username = "Angelo", role = UserRole.ATTENDEE),
+            status = PeerStatus.CONNECTED
         ),
         ConnectedUserUi(
-            user = User(id = "3", username = "Labib", role = UserRole.ATTENDEE),
-            status = PeerStatus.OUT_OF_RANGE
+            user = User(id = "peer-3", username = "Labib", role = UserRole.ATTENDEE),
+            status = PeerStatus.CONNECTED
         )
     )
 

@@ -16,20 +16,23 @@ class ConnectedUsersViewModel(
 
     val users: StateFlow<List<ConnectedUserUi>> = mesh.connectedPeers
         .map { peers ->
-            peers.map { peer ->
-                ConnectedUserUi(
-                    user = User(
-                        id = peer.endpointId,
-                        username = peer.displayName,
-                        role = UserRole.ATTENDEE
-                    ),
-                    status = PeerStatus.CONNECTED
-                )
-            }
+            peers
+                .distinctBy { it.peerId }
+                .map { peer ->
+                    ConnectedUserUi(
+                        user = User(
+                            id = peer.peerId,
+                            username = peer.displayName.ifBlank { "Unknown user" },
+                            role = UserRole.ATTENDEE
+                        ),
+                        status = PeerStatus.CONNECTED
+                    )
+                }
+                .sortedBy { it.user.username.lowercase() }
         }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList()
         )
 }

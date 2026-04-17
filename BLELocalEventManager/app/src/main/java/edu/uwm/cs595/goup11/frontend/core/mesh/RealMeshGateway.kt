@@ -6,7 +6,6 @@ import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
 import edu.uwm.cs595.goup11.backend.network.UserRole
-import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,7 +54,7 @@ class RealMeshGateway(
     private var scanTimeoutJob: Job? = null
     private val seenSessionIds = mutableSetOf<String>()
     private val customItinerary = mutableListOf<ItineraryItem>()
-    
+
     private val chatHistory = mutableListOf<ChatMessage>()
 
     override fun setDisplayName(name: String) {
@@ -76,35 +75,34 @@ class RealMeshGateway(
 
         scope.launch {
             backend.state.collect { s ->
-
                 log("collector fired: ${s::class.simpleName} isLeaving=$isLeaving")
                 if (isLeaving) {
                     if (s is NetworkState.Idle) {
                         log("backend settled to Idle, clearing isLeaving")
                         isLeaving = false
                     }
-
                     return@collect
                 }
 
                 log("Backend state: ${s::class.simpleName}")
                 _state.value = when (s) {
-                    is NetworkState.Idle     -> MeshUiState.Idle
+                    is NetworkState.Idle -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning
-                    is NetworkState.Joining  -> MeshUiState.Scanning
-                    is NetworkState.Joined   -> {
+                    is NetworkState.Joining -> MeshUiState.Scanning
+                    is NetworkState.Joined -> {
                         currentEventName = s.sessionId
                         MeshUiState.InEvent(s.sessionId)
                     }
-                    is NetworkState.Hosting  -> {
+                    is NetworkState.Hosting -> {
                         currentEventName = s.sessionId
                         MeshUiState.InEvent(s.sessionId)
                     }
-                    is NetworkState.Error    -> MeshUiState.Error(s.reason)
-                    else                     -> MeshUiState.Error("Unsupported Event")
+                    is NetworkState.Error -> MeshUiState.Error(s.reason)
+                    else -> MeshUiState.Error("Unsupported Event")
                 }
             }
         }
+
         scope.launch {
             backend.networkPeers.collect { peers ->
                 val localId = backend.localEncodedName
@@ -112,19 +110,23 @@ class RealMeshGateway(
                     .filter { it.endpointId != localId }
                     .map { entry ->
                         GatewayPeer(
-                            endpointId  = entry.endpointId,
-                            displayName = entry.displayName,
-                            encodedName = entry.endpointId
+                            peerId = entry.endpointId,
+                            displayName = entry.displayName
                         )
                     }
             }
         }
+
         scope.launch {
             backend.events.collect { event ->
                 when (event) {
                     is NetworkEvent.Joined -> log("Joined network: ${event.sessionId}")
-                    is NetworkEvent.EndpointConnected -> { log("endpoint connected event fired: ${event.encodedName}")}
-                    is NetworkEvent.EndpointDisconnected -> { log("endpoint disconnected event fired: ${event.endpointId}")}
+                    is NetworkEvent.EndpointConnected -> {
+                        log("endpoint connected event fired: ${event.encodedName}")
+                    }
+                    is NetworkEvent.EndpointDisconnected -> {
+                        log("endpoint disconnected event fired: ${event.endpointId}")
+                    }
                     is NetworkEvent.MessageReceived -> {
                         val text = event.message.data?.toString(StandardCharsets.UTF_8).orEmpty()
                         log("Message from ${event.message.from}: $text")
@@ -303,20 +305,20 @@ class RealMeshGateway(
             isMine = true,
             isBroadcast = true
         )
-        
+
         synchronized(chatHistory) {
             chatHistory.add(chatMessage)
         }
-        
+
         _chat.tryEmit(chatMessage)
         log("Sending chat: $text")
 
         val msg = Message(
-            to   = "ALL",
+            to = "ALL",
             from = backend.localEncodedName ?: backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl  = 5
+            ttl = 5
         )
 
         runCatching {
@@ -327,7 +329,7 @@ class RealMeshGateway(
         }
     }
 
-    override suspend fun sendDirectMessage(toEncodedName: String, text: String) {
+    override suspend fun sendDirectMessage(peerId: String, text: String) {
         val sessionId = currentEventName
         if (sessionId == null) {
             log("Ignoring direct message send: no active event")
@@ -350,9 +352,9 @@ class RealMeshGateway(
             timestampMs = System.currentTimeMillis(),
             isMine = true,
             isBroadcast = false,
-            recipientId = toEncodedName
+            recipientId = peerId
         )
-        
+
         synchronized(chatHistory) {
             chatHistory.add(chatMessage)
         }
@@ -360,21 +362,21 @@ class RealMeshGateway(
         _chat.tryEmit(chatMessage)
 
         val msg = Message(
-            to   = toEncodedName,
+            to = peerId,
             from = backend.localEncodedName ?: backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl  = 5
+            ttl = 5
         )
 
         runCatching {
-            backend.sendMessage(toEncodedName, msg)
+            backend.sendMessage(peerId, msg)
         }.onFailure { e ->
             log("Direct message send failed: ${e.message}")
             _state.value = MeshUiState.Error("Failed to send direct message.")
         }
 
-        log("Direct message to $toEncodedName: $text")
+        log("Direct message to $peerId: $text")
     }
 
     private fun onBackendMessage(msg: Message) {
@@ -382,26 +384,34 @@ class RealMeshGateway(
             MessageType.TEXT_MESSAGE -> {
                 val sessionId = currentEventName ?: "unknown"
                 val text = msg.data?.toString(StandardCharsets.UTF_8).orEmpty()
+                val selfId = backend.localEncodedName ?: backend.myId
+                val isBroadcast = msg.to == "ALL"
+                val isMine = msg.from == selfId
+
+                val conversationPeerId = when {
+                    isBroadcast -> null
+                    isMine -> msg.to
+                    else -> msg.from
+                }
+
                 log("Received chat from ${msg.from}: $text")
 
-                val isBroadcast = msg.to == "ALL"
-
                 val chatMessage = ChatMessage(
-                    sessionId  = sessionId,
-                    sender     = msg.from,
+                    sessionId = sessionId,
+                    sender = msg.from,
                     senderName = AdvertisedName.decode(msg.from)?.displayName ?: msg.from,
                     senderRole = UserRole.ATTENDEE,
                     text = text,
                     timestampMs = System.currentTimeMillis(),
-                    isMine = (msg.from == backend.myId),
+                    isMine = isMine,
                     isBroadcast = isBroadcast,
-                    recipientId = if (isBroadcast) null else backend.myId
+                    recipientId = conversationPeerId
                 )
-                
+
                 synchronized(chatHistory) {
                     chatHistory.add(chatMessage)
                 }
-                
+
                 _chat.tryEmit(chatMessage)
             }
 
@@ -414,6 +424,7 @@ class RealMeshGateway(
         val formatted = "[$time] $message"
         _logs.tryEmit(formatted)
         android.util.Log.d("MeshGateway", formatted)
+        logger.debug { formatted }
     }
 
     override suspend fun addItineraryItem(item: ItineraryItem) {

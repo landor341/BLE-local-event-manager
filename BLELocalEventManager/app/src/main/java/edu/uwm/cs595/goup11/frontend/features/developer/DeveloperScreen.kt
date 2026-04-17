@@ -274,7 +274,7 @@ private fun GatewayDevContent(mesh: MeshGateway) {
             selectedPeer = connectedPeers.first()
         } else if (
             selectedPeer != null &&
-            connectedPeers.none { it.endpointId == selectedPeer?.endpointId }
+            connectedPeers.none { it.peerId == selectedPeer?.peerId }
         ) {
             selectedPeer = null
         }
@@ -424,7 +424,7 @@ private fun GatewayDevContent(mesh: MeshGateway) {
                     DevHintText("No peers connected yet")
                 } else {
                     connectedPeers.forEach { peer ->
-                        val isSelected = selectedPeer?.endpointId == peer.endpointId
+                        val isSelected = selectedPeer?.peerId == peer.peerId
 
                         Row(
                             modifier = Modifier
@@ -462,7 +462,7 @@ private fun GatewayDevContent(mesh: MeshGateway) {
                             Column(modifier = Modifier.weight(1f)) {
                                 DevMonoText(peer.displayName, bold = true, size = 12.sp)
                                 DevMonoText(
-                                    text = peer.endpointId,
+                                    text = peer.peerId,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     size = 10.sp
                                 )
@@ -570,7 +570,7 @@ private fun GatewayDevContent(mesh: MeshGateway) {
                         val peer = selectedPeer
                         scope.launch {
                             if (peer != null) {
-                                mesh.sendDirectMessage(peer.encodedName, outgoing)
+                                mesh.sendDirectMessage(peer.peerId, outgoing)
                             } else {
                                 mesh.sendChat(outgoing)
                             }

@@ -33,9 +33,8 @@ data class JoinedEventBundle(
  * Populated from [NetworkEvent.EndpointConnected] events.
  */
 data class GatewayPeer(
-    val endpointId:  String,
-    val displayName: String,
-    val encodedName: String
+    val peerId: String,
+    val displayName: String
 )
 
 data class ChatMessage(
@@ -119,8 +118,8 @@ interface MeshGateway {
     /** Broadcast a message to all connected peers (topology floods). */
     suspend fun sendChat(text: String)
 
-    /** Send a message directly to a specific peer by their encoded name. */
-    suspend fun sendDirectMessage(toEncodedName: String, text: String)
+    /** Send a direct message to a specific peer by their peer ID. */
+    suspend fun sendDirectMessage(peerId: String, text: String)
 
     suspend fun addItineraryItem(item: ItineraryItem)
 }

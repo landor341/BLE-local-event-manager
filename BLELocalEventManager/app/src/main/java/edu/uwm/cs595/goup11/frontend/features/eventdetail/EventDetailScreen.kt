@@ -2,6 +2,7 @@ package edu.uwm.cs595.goup11.frontend.features.eventdetail
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,8 +35,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import edu.uwm.cs595.goup11.frontend.core.mesh.JoinedEventBundle
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,6 +53,7 @@ fun EventDetailScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val meshState by viewModel.meshState.collectAsState()
+    val connectedPeerCount by viewModel.connectedPeerCount.collectAsState()
 
     LaunchedEffect(sessionId) {
         viewModel.joinEvent(sessionId)
@@ -94,10 +98,13 @@ fun EventDetailScreen(
 
             is EventDetailUiState.Joined -> {
                 val canOpenEventActions =
-                    meshState is MeshUiState.InEvent || meshState is MeshUiState.Hosting
+                    meshState is MeshUiState.InEvent ||
+                            @Suppress("DEPRECATION")
+                            meshState is MeshUiState.Hosting
 
                 JoinedEventContent(
                     event = state.event,
+                    connectedPeerCount = connectedPeerCount,
                     onOpenChat = {
                         if (canOpenEventActions) {
                             onOpenChat(state.event.sessionId)
@@ -172,7 +179,8 @@ private fun ErrorContent(
 
 @Composable
 private fun JoinedEventContent(
-    event: edu.uwm.cs595.goup11.frontend.core.mesh.JoinedEventBundle,
+    event: JoinedEventBundle,
+    connectedPeerCount: Int,
     onOpenChat: () -> Unit,
     onViewConnectedUsers: () -> Unit,
     onLeave: () -> Unit,
@@ -207,7 +215,7 @@ private fun JoinedEventContent(
                 )
                 MetaRow(
                     icon = Icons.Default.Groups,
-                    text = "Live mesh session"
+                    text = connectedParticipantsLabel(connectedPeerCount)
                 )
             }
         }
@@ -233,42 +241,50 @@ private fun JoinedEventContent(
                 fontWeight = FontWeight.Bold
             )
 
-            event.itinerary.forEach { item ->
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+            if (event.itinerary.isEmpty()) {
+                Text(
+                    text = "No schedule items available yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                event.itinerary.forEach { item ->
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
                     ) {
-                        Text(
-                            text = item.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        MetaRow(
-                            icon = Icons.Default.Schedule,
-                            text = item.time
-                        )
-                        MetaRow(
-                            icon = Icons.Default.LocationOn,
-                            text = item.location
-                        )
-                        item.speaker?.let {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Text(
-                                text = "Speaker: $it",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = item.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
                             )
+                            MetaRow(
+                                icon = Icons.Default.Schedule,
+                                text = item.time
+                            )
+                            MetaRow(
+                                icon = Icons.Default.LocationOn,
+                                text = item.location
+                            )
+                            item.speaker?.let {
+                                Text(
+                                    text = "Speaker: $it",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Button(
             onClick = onOpenChat,
@@ -287,7 +303,7 @@ private fun JoinedEventContent(
                 .height(56.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text("View Connected Users")
+            Text("View Connected Users (${connectedPeerCount})")
         }
 
         Button(
@@ -307,10 +323,10 @@ private fun JoinedEventContent(
 
 @Composable
 private fun MetaRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     text: String
 ) {
-    androidx.compose.foundation.layout.Row(
+    Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -324,5 +340,13 @@ private fun MetaRow(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+private fun connectedParticipantsLabel(count: Int): String {
+    return when (count) {
+        0 -> "No connected participants yet"
+        1 -> "1 connected participant"
+        else -> "$count connected participants"
     }
 }

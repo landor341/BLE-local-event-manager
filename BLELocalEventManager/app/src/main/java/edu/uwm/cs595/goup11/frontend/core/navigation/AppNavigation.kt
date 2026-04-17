@@ -44,13 +44,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -63,15 +63,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.frontend.core.AppContainer
-import edu.uwm.cs595.goup11.frontend.domain.models.User
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatViewModel
-import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUserUi
 import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUsersScreen
 import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUsersViewModel
-import edu.uwm.cs595.goup11.frontend.features.connectedusers.PeerStatus
 import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventScreen
 import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventViewModel
 import edu.uwm.cs595.goup11.frontend.features.createpresentation.CreatePresentationScreen
@@ -90,6 +86,9 @@ import edu.uwm.cs595.goup11.frontend.features.profile.ProfileSetupScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
 import edu.uwm.cs595.goup11.frontend.features.tutorial.TutorialScreen
 import edu.uwm.cs595.goup11.frontend.features.tutorial.introTutorialScreen
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.launch
 
 private const val PROFILE_SETUP_ROUTE = "profile_setup"
@@ -333,7 +332,6 @@ fun AppNavigation() {
     val createPresentationVm = remember { CreatePresentationViewModel(meshGateway) }
 
     val userState by userVm.user.collectAsState()
-
     val drawerDisplayName = userState.username.ifBlank { "Guest" }
 
     val connectedUsersVm = remember { ConnectedUsersViewModel(meshGateway) }
@@ -355,7 +353,6 @@ fun AppNavigation() {
             SealedDestinations.DEVELOPER.route
         )
     } == true && currentRoute != PROFILE_SETUP_ROUTE
-
 
     LaunchedEffect(userState.username) {
         if (userState.username.isNotBlank()) {
@@ -421,7 +418,6 @@ fun AppNavigation() {
                 val sessionId = selectedSessionId
 
                 if (sessionId == null) {
-                    // No valid session, go back to home
                     navController.popBackStack(SealedDestinations.HOME.route, false)
                     return@composable
                 }
@@ -431,7 +427,11 @@ fun AppNavigation() {
                     viewModel = eventDetailVm,
                     onBack = { navController.popBackStack() },
                     onOpenChat = {
-                        navController.navigate("${SealedDestinations.CHAT.route}/router/Event Chat")
+                        val encodedName = URLEncoder.encode(
+                            "Event Chat",
+                            StandardCharsets.UTF_8.toString()
+                        )
+                        navController.navigate("${SealedDestinations.CHAT.route}/router/$encodedName")
                     },
                     onViewConnectedUsers = {
                         navController.navigate(SealedDestinations.CONNECTED_USERS.route)
@@ -449,7 +449,13 @@ fun AppNavigation() {
                     viewModel = connectedUsersVm,
                     onBack = { navController.popBackStack() },
                     onUserClick = { user ->
-                        navController.navigate("${SealedDestinations.CHAT.route}/${user.id}/${user.username}")
+                        val encodedUserName = URLEncoder.encode(
+                            user.username,
+                            StandardCharsets.UTF_8.toString()
+                        )
+                        navController.navigate(
+                            "${SealedDestinations.CHAT.route}/${user.id}/$encodedUserName"
+                        )
                     }
                 )
             }
@@ -489,7 +495,6 @@ fun AppNavigation() {
             }
 
             composable(SealedDestinations.EDIT_PROFILE.route) {
-
                 EditProfileScreen(
                     viewModel = userVm,
                     onBack = { navController.popBackStack() },
@@ -498,8 +503,11 @@ fun AppNavigation() {
             }
 
             composable("${SealedDestinations.CHAT.route}/{peerId}/{userName}") { entry ->
-                val peerId = entry.arguments?.getString("peerId") ?: "Unknown User"
-                val userName = entry.arguments?.getString("userName") ?: "Unknown User"
+                val peerId = entry.arguments?.getString("peerId") ?: "router"
+                val userName = entry.arguments?.getString("userName")?.let {
+                    URLDecoder.decode(it, StandardCharsets.UTF_8.toString())
+                } ?: "Unknown User"
+
                 val chatVm = remember(peerId) { ChatViewModel(meshGateway, peerId) }
 
                 ChatScreen(
@@ -529,7 +537,13 @@ fun AppNavigation() {
                     viewModel = inboxVm,
                     onBack = { navController.popBackStack() },
                     onNavigateToChat = { peerId, userName ->
-                        navController.navigate("${SealedDestinations.CHAT.route}/$peerId/$userName")
+                        val encodedUserName = URLEncoder.encode(
+                            userName,
+                            StandardCharsets.UTF_8.toString()
+                        )
+                        navController.navigate(
+                            "${SealedDestinations.CHAT.route}/$peerId/$encodedUserName"
+                        )
                     }
                 )
             }
