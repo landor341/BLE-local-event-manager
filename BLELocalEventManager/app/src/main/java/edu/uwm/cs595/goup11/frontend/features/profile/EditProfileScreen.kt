@@ -38,6 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import edu.uwm.cs595.goup11.R
@@ -197,7 +200,8 @@ fun EditProfileScreen(
                     }
                 }
             }
-            IconButton(onClick = { addDialog = true }) {
+            IconButton(onClick = { addDialog = true },
+                modifier = Modifier.semantics{contentDescription = "Add interests"}) {
                 Icon(Icons.Default.Add, contentDescription = "Add")
             }
 
@@ -223,6 +227,7 @@ fun EditProfileScreen(
             title = { Text("Add New Interest") },
             text = {
                 OutlinedTextField(
+                    modifier = Modifier.semantics{contentDescription = "Add an interest"},
                     value = newInterest,
                     onValueChange = { newInterest = it },
                     label = { Text("Interest Name") },
