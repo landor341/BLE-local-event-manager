@@ -363,4 +363,8 @@ class SnakeTopology(
             context.disconnect(endpointId)
         }
     }
+    override fun retrieveAllConnectedClients(): List<TopologyPeer> {
+        return peers.values.toList()
+    }
+
 }

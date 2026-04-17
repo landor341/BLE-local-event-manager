@@ -254,4 +254,8 @@ class HubAndSpokeTopology(
         context.startAdvertising(context.encodedName())
         logger.info { "Promoted to ROUTER role" }
     }
+
+    override fun retrieveAllConnectedClients(): List<TopologyPeer> {
+        return peers.values.toList()
+    }
 }

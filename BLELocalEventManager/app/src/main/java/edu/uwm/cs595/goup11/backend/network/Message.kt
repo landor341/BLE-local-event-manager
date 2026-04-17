@@ -1,5 +1,9 @@
 package edu.uwm.cs595.goup11.backend.network
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.protobuf.ProtoBuf
+import kotlinx.serialization.encodeToByteArray
+import kotlinx.serialization.decodeFromByteArray
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -13,9 +17,17 @@ data class Message(
     val replyTo: String? = null,
     val id: String = UUID.randomUUID().toString(),
     val senderRole: UserRole = UserRole.ATTENDEE,
-    val presentationId: String? = null
+    val presentationId: String? = null,
+    val signature: ByteArray? = null,
+    val senderPublicKey: ByteArray? = null
 ) {
 
+    @OptIn(ExperimentalSerializationApi::class)
+    inline fun <reified T : Any> withPayload(payload: T): Message =
+        copy(data = ProtoBuf.encodeToByteArray(payload))
+    @OptIn(ExperimentalSerializationApi::class)
+    inline fun <reified T : Any> decodePayload(): T =
+        ProtoBuf.decodeFromByteArray(data ?: error("Message ${id} has no payload"))
     /**
      * Serialize message into bytes for Nearby Payload
      */
@@ -28,6 +40,8 @@ data class Message(
         val roleBytes = senderRole.name.toByteArray(StandardCharsets.UTF_8)
         val presentationBytes = presentationId?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
         val payload = data ?: ByteArray(0)
+        val sigBytes = signature ?: ByteArray(0)
+        val pubKeyBytes = senderPublicKey ?: ByteArray(0)
 
         val buffer = ByteBuffer.allocate(
             4 + toBytes.size +
@@ -38,6 +52,8 @@ data class Message(
                     4 + roleBytes.size +
                     4 + presentationBytes.size +
                     4 + payload.size +
+                    4 + sigBytes.size +
+                    4 + pubKeyBytes.size +
                     4 // ttl
         )
 
@@ -49,6 +65,8 @@ data class Message(
         putWithLength(buffer, roleBytes)
         putWithLength(buffer, presentationBytes)
         putWithLength(buffer, payload)
+        putWithLength(buffer, sigBytes)
+        putWithLength(buffer, pubKeyBytes)
 
         buffer.putInt(ttl)
 
@@ -71,6 +89,8 @@ data class Message(
             val roleName = readString(buffer)
             val presentationIdRaw = readString(buffer)
             val data = readBytes(buffer)
+            val signature = readBytes(buffer)
+            val senderPublicKey = readBytes(buffer)
             val ttl = buffer.int
 
             return Message(
@@ -82,7 +102,9 @@ data class Message(
                 replyTo = replyToRaw.ifEmpty { null },
                 id = id,
                 senderRole = try { UserRole.valueOf(roleName) } catch (e: Exception) { UserRole.ATTENDEE },
-                presentationId = presentationIdRaw.ifEmpty { null }
+                presentationId = presentationIdRaw.ifEmpty { null },
+                signature = if (signature.isEmpty()) null else signature,
+                senderPublicKey = if (senderPublicKey.isEmpty()) null else senderPublicKey
             )
         }
 

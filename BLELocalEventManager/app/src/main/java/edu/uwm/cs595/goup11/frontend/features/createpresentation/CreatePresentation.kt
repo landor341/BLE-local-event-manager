@@ -1,5 +1,7 @@
-package edu.uwm.cs595.goup11.frontend.features.createevent
+package edu.uwm.cs595.goup11.frontend.features.createpresentation
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,23 +53,30 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CreateEventScreen(
-    viewModel: CreateEventViewModel,
+fun CreatePresentationScreen(
+    viewModel: CreatePresentationViewModel,
     onBack: () -> Unit,
-    onHostingStarted: (String) -> Unit = {},
-    onNavigateToCreatePresentation: () -> Unit = {}
+    onSuccess: () -> Unit
 ) {
     val draft by viewModel.draft.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Create Event") },
+                title = { Text("Add Presentation") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -80,50 +89,55 @@ fun CreateEventScreen(
         }
     ) { innerPadding ->
         when (val state = uiState) {
-            CreateEventUiState.Editing,
-            is CreateEventUiState.Error,
-            CreateEventUiState.Submitting -> {
-                CreateEventForm(
+            CreatePresentationUiState.Editing,
+            is CreatePresentationUiState.Error,
+            CreatePresentationUiState.Submitting -> {
+                CreatePresentationForm(
                     draft = draft,
                     uiState = uiState,
                     onTitleChange = viewModel::updateTitle,
                     onDescriptionChange = viewModel::updateDescription,
-                    onVenueChange = viewModel::updateVenue,
-                    onHostChange = viewModel::updateHostDisplayName,
-                    onSubmit = viewModel::hostEvent,
+                    onStartTimeClick = {
+                        showLegacyTimePicker(context, draft.startTime) { h, m ->
+                        viewModel.updateStartTime(h, m)
+                    } },
+                    onEndTimeClick = {
+                        showLegacyTimePicker(context, draft.endTime) { h, m ->
+                        viewModel.updateEndTime(h, m)
+                    } },
+                    onLocationChange = viewModel::updateLocation,
+                    onSpeakerChange = viewModel::updateSpeakerName,
+                    onSubmit = viewModel::addPresentation,
                     onBack = onBack,
                     modifier = Modifier.padding(innerPadding)
                 )
             }
-
-            is CreateEventUiState.Hosting -> {
-                HostingSuccessScreen(
-                    sessionId = state.sessionId,
-                    draft = draft,
-                    onAddPresentation ={ onNavigateToCreatePresentation() },
-                    onDone = { onHostingStarted(state.sessionId) },
-                    onCreateAnother = { viewModel.reset() },
-                    modifier = Modifier.padding(innerPadding)
-                )
+            CreatePresentationUiState.Success -> {
+                LaunchedEffect(Unit) {
+                    onSuccess()
+                }
             }
         }
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
-private fun CreateEventForm(
-    draft: CreateEventDraft,
-    uiState: CreateEventUiState,
+private fun CreatePresentationForm(
+    draft: CreatePresentationDraft,
+    uiState: CreatePresentationUiState,
     onTitleChange: (String) -> Unit,
     onDescriptionChange: (String) -> Unit,
-    onVenueChange: (String) -> Unit,
-    onHostChange: (String) -> Unit,
+    onStartTimeClick: () -> Unit,
+    onEndTimeClick: () -> Unit,
+    onLocationChange: (String) -> Unit,
+    onSpeakerChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isSubmitting = uiState is CreateEventUiState.Submitting
-    val errorMessage = (uiState as? CreateEventUiState.Error)?.message
+    val isSubmitting = uiState is CreatePresentationUiState.Submitting
+    val errorMessage = (uiState as? CreatePresentationUiState.Error)?.message
 
     Column(
         modifier = modifier
@@ -152,44 +166,59 @@ private fun CreateEventForm(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = "Event details",
+                    text = "Presentation details",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
 
-                EventField(
+                PresentationField(
                     value = draft.title,
                     onValueChange = onTitleChange,
-                    label = "Event name",
-                    placeholder = "Spring showcase, CS meetup, design review...",
+                    label = "Presentation name",
+                    placeholder = "Enter presentation title...",
                     icon = Icons.Default.CalendarMonth,
                     singleLine = true
                 )
 
-                EventField(
+                PresentationField(
                     value = draft.description,
                     onValueChange = onDescriptionChange,
                     label = "Description",
-                    placeholder = "What should people expect when they join?",
+                    placeholder = "Briefly describe the presentation...",
                     icon = Icons.Default.Description,
                     singleLine = false,
                     minLines = 4
                 )
 
-                EventField(
-                    value = draft.venue,
-                    onValueChange = onVenueChange,
-                    label = "Venue",
-                    placeholder = "Engineering Hall, Room 101",
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TimeDisplayField(
+                        label = "Start Time",
+                        time = draft.startTime.toDisplayTime(),
+                        onClick = onStartTimeClick,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TimeDisplayField(
+                        label = "End Time",
+                        time = draft.endTime.toDisplayTime(),
+                        onClick = onEndTimeClick,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                PresentationField(
+                    value = draft.location,
+                    onValueChange = onLocationChange,
+                    label = "Location",
+                    placeholder = "Enter the location...",
                     icon = Icons.Default.LocationOn,
                     singleLine = true
                 )
 
-                EventField(
-                    value = draft.hostDisplayName,
-                    onValueChange = onHostChange,
-                    label = "Host display name",
-                    placeholder = "Your name or organization",
+                PresentationField(
+                    value = draft.speaker,
+                    onValueChange = onSpeakerChange,
+                    label = "Speaker name",
+                    placeholder = "Enter Speaker's name...",
                     icon = Icons.Default.Person,
                     singleLine = true
                 )
@@ -210,20 +239,11 @@ private fun CreateEventForm(
                 shape = RoundedCornerShape(18.dp)
             ) {
                 if (isSubmitting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.size(10.dp))
-                    Text("Starting host…")
+                    Text("Syncing Schedule...")
                 } else {
-                    Icon(
-                        imageVector = Icons.Default.Podcasts,
-                        contentDescription = null
-                    )
-                    Spacer(modifier = Modifier.size(10.dp))
-                    Text("Start hosting")
+                    Text("Add to Schedule")
                 }
             }
 
@@ -241,6 +261,26 @@ private fun CreateEventForm(
     }
 }
 
+@Composable
+fun TimeDisplayField(
+    label: String,
+    time: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.material3.OutlinedCard(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.outlinedCardColors(containerColor = Color.Transparent)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(4.dp))
+            Text(time, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+        }
+    }
+}
 @Composable
 private fun HeroSection() {
     val gradient = Brush.verticalGradient(
@@ -284,7 +324,7 @@ private fun HeroSection() {
                         )
                 )
                 Text(
-                    text = "Host a live session",
+                    text = "Add a Talk",
                     color = MaterialTheme.colorScheme.onPrimary,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Medium
@@ -292,7 +332,7 @@ private fun HeroSection() {
             }
 
             Text(
-                text = "Launch an event people nearby can discover instantly.",
+                text = "Schedule a session that attendees can follow in real-time.",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimary
@@ -308,7 +348,7 @@ private fun HeroSection() {
 }
 
 @Composable
-private fun EventField(
+private fun PresentationField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
@@ -340,7 +380,7 @@ private fun EventField(
 
 @Composable
 private fun PreviewCard(
-    draft: CreateEventDraft
+    draft: CreatePresentationDraft
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -361,7 +401,7 @@ private fun PreviewCard(
             )
 
             Text(
-                text = draft.title.ifBlank { "Untitled Event" },
+                text = draft.title.ifBlank { "Untitled Presentation" },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
@@ -377,114 +417,19 @@ private fun PreviewCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             MetaRow(
+                icon = Icons.Default.CalendarMonth,
+                value = "${draft.startTime.toDisplayTime()} - ${draft.endTime.toDisplayTime()}"
+            )
+
+            MetaRow(
                 icon = Icons.Default.LocationOn,
-                value = draft.venue.ifBlank { "Venue not set" }
+                value = draft.location.ifBlank { "Location not set" }
             )
 
             MetaRow(
                 icon = Icons.Default.Person,
-                value = draft.hostDisplayName.ifBlank { "Host name not set" }
+                value = draft.speaker.ifBlank { "Speaker not set" }
             )
-        }
-    }
-}
-
-@Composable
-private fun HostingSuccessScreen(
-    sessionId: String,
-    draft: CreateEventDraft,
-    onAddPresentation: () -> Unit,
-    onDone: () -> Unit,
-    onCreateAnother: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(30.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-
-                Text(
-                    text = "Your event is live",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = "Nearby users can now discover and join this session.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                MetaRow(
-                    icon = Icons.Default.CalendarMonth,
-                    value = draft.title.ifBlank { sessionId }
-                )
-
-                MetaRow(
-                    icon = Icons.Default.Podcasts,
-                    value = "Session ID: $sessionId"
-                )
-            }
-        }
-
-        Button(
-            onClick = onAddPresentation,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Text("Add a Presentation")
-        }
-
-        FilledTonalButton(
-            onClick = onDone,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Text("Done")
-        }
-
-        TextButton(
-            onClick = onCreateAnother,
-            modifier = Modifier.align(Alignment.CenterHorizontally)
-        ) {
-            Text("Create another event")
         }
     }
 }
@@ -505,7 +450,7 @@ private fun ErrorCard(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "Couldn’t start event",
+                text = "Couldn't add presentation",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onErrorContainer
@@ -541,3 +486,15 @@ private fun MetaRow(
         )
     }
 }
+
+@RequiresApi(Build.VERSION_CODES.O)
+fun java.time.LocalDateTime.toDisplayTime(): String {
+    val formatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.ENGLISH)
+    return this.format(formatter)
+}
+
+fun showLegacyTimePicker(context: android.content.Context, initialTime: java.time.LocalDateTime, onSelected: (Int, Int) -> Unit) {
+    android.app.TimePickerDialog(context, { _, h, m -> onSelected(h, m) }, initialTime.hour, initialTime.minute, false).show()
+}
+
+

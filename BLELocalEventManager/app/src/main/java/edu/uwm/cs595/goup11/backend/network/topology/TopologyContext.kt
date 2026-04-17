@@ -3,6 +3,7 @@ package edu.uwm.cs595.goup11.backend.network.topology
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.Network
+import edu.uwm.cs595.goup11.backend.network.Peer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
@@ -79,4 +80,6 @@ class TopologyContext(
     suspend fun connect(endpointId: String) = onConnect(endpointId)
     suspend fun disconnect(endpointId: String) = disconnectFromEndpoint(endpointId)
     val events: SharedFlow<NetworkEvent> get() = networkEvents
+
+
 }
