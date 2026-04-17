@@ -85,7 +85,8 @@ dependencies {
 
     // Logging
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.3")
-    implementation("org.slf4j:slf4j-api:2.0.9")
+
+    implementation("org.slf4j:slf4j-android:1.7.36")
     testImplementation("ch.qos.logback:logback-classic:1.4.14")
 
     // image loading

@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AssistChip
@@ -38,6 +37,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -59,9 +60,25 @@ data class ConnectedUserUi(
     val status: PeerStatus
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectedUsersScreen(
+    sessionId: String,
+    viewModel: ConnectedUsersViewModel,
+    onBack: () -> Unit,
+    onUserClick: (User) -> Unit
+) {
+    val users by viewModel.users.collectAsState()
+    ConnectedUsersScreenContent(
+        sessionId = sessionId,
+        users = users,
+        onBack = onBack,
+        onUserClick = onUserClick
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ConnectedUsersScreenContent(
     sessionId: String,
     users: List<ConnectedUserUi>,
     onBack: () -> Unit,
@@ -98,10 +115,7 @@ fun ConnectedUsersScreen(
             )
 
             when {
-                users.isEmpty() -> {
-                    EmptyConnectedUsersState()
-                }
-
+                users.isEmpty() -> EmptyConnectedUsersState()
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
@@ -215,7 +229,7 @@ private fun EmptyConnectedUsersState() {
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = "Once nearby participants join this session, they’ll appear here.",
+                text = "Once nearby participants join this session, they'll appear here.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -291,9 +305,7 @@ private fun ConnectedUserCard(
             ) {
                 AssistChip(
                     onClick = { },
-                    label = {
-                        Text(user.role.displayName())
-                    },
+                    label = { Text(user.role.displayName()) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Person,
@@ -388,23 +400,25 @@ private fun UserRole.displayName(): String {
 @Preview(showBackground = true)
 @Composable
 private fun ConnectedUsersPreview() {
+    val previewUsers = listOf(
+        ConnectedUserUi(
+            user = User(id = "1", username = "Matthew", role = UserRole.ADMIN),
+            status = PeerStatus.CONNECTED
+        ),
+        ConnectedUserUi(
+            user = User(id = "2", username = "Angelo", role = UserRole.ATTENDEE),
+            status = PeerStatus.NEARBY
+        ),
+        ConnectedUserUi(
+            user = User(id = "3", username = "Labib", role = UserRole.ATTENDEE),
+            status = PeerStatus.OUT_OF_RANGE
+        )
+    )
+
     MaterialTheme {
-        ConnectedUsersScreen(
+        ConnectedUsersScreenContent(
             sessionId = "event-123",
-            users = listOf(
-                ConnectedUserUi(
-                    user = User(id = "1", username = "Matthew", role = UserRole.ADMIN),
-                    status = PeerStatus.CONNECTED
-                ),
-                ConnectedUserUi(
-                    user = User(id = "2", username = "Angelo", role = UserRole.ATTENDEE),
-                    status = PeerStatus.NEARBY
-                ),
-                ConnectedUserUi(
-                    user = User(id = "3", username = "Labib", role = UserRole.ATTENDEE),
-                    status = PeerStatus.OUT_OF_RANGE
-                )
-            ),
+            users = previewUsers,
             onBack = {},
             onUserClick = {}
         )

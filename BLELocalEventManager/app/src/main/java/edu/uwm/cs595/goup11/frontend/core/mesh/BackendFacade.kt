@@ -10,6 +10,7 @@ import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.Network
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
+import edu.uwm.cs595.goup11.backend.network.PeerEntry
 import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.backend.network.topology.HubAndSpokeTopology
 import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
@@ -30,30 +31,22 @@ import kotlinx.coroutines.launch
 /**
  * BackendFacade — BACKEND ISOLATION LAYER (Frontend-only)
  *
- * The interface is kept compatible with RealMeshGateway.
- * DefaultBackendFacade bridges the old API surface to the current backend.
- *
- * Key additions from PR:
- *  - myRole: UserRole — frontend-only concept, not in the backend
- *  - createNetwork(eventName, topology) — new overload with explicit topology
- *  - removeMessageListener — needed for clean leaveEvent teardown
+ * Bridges the old API surface to the current backend.
  */
 interface BackendFacade {
 
     val myId:    String
-    /** The local user's role — frontend-only, not carried in backend messages. */
     val myRole:  UserRole
 
     val state:            StateFlow<NetworkState>
     val events:           SharedFlow<NetworkEvent>
     val currentSessionId: StateFlow<String?>
 
+    val localEncodedName: String?
+    val networkPeers:     StateFlow<List<PeerEntry>>
+
     fun start()
 
-    /**
-     * Update the display name used for the next createNetwork/joinNetwork call.
-     * The client is recreated with the new name on the next network operation.
-     */
     fun setDisplayName(name: String)
 
     fun scanNetworks(): Flow<String>
@@ -63,12 +56,11 @@ interface BackendFacade {
         ReplaceWith("createNetwork(eventName, TopologyChoice.SNAKE)"))
     suspend fun createNetwork(eventName: String)
 
-    /** Create a network with an explicit topology choice. */
     suspend fun createNetwork(eventName: String, topology: TopologyChoice)
 
     suspend fun joinNetwork(sessionId: String)
 
-    fun leave()
+    suspend fun leave()
 
     fun sendMessage(to: String, message: Message)
 
@@ -95,10 +87,24 @@ class DefaultBackendFacade(
         if (useRealNearby) ConnectNetwork(context = context, scope = scope)
         else LocalNetwork()
 
+    // ── Peers ─────────────────────────────────────────────────────────────────
+
+    private val _networkPeers = MutableStateFlow<List<PeerEntry>>(emptyList())
+    override val networkPeers: StateFlow<List<PeerEntry>> = _networkPeers.asStateFlow()
+
+    override val localEncodedName: String?
+        get() = _client?.endpointId
+
+    // ── Display name ──────────────────────────────────────────────────────────
+
     private var displayName: String = myId
+
+    // ── Client ────────────────────────────────────────────────────────────────
 
     // Client is created lazily so the display name can be updated before
     // the first network operation via setDisplayName().
+    // _client is nulled in leave() so each session gets a fresh instance
+    // with attachNetwork() called, which re-registers networkMessageListener.
     private var _client: Client? = null
     private val client: Client
         get() = _client ?: Client(
@@ -106,11 +112,17 @@ class DefaultBackendFacade(
             network     = network,
             scope       = scope
         ).also {
-            // attachNetwork wires onConnectionRequest and the message listener.
-            // Must be called before any createNetwork/joinNetwork/scanNetworks.
             it.attachNetwork(network, config)
+            // Bridge app listeners into the new client instance
+            it.addMessageListener { msg -> appListeners.forEach { l -> l(msg) } }
             _client = it
         }
+
+    // ── Application-layer message listeners ───────────────────────────────────
+
+    // We maintain our own listener list and route through Client so the
+    // Client → network listener chain is never bypassed.
+    private val appListeners = mutableListOf<(Message) -> Unit>()
 
     // ── Synthesised state ─────────────────────────────────────────────────────
 
@@ -128,34 +140,40 @@ class DefaultBackendFacade(
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     override fun start() {
+        // Eagerly create client so networkPeersFlow is stable from the start
+        // and attachNetwork() + listener bridge are wired before any events arrive
+        val c = client
+
+        scope.launch {
+            c.networkPeersFlow.collect { _networkPeers.value = it }
+        }
+
         scope.launch {
             kotlinx.coroutines.flow.combine(
                 network.isAdvertising,
                 network.isDiscovering
             ) { advertising, discovering ->
                 val eventName = currentEventName
-                when {
+                val result = when {
                     advertising && eventName != null -> NetworkState.Joined(eventName)
-                    advertising                     -> NetworkState.Hosting(eventName ?: "")
-                    discovering                     -> NetworkState.Scanning
-                    else                            -> NetworkState.Idle
+                    advertising                      -> NetworkState.Hosting(eventName ?: "")
+                    discovering                      -> NetworkState.Scanning
+                    else                             -> NetworkState.Idle
                 }
+                android.util.Log.d("BackendFacade", "isAdvertising=$advertising isDiscovering=$discovering eventName=$eventName => ${result::class.simpleName}")
+                result
             }.collect { _state.value = it }
         }
 
         scope.launch {
             network.events.collect { ev ->
                 when (ev) {
-                    is NetworkEvent.EndpointConnected -> {
-                        @Suppress("DEPRECATION")
-                        _events.tryEmit(NetworkEvent.PeerConnected(
-                            edu.uwm.cs595.goup11.backend.network.DeprecatedPeer(ev.endpointId)
-                        ))
+                    is NetworkEvent.EndpointConnected    -> {
+                        _events.tryEmit(ev)
                         currentEventName?.let { _events.tryEmit(NetworkEvent.Joined(it)) }
                     }
-                    is NetworkEvent.EndpointDisconnected ->
-                        _events.tryEmit(NetworkEvent.PeerDisconnected(ev.endpointId))
-                    else -> _events.tryEmit(ev)
+                    is NetworkEvent.EndpointDisconnected -> _events.tryEmit(ev)
+                    else                                 -> _events.tryEmit(ev)
                 }
             }
         }
@@ -164,23 +182,21 @@ class DefaultBackendFacade(
     // ── Scanning ──────────────────────────────────────────────────────────────
 
     override fun scanNetworks(): Flow<String> {
+        android.util.Log.d("BackendFacade", "scanNetworks: client=${client.hashCode()}")
         scope.launch {
-            // Init with a transient scanner identity so ConnectNetwork is ready
-            // before startDiscovery() is called. This mirrors what Client.joinNetwork
-            // does with "JOINING:$displayName" before scanning for a host.
-            network.init("SCANNER:${displayName}", Network.Config(defaultTtl = 5))
-            network.startDiscovery()
+            runCatching {
+                android.util.Log.d("BackendFacade", "scanNetworks: calling client.startScan()")
+                client.startScan()
+                android.util.Log.d("BackendFacade", "scanNetworks: startScan returned")
+            }.onFailure { e ->
+                android.util.Log.e("BackendFacade", "scanNetworks: startScan FAILED: ${e::class.simpleName}: ${e.message}")
+            }
         }
-        return network.events
-            .filterIsInstance<NetworkEvent.EndpointDiscovered>()
-            .map { ev -> AdvertisedName.decode(ev.encodedName)?.eventName ?: ev.encodedName }
+        return client.discoveredEvents()
     }
 
     override suspend fun stopScan() {
-        network.stopDiscovery()
-        // Reset so a subsequent createNetwork/joinNetwork gets a clean init
-        // with the proper identity rather than the scanner placeholder.
-        currentEventName = null
+        client.stopScan()
     }
 
     // ── Hosting / Joining ─────────────────────────────────────────────────────
@@ -204,20 +220,24 @@ class DefaultBackendFacade(
     override suspend fun joinNetwork(sessionId: String) {
         currentEventName = sessionId
         client.joinNetwork(sessionId)
-        // No peer reference returned — topology handles all routing internally.
     }
 
     override fun setDisplayName(name: String) {
+        if (name == displayName) return
         displayName = name
-        // Invalidate the cached client so the next operation uses the new name
-        _client = null
+        // Only invalidate client if not in a session — name takes effect next session
+        if (currentEventName == null) {
+            _client = null
+        }
     }
 
-    override fun leave() {
-        scope.launch {
-            client.leaveNetwork()
-            currentEventName = null
-        }
+    override suspend fun leave() {
+        client.leaveNetwork()
+        currentEventName = null
+        // Null client so the next session gets a fresh instance — this ensures
+        // attachNetwork() is called again, re-registering networkMessageListener
+        // with the network transport which leaveNetwork() removed.
+        _client = null
     }
 
     // ── Messaging ─────────────────────────────────────────────────────────────
@@ -226,11 +246,14 @@ class DefaultBackendFacade(
         client.sendMessage(message)
     }
 
+    // Route through appListeners which are bridged into Client in the lazy getter,
+    // so messages flow: network → Client.networkMessageListener → Client.messageListeners
+    // → appListeners bridge → RealMeshGateway.onBackendMessage
     override fun addMessageListener(listener: (Message) -> Unit) {
-        network.addListener(listener)
+        appListeners.add(listener)
     }
 
     override fun removeMessageListener(listener: (Message) -> Unit) {
-        network.removeListener(listener)
+        appListeners.remove(listener)
     }
 }

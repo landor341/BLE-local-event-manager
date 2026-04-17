@@ -3,6 +3,7 @@ package edu.uwm.cs595.goup11.frontend.features.createevent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
+import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,11 +27,23 @@ class CreateEventViewModel(
     private val mesh: MeshGateway
 ) : ViewModel() {
 
+
+
     private val _draft = MutableStateFlow(CreateEventDraft())
     val draft: StateFlow<CreateEventDraft> = _draft.asStateFlow()
 
     private val _uiState = MutableStateFlow<CreateEventUiState>(CreateEventUiState.Editing)
     val uiState: StateFlow<CreateEventUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            mesh.state.collect { state ->
+                if (state is MeshUiState.Idle && _uiState.value is CreateEventUiState.Hosting) {
+                    reset()
+                }
+            }
+        }
+    }
 
     fun updateTitle(value: String) {
         _draft.value = _draft.value.copy(title = value)
@@ -77,5 +90,6 @@ class CreateEventViewModel(
 
     fun reset() {
         _uiState.value = CreateEventUiState.Editing
+        _draft.value = CreateEventDraft()
     }
 }

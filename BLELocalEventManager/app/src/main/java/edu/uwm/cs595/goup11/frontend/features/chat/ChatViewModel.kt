@@ -27,6 +27,7 @@ class ChatViewModel(
                 // Event chat: only show broadcasts
                 msg.isBroadcast
             } else {
+
                 // Direct chat: only show private messages between me and this specific peer
                 !msg.isBroadcast && (msg.sender == peerId || (msg.isMine && msg.recipientId == peerId))
             }
