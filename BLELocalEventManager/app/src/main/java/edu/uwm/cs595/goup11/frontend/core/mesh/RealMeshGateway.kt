@@ -6,6 +6,9 @@ import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
 import edu.uwm.cs595.goup11.backend.network.UserRole
+import edu.uwm.cs595.goup11.backend.network.handlers.CollectionDataSyncHandler
+import edu.uwm.cs595.goup11.backend.network.handlers.DataSyncHandler
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +76,8 @@ class RealMeshGateway(
 
         backend.start()
         log("Gateway started. ID: $myId")
+
+        val test = CollectionDataSyncHandler<Presentation>()
 
         scope.launch {
             backend.state.collect { s ->
