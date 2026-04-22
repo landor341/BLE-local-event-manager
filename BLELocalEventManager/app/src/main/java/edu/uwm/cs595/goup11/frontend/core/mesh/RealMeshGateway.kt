@@ -264,6 +264,7 @@ class RealMeshGateway(
         scanTimeoutJob = null
 
         seenSessionIds.clear()
+        customItinerary.clear()
         currentEventName = null
         _connectedPeers.value = emptyList()
         synchronized(chatHistory) { chatHistory.clear() }
