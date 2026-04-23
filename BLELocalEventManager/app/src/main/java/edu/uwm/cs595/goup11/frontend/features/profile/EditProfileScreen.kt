@@ -372,24 +372,6 @@ fun EditProfileScreen(
                     }
                 }
             }
-            IconButton(onClick = { addDialog = true },
-                modifier = Modifier.semantics{contentDescription = "Add interests"}) {
-                Icon(Icons.Default.Add, contentDescription = "Add")
-            }
-
-            Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = {
-                    writeProfileData(userState.username, userState.interests, context)
-                    onSave()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Text("Save Personal Information")
-            }
         }
     }
 
