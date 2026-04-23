@@ -89,7 +89,15 @@ class CreateEventViewModel(
     }
 
     fun reset() {
-        _uiState.value = CreateEventUiState.Editing
-        _draft.value = CreateEventDraft()
+        viewModelScope.launch {
+            try {
+                mesh.leaveEvent()
+            } catch (e: Exception) {
+
+            } finally {
+                _uiState.value = CreateEventUiState.Editing
+                _draft.value = CreateEventDraft()
+            }
+        }
     }
 }
