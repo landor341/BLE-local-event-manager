@@ -66,6 +66,8 @@ class CreateEventViewModel(
 
     fun hostEvent() {
         val title = _draft.value.title.trim()
+        val venue = _draft.value.venue.trim()
+        val desc = _draft.value.description.trim()
 
         if (title.isBlank()) {
             _uiState.value = CreateEventUiState.Error("Enter an event name to continue.")
@@ -77,7 +79,11 @@ class CreateEventViewModel(
 
             runCatching {
                 mesh.start()
-                mesh.hostEvent(title)
+                mesh.hostEvent(
+                    eventName = title,
+                    venue = venue,
+                    description = desc
+                )
             }.onSuccess {
                 _uiState.value = CreateEventUiState.Hosting(title)
             }.onFailure { e ->

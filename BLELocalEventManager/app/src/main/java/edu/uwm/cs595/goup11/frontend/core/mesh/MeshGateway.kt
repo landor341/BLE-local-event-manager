@@ -107,11 +107,13 @@ interface MeshGateway {
     suspend fun startScanning()
     suspend fun stopScanning()
 
-    /** Host a new event. Uses SnakeTopology by default. */
-    suspend fun hostEvent(eventName: String)
-
     /** Host a new event with an explicit topology choice. */
-    suspend fun hostEvent(eventName: String, topology: TopologyChoice)
+    suspend fun hostEvent(
+        eventName: String,
+        topology: TopologyChoice = TopologyChoice.SNAKE,
+        venue: String = "",
+        description: String = ""
+    )
 
     suspend fun joinEvent(sessionId: String): JoinedEventBundle
     suspend fun leaveEvent()
