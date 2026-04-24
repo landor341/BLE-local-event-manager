@@ -65,6 +65,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.frontend.core.AppContainer
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import edu.uwm.cs595.goup11.frontend.domain.models.User
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatViewModel
@@ -84,6 +85,7 @@ import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
 import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
 import edu.uwm.cs595.goup11.frontend.features.inbox.InboxScreen
 import edu.uwm.cs595.goup11.frontend.features.inbox.InboxViewModel
+import edu.uwm.cs595.goup11.frontend.features.presentation.PresentationDetailScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileSetupScreen
@@ -341,7 +343,7 @@ fun AppNavigation() {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val currentRoute = currentDestination?.route
-
+    var selectedPresentation by remember { mutableStateOf<Presentation?>(null) }
     val showDrawerButton = currentDestination?.hierarchy?.any { destination ->
         destination.route in setOf(
             SealedDestinations.HOME.route,
@@ -439,10 +441,30 @@ fun AppNavigation() {
                     onLeaveSuccess = {
                         selectedSessionId = null
                         navController.popBackStack(SealedDestinations.HOME.route, false)
+                    },
+                    onViewPresentation = { presentationId ->
+                        selectedPresentation = eventDetailVm.presentations.value
+                            .firstOrNull { it.id == presentationId }
+                        if (selectedPresentation != null) {
+                            navController.navigate(SealedDestinations.PRESENTATION_DETAIL.route)
+                        }
                     }
                 )
             }
-
+            composable(SealedDestinations.PRESENTATION_DETAIL.route) {
+                val presentation = selectedPresentation
+                if (presentation == null) {
+                    navController.popBackStack()
+                    return@composable
+                }
+                PresentationDetailScreen(
+                    presentation = presentation,
+                    onBack = { navController.popBackStack() },
+                    onNavigateToSpeaker = { speakerEndpointId ->
+                        // wire to connected users or chat later
+                    }
+                )
+            }
             composable(SealedDestinations.CONNECTED_USERS.route) {
                 ConnectedUsersScreen(
                     sessionId = selectedSessionId ?: "unknown",

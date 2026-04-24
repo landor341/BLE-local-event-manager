@@ -562,6 +562,20 @@ class Client(
         hops.forEach { hop -> net.sendMessage(hop, finalMessage) }
     }
 
+    fun broadcastMessage(message: Message) {
+        val enriched = message.copy(
+            senderRole     = role,
+            presentationId = message.presentationId ?: presentationId
+        )
+        seenMessageIds.add(enriched.id)
+
+        val net = requireNetwork()
+        hardwareToEncoded.keys.forEach { hardwareId ->
+            net.sendMessage(hardwareId, enriched)
+        }
+        android.util.Log.d("Client", "broadcastMessage: type=${message.type} to ${hardwareToEncoded.size} peers")
+    }
+
     /**
      * Sends a directory message directly to a peer, bypassing topology routing.
      * Directory messages are always point-to-point between direct neighbors and

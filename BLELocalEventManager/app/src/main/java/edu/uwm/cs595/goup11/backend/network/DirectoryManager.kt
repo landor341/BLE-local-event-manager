@@ -216,6 +216,13 @@ class DirectoryManager(
     private fun handleSync(message: Message) {
         val payload = message.decodePayload<DirectorySyncPayload>()
 
+        try {
+            localEndpointId()
+        } catch (e: IllegalStateException) {
+            logger.warn { "DirectoryManager: ignoring DIRECTORY_SYNC before local identity is established" }
+            return
+        }
+
         // Sync clock to payload max before creating the ACTIVE entry so it beats everything
         val payloadMaxClock = payload.peers.maxOfOrNull { it.lamportClock } ?: 0L
         lamportClock = maxOf(lamportClock, payloadMaxClock)

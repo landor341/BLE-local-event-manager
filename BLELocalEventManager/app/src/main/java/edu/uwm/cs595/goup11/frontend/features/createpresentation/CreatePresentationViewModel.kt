@@ -5,8 +5,10 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import edu.uwm.cs595.goup11.backend.network.PresentationStatus
 import edu.uwm.cs595.goup11.frontend.core.mesh.ItineraryItem
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,7 +80,7 @@ class CreatePresentationViewModel(
         val title = draftValue.title.trim()
 
         if (title.isBlank()) {
-            _uiState.value = CreatePresentationUiState.Error("Enter an presentation name to continue.")
+            _uiState.value = CreatePresentationUiState.Error("Enter a presentation name to continue.")
             return
         }
 
@@ -86,14 +88,17 @@ class CreatePresentationViewModel(
             _uiState.value = CreatePresentationUiState.Submitting
 
             runCatching {
-                val newItem = ItineraryItem(
+                val presentation = Presentation(
                     id = UUID.randomUUID().toString(),
-                    title = draftValue.title,
-                    time = draftValue.startTime.toDisplayTime(),
+                    name = draftValue.title,
+                    startTime = draftValue.startTime,
+                    endTime = draftValue.endTime,
                     location = draftValue.location,
-                    speaker = draftValue.speaker
+                    speakerName = draftValue.speaker,
+                    speakerEndpointId = mesh.myId,
+                    status = PresentationStatus.ACTIVE
                 )
-                mesh.addItineraryItem(newItem)
+                mesh.addPresentation(presentation)
             }.onSuccess {
                 _uiState.value = CreatePresentationUiState.Success
             }.onFailure { e ->
