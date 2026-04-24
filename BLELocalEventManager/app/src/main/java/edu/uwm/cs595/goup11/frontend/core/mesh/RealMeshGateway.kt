@@ -217,16 +217,16 @@ class RealMeshGateway(
         }
     }
 
+    override suspend fun hostEvent(eventName: String) {
+        hostEvent(eventName, TopologyChoice.SNAKE)
+    }
+
     override suspend fun hostEvent(
         eventName: String,
         topology: TopologyChoice,
-        venue: String,
-        description: String
     ) {
         log("Hosting event: $eventName (topology: ${topology.code})")
         currentEventName = eventName
-        currentEventVenue = venue
-        currentEventDescription = description
         backend.createNetwork(eventName, topology)
     }
 
