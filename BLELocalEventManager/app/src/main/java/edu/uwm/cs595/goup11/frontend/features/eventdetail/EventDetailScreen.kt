@@ -98,6 +98,7 @@ fun EventDetailScreen(
 
                 JoinedEventContent(
                     event = state.event,
+                    isReady = canOpenEventActions,
                     onOpenChat = {
                         if (canOpenEventActions) {
                             onOpenChat(state.event.sessionId)
@@ -176,6 +177,7 @@ private fun JoinedEventContent(
     onOpenChat: () -> Unit,
     onViewConnectedUsers: () -> Unit,
     onLeave: () -> Unit,
+    isReady: Boolean,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -272,22 +274,30 @@ private fun JoinedEventContent(
 
         Button(
             onClick = onOpenChat,
+            enabled = isReady,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text("Open Chat")
+            if (isReady)
+                Text("Open Chat")
+            else
+                Text("Syncing Mesh...")
         }
 
         Button(
             onClick = onViewConnectedUsers,
+            enabled = isReady,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text("View Connected Users")
+            if (isReady)
+                Text("View Connected Users")
+            else
+                Text("Syncing Mesh...")
         }
 
         Button(
