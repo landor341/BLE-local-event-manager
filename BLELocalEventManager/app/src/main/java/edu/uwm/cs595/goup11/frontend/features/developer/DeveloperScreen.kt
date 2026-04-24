@@ -104,6 +104,8 @@ import java.nio.charset.StandardCharsets
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlinx.coroutines.withContext
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
+import java.time.LocalDateTime
 
 private enum class DevMode {
     GATEWAY,
@@ -480,7 +482,45 @@ private fun GatewayDevContent(mesh: MeshGateway) {
                 }
             }
         }
+        if (uiState is MeshUiState.InEvent || uiState is MeshUiState.Hosting) {
+            val presentations by mesh.presentations.collectAsState()
 
+            DevCard("PRESENTATIONS (${presentations.size})") {
+                if (presentations.isEmpty()) {
+                    DevHintText("No presentations yet")
+                } else {
+                    presentations.forEach { p ->
+                        DevMonoText("• ${p.name} @ ${p.location}", size = 11.sp)
+                        DevMonoText(
+                            text = "  Speaker: ${p.speakerName}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            size = 10.sp
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                DevButton(
+                    text = "Add Test Presentation",
+                    color = Color(0xFF7C3AED),
+                    enabled = uiState is MeshUiState.InEvent || uiState is MeshUiState.Hosting
+                ) {
+                    mesh.addPresentation(
+                        Presentation(
+                            id                = java.util.UUID.randomUUID().toString(),
+                            name              = "Test Presentation ${presentations.size + 1}",
+                            startTime         = LocalDateTime.now(),
+                            endTime           = LocalDateTime.now().plusHours(1),
+                            location          = "Room 101",
+                            speakerName       = "Dev Speaker",
+                            speakerEndpointId = mesh.myId,
+                            status            = edu.uwm.cs595.goup11.backend.network.PresentationStatus.ACTIVE
+                        )
+                    )
+                }
+            }
+        }
         if (uiState == MeshUiState.Scanning || discovered.isNotEmpty()) {
             DevCard("DISCOVERED (${discovered.size})") {
                 if (discovered.isEmpty()) {

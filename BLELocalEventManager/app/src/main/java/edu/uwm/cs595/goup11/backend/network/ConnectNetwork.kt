@@ -171,7 +171,10 @@ class ConnectNetwork(
      */
     override fun startAdvertising(encodedName: String) {
         requireClient()
-        cn("[CN] startAdvertising() encodedName='$encodedName'")
+        if (_isAdvertising.value) {
+            cn("[CN] startAdvertising() already advertising — skipping")
+            return
+        }
 
         val options = AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
 
@@ -182,10 +185,14 @@ class ConnectNetwork(
                 cn("[CN] startAdvertising SUCCESS")
             }
             .addOnFailureListener { e ->
-                _isAdvertising.value = false
-                cne("[CN] startAdvertising FAILED: ${e.message}")
-                // Do NOT emit ConnectionRejected here — an advertising failure is not
-                // a connection event and would cause Client to react incorrectly.
+                val msg = e.message ?: ""
+                if ("8002" in msg) {
+                    // Already discovering — not a real failure, leave _isDiscovering as-is
+                    cn("[CN] startDiscovery() already running — ignoring STATUS_ALREADY_DISCOVERING")
+                    return@addOnFailureListener
+                }
+                _isDiscovering.value = false
+                cne("[CN] startDiscovery FAILED: $msg")
             }
     }
 
@@ -218,8 +225,13 @@ class ConnectNetwork(
                 cn("[CN] startDiscovery SUCCESS")
             }
             .addOnFailureListener { e ->
-                _isDiscovering.value = false
-                cne("[CN] startDiscovery FAILED: ${e.message}")
+                val msg = e.message ?: ""
+                if ("8001" in msg) {
+                    cn("[CN] startAdvertising() already running — ignoring STATUS_ALREADY_ADVERTISING")
+                    return@addOnFailureListener
+                }
+                _isAdvertising.value = false
+                cne("[CN] startAdvertising FAILED: $msg")
             }
     }
 
@@ -238,10 +250,6 @@ class ConnectNetwork(
 
     override suspend fun connect(endpointId: String) {
         val localId = requireLocalEndpointId()
-        if (knownEndpoints[endpointId] != null && false) {
-            // already tracked — but we still allow re-attempts since knownEndpoints
-            // is populated on discovery too. Real guard is STATUS_ALREADY_CONNECTED.
-        }
         cn("[CN] connect() localId='$localId' target='$endpointId'")
 
         connectionsClient.requestConnection(localId, endpointId, connectionLifecycleCallback)
@@ -368,12 +376,12 @@ class ConnectNetwork(
                 cn("[CN] onEndpointFound ignoring self (endpointId=$endpointId)")
                 return
             }
-            // Ignore transient scanner/joiner identities — these are stale cache entries
+            // Ignore transient scanner/joiner identities, these are used for seeing what networks exist
             if (encodedName.startsWith("SCANNER:") || encodedName.startsWith("JOINING:")) {
                 cn("[CN] onEndpointFound ignoring transient '$encodedName'")
                 return
             }
-            // Ignore anything we can't decode — also a stale cache entry
+            // Ignore anything we can't decode
             if (AdvertisedName.decode(encodedName) == null) {
                 cn("[CN] onEndpointFound ignoring undecodable '$encodedName'")
                 return

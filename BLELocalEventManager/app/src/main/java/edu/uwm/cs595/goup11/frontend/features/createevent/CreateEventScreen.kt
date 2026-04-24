@@ -1,6 +1,8 @@
 package edu.uwm.cs595.goup11.frontend.features.createevent
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,11 +23,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.LinearScale
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -51,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
+import edu.uwm.cs595.goup11.frontend.core.mesh.TopologyChoice
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,40 +88,38 @@ fun CreateEventScreen(
             is CreateEventUiState.Error,
             CreateEventUiState.Submitting -> {
                 CreateEventForm(
-                    draft = draft,
-                    uiState = uiState,
-                    onTitleChange = viewModel::updateTitle,
-                    onDescriptionChange = viewModel::updateDescription,
-                    onVenueChange = viewModel::updateVenue,
-                    onHostChange = viewModel::updateHostDisplayName,
-                    onSubmit = viewModel::hostEvent,
-                    onBack = onBack,
-                    modifier = Modifier.padding(innerPadding)
+                    draft          = draft,
+                    uiState        = uiState,
+                    onTitleChange  = viewModel::updateTitle,
+                    onTopologyChange = viewModel::updateTopology,
+                    onSubmit       = viewModel::hostEvent,
+                    onBack         = onBack,
+                    modifier       = Modifier.padding(innerPadding)
                 )
             }
 
             is CreateEventUiState.Hosting -> {
                 HostingSuccessScreen(
-                    sessionId = state.sessionId,
-                    draft = draft,
-                    onAddPresentation ={ onNavigateToCreatePresentation() },
-                    onDone = { onHostingStarted(state.sessionId) },
-                    onCreateAnother = { viewModel.reset() },
-                    modifier = Modifier.padding(innerPadding)
+                    sessionId         = state.sessionId,
+                    draft             = draft,
+                    onAddPresentation = { onNavigateToCreatePresentation() },
+                    onDone            = { onHostingStarted(state.sessionId) },
+                    onCreateAnother   = { viewModel.reset() },
+                    modifier          = Modifier.padding(innerPadding)
                 )
             }
         }
     }
 }
 
+// ── Form ──────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun CreateEventForm(
     draft: CreateEventDraft,
     uiState: CreateEventUiState,
     onTitleChange: (String) -> Unit,
-    onDescriptionChange: (String) -> Unit,
-    onVenueChange: (String) -> Unit,
-    onHostChange: (String) -> Unit,
+    onTopologyChange: (TopologyChoice) -> Unit,
     onSubmit: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -140,70 +142,97 @@ private fun CreateEventForm(
             ErrorCard(message = errorMessage)
         }
 
+        // ── Event name ────────────────────────────────────────────────────────
         Card(
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(
+            shape     = RoundedCornerShape(28.dp),
+            colors    = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
-                modifier = Modifier.padding(18.dp),
+                modifier            = Modifier.padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = "Event details",
-                    style = MaterialTheme.typography.titleLarge,
+                    text       = "Event details",
+                    style      = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
 
-                EventField(
-                    value = draft.title,
+                OutlinedTextField(
+                    value         = draft.title,
                     onValueChange = onTitleChange,
-                    label = "Event name",
-                    placeholder = "Spring showcase, CS meetup, design review...",
-                    icon = Icons.Default.CalendarMonth,
-                    singleLine = true
-                )
-
-                EventField(
-                    value = draft.description,
-                    onValueChange = onDescriptionChange,
-                    label = "Description",
-                    placeholder = "What should people expect when they join?",
-                    icon = Icons.Default.Description,
-                    singleLine = false,
-                    minLines = 4
-                )
-
-                EventField(
-                    value = draft.venue,
-                    onValueChange = onVenueChange,
-                    label = "Venue",
-                    placeholder = "Engineering Hall, Room 101",
-                    icon = Icons.Default.LocationOn,
-                    singleLine = true
-                )
-
-                EventField(
-                    value = draft.hostDisplayName,
-                    onValueChange = onHostChange,
-                    label = "Host display name",
-                    placeholder = "Your name or organization",
-                    icon = Icons.Default.Person,
-                    singleLine = true
+                    modifier      = Modifier.fillMaxWidth(),
+                    singleLine    = true,
+                    label         = { Text("Event name") },
+                    placeholder   = { Text("Spring showcase, CS meetup, design review…") },
+                    leadingIcon   = {
+                        Icon(
+                            imageVector        = Icons.Default.CalendarMonth,
+                            contentDescription = null
+                        )
+                    },
+                    shape          = RoundedCornerShape(18.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                 )
             }
         }
 
+        // ── Topology picker ───────────────────────────────────────────────────
+        Card(
+            shape     = RoundedCornerShape(28.dp),
+            colors    = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(
+                modifier            = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text       = "Network topology",
+                    style      = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Text(
+                    text  = "Choose how devices connect to each other in this event.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                TopologyOption(
+                    title       = "Snake",
+                    description = "Devices connect in a chain — each node links to the next. " +
+                            "Best for linear setups like a row of seats or a hallway. " +
+                            "Simple and predictable, but if the middle node drops, the chain splits.",
+                    icon        = Icons.Default.LinearScale,
+                    selected    = draft.topology == TopologyChoice.SNAKE,
+                    onClick     = { onTopologyChange(TopologyChoice.SNAKE) }
+                )
+
+                TopologyOption(
+                    title       = "Mesh",
+                    description = "Every device connects to as many nearby peers as possible. " +
+                            "More resilient — if one node drops, traffic routes around it. " +
+                            "Best for open spaces where people move around freely.",
+                    icon        = Icons.Default.AccountTree,
+                    selected    = draft.topology == TopologyChoice.MESH,
+                    onClick     = { onTopologyChange(TopologyChoice.MESH) }
+                )
+            }
+        }
+
+        // ── Preview ───────────────────────────────────────────────────────────
         PreviewCard(draft = draft)
 
-        Column(
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        // ── Actions ───────────────────────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
-                onClick = onSubmit,
-                enabled = !isSubmitting,
+                onClick  = onSubmit,
+                enabled  = !isSubmitting,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -211,15 +240,15 @@ private fun CreateEventForm(
             ) {
                 if (isSubmitting) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
+                        modifier    = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
+                        color       = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(modifier = Modifier.size(10.dp))
                     Text("Starting host…")
                 } else {
                     Icon(
-                        imageVector = Icons.Default.Podcasts,
+                        imageVector        = Icons.Default.Podcasts,
                         contentDescription = null
                     )
                     Spacer(modifier = Modifier.size(10.dp))
@@ -228,8 +257,8 @@ private fun CreateEventForm(
             }
 
             FilledTonalButton(
-                onClick = onBack,
-                enabled = !isSubmitting,
+                onClick  = onBack,
+                enabled  = !isSubmitting,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -241,6 +270,89 @@ private fun CreateEventForm(
     }
 }
 
+// ── Topology option card ──────────────────────────────────────────────────────
+
+@Composable
+private fun TopologyOption(
+    title: String,
+    description: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val borderColor = if (selected) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.outlineVariant
+    val bgColor     = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+    else MaterialTheme.colorScheme.surface
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(color = bgColor, shape = RoundedCornerShape(18.dp))
+            .border(
+                width = if (selected) 2.dp else 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(18.dp)
+            )
+            .clickable { onClick() }
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment     = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(
+                    color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector        = icon,
+                contentDescription = null,
+                tint               = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier           = Modifier.size(20.dp)
+            )
+        }
+
+        Column(
+            modifier            = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text       = title,
+                    style      = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color      = if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface
+                )
+                if (selected) {
+                    Icon(
+                        imageVector        = Icons.Default.CheckCircle,
+                        contentDescription = "Selected",
+                        tint               = MaterialTheme.colorScheme.primary,
+                        modifier           = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Text(
+                text  = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+// ── Hero ──────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun HeroSection() {
     val gradient = Brush.verticalGradient(
@@ -251,9 +363,9 @@ private fun HeroSection() {
     )
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(30.dp),
-        colors = CardDefaults.cardColors(
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(30.dp),
+        colors    = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primary
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -273,7 +385,7 @@ private fun HeroSection() {
                     )
                     .padding(horizontal = 12.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment     = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
@@ -284,110 +396,62 @@ private fun HeroSection() {
                         )
                 )
                 Text(
-                    text = "Host a live session",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.labelLarge,
+                    text       = "Host a live session",
+                    color      = MaterialTheme.colorScheme.onPrimary,
+                    style      = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Medium
                 )
             }
 
             Text(
-                text = "Launch an event people nearby can discover instantly.",
-                style = MaterialTheme.typography.headlineSmall,
+                text       = "Launch an event people nearby can discover instantly.",
+                style      = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
-
-            Text(
-                text = "",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.86f)
+                color      = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
 }
 
-@Composable
-private fun EventField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    placeholder: String,
-    icon: ImageVector,
-    singleLine: Boolean,
-    minLines: Int = 1
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = singleLine,
-        minLines = minLines,
-        label = { Text(label) },
-        placeholder = { Text(placeholder) },
-        leadingIcon = {
-            Icon(
-                imageVector = icon,
-                contentDescription = null
-            )
-        },
-        shape = RoundedCornerShape(18.dp),
-        keyboardOptions = KeyboardOptions(
-            imeAction = if (singleLine) ImeAction.Next else ImeAction.Default
-        )
-    )
-}
+// ── Preview card ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun PreviewCard(
-    draft: CreateEventDraft
-) {
+private fun PreviewCard(draft: CreateEventDraft) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(24.dp),
+        colors    = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier            = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                text = "Preview",
-                style = MaterialTheme.typography.titleMedium,
+                text       = "Preview",
+                style      = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
 
             Text(
-                text = draft.title.ifBlank { "Untitled Event" },
-                style = MaterialTheme.typography.headlineSmall,
+                text       = draft.title.ifBlank { "Untitled Event" },
+                style      = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
-
-            if (draft.description.isNotBlank()) {
-                Text(
-                    text = draft.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             MetaRow(
-                icon = Icons.Default.LocationOn,
-                value = draft.venue.ifBlank { "Venue not set" }
-            )
-
-            MetaRow(
-                icon = Icons.Default.Person,
-                value = draft.hostDisplayName.ifBlank { "Host name not set" }
+                icon  = Icons.Default.AccountTree,
+                value = "Topology: ${draft.topology.name.lowercase().replaceFirstChar { it.uppercase() }}"
             )
         }
     }
 }
+
+// ── Hosting success ───────────────────────────────────────────────────────────
 
 @Composable
 private fun HostingSuccessScreen(
@@ -407,14 +471,14 @@ private fun HostingSuccessScreen(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(30.dp),
-            colors = CardDefaults.cardColors(
+            modifier  = Modifier.fillMaxWidth(),
+            shape     = RoundedCornerShape(30.dp),
+            colors    = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer
             )
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier            = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Box(
@@ -427,21 +491,21 @@ private fun HostingSuccessScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.CheckCircle,
+                        imageVector        = Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(30.dp)
+                        tint               = MaterialTheme.colorScheme.primary,
+                        modifier           = Modifier.size(30.dp)
                     )
                 }
 
                 Text(
-                    text = "Your event is live",
-                    style = MaterialTheme.typography.headlineSmall,
+                    text       = "Your event is live",
+                    style      = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text = "Nearby users can now discover and join this session.",
+                    text  = "Nearby users can now discover and join this session.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -449,19 +513,24 @@ private fun HostingSuccessScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 MetaRow(
-                    icon = Icons.Default.CalendarMonth,
+                    icon  = Icons.Default.CalendarMonth,
                     value = draft.title.ifBlank { sessionId }
                 )
 
                 MetaRow(
-                    icon = Icons.Default.Podcasts,
+                    icon  = Icons.Default.AccountTree,
+                    value = "Topology: ${draft.topology.name.lowercase().replaceFirstChar { it.uppercase() }}"
+                )
+
+                MetaRow(
+                    icon  = Icons.Default.Podcasts,
                     value = "Session ID: $sessionId"
                 )
             }
         }
 
         Button(
-            onClick = onAddPresentation,
+            onClick  = onAddPresentation,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -471,7 +540,7 @@ private fun HostingSuccessScreen(
         }
 
         FilledTonalButton(
-            onClick = onDone,
+            onClick  = onDone,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -481,7 +550,7 @@ private fun HostingSuccessScreen(
         }
 
         TextButton(
-            onClick = onCreateAnother,
+            onClick  = onCreateAnother,
             modifier = Modifier.align(Alignment.CenterHorizontally)
         ) {
             Text("Create another event")
@@ -489,29 +558,29 @@ private fun HostingSuccessScreen(
     }
 }
 
+// ── Shared ────────────────────────────────────────────────────────────────────
+
 @Composable
-private fun ErrorCard(
-    message: String
-) {
+private fun ErrorCard(message: String) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(22.dp),
+        colors    = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer
         )
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier            = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "Couldn’t start event",
-                style = MaterialTheme.typography.titleMedium,
+                text       = "Couldn't start event",
+                style      = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onErrorContainer
+                color      = MaterialTheme.colorScheme.onErrorContainer
             )
             Text(
-                text = message,
+                text  = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
@@ -520,22 +589,19 @@ private fun ErrorCard(
 }
 
 @Composable
-private fun MetaRow(
-    icon: ImageVector,
-    value: String
-) {
+private fun MetaRow(icon: ImageVector, value: String) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment     = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = icon,
+            imageVector        = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp)
+            tint               = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier           = Modifier.size(18.dp)
         )
         Text(
-            text = value,
+            text  = value,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

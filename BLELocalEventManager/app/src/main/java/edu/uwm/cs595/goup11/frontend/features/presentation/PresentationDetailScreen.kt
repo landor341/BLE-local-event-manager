@@ -3,6 +3,7 @@ package edu.uwm.cs595.goup11.frontend.features.presentation
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
 import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -31,17 +32,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import edu.uwm.cs595.goup11.R
+import edu.uwm.cs595.goup11.backend.network.PresentationStatus
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
 import java.time.LocalDateTime
 
-//PresentationDetailScreen.kt
+// PresentationDetailScreen.kt
 // Appears when the user selects a presentation and displays information relevant to the presentation
 
 @RequiresApi(Build.VERSION_CODES.O)
@@ -72,14 +77,14 @@ fun PresentationDetailScreen(
                 .padding(24.dp),
             horizontalAlignment = Alignment.Start,
         ) {
-            Image(
-            painter = painterResource(id = R.drawable.map_sample),
-            contentDescription = "Presentation Location",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(250.dp)
-            )
+//            Image(
+//                painter = painterResource(id = R.drawable.map_sample),
+//                contentDescription = "Presentation Location",
+//                contentScale = ContentScale.Crop,
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .height(250.dp)
+//            )
 
             Spacer(Modifier.height(8.dp))
 
@@ -91,8 +96,9 @@ fun PresentationDetailScreen(
             )
 
             Spacer(Modifier.height(8.dp))
+
             Text(
-                text = "Time: ${presentation.time.toDisplayTime()} - ${presentation.endTime.toDisplayTime()}",
+                text = "Time: ${presentation.startTime.toDisplayTime()} - ${presentation.endTime.toDisplayTime()}",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.Gray
             )
@@ -106,6 +112,15 @@ fun PresentationDetailScreen(
             HorizontalDivider(thickness = 0.5.dp)
             Spacer(Modifier.height(24.dp))
 
+            if (presentation.description.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text  = presentation.description,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Text(
                 text = "Presented by",
                 style = MaterialTheme.typography.titleLarge,
@@ -114,46 +129,25 @@ fun PresentationDetailScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            androidx.compose.material3.OutlinedCard(
-                onClick = { onNavigateToSpeaker(presentation.speaker.id) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = androidx.compose.material3.CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                androidx.compose.foundation.layout.Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.profile_picture),
-                        contentDescription = "Speaker Profile",
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
+                Image(
+                    painter = painterResource(id = R.drawable.profile_picture),
+                    contentDescription = "Speaker Profile",
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
 
-                    Spacer(Modifier.width(16.dp))
-
-                    Text(
-                        text = presentation.speaker.username,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(Modifier.weight(1f))
-
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowRight,
-                        contentDescription = "View Profile",
-                        tint = MaterialTheme.colorScheme.outline
-                    )
-                }
+                Text(
+                    text = presentation.speakerName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
             }
-           
-            
         }
     }
 }
@@ -165,14 +159,14 @@ fun PresentationDetailPreview() {
     BLELocalEventManagerTheme {
         PresentationDetailScreen(
             presentation = Presentation(
-                id = "1",
-                name = "testPresentation",
-                time = LocalDateTime.of(2026, 3, 19, 10, 0),
-                endTime = LocalDateTime.of(2026, 3, 19, 11, 30),
-                location = "room 012",
-                speaker = edu.uwm.cs595.goup11.frontend.domain.models.User(
-                    username = "Speaker1"
-                )
+                id                = "1",
+                name              = "testPresentation",
+                startTime              = LocalDateTime.of(2026, 3, 19, 10, 0),
+                endTime           = LocalDateTime.of(2026, 3, 19, 11, 30),
+                location          = "room 012",
+                speakerName       = "Speaker1",
+                speakerEndpointId = "speaker-endpoint-id",
+                status            = PresentationStatus.ACTIVE
             ),
             onBack = {},
             onNavigateToSpeaker = {}
@@ -181,7 +175,7 @@ fun PresentationDetailPreview() {
 }
 
 @RequiresApi(Build.VERSION_CODES.O)
-fun java.time.LocalDateTime.toDisplayTime(): String {
+fun LocalDateTime.toDisplayTime(): String {
     val formatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.ENGLISH)
     return this.format(formatter)
 }

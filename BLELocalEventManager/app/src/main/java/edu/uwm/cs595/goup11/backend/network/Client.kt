@@ -98,7 +98,7 @@ class Client(
             // Our directory identity is the encoded name — consistent across all peers
             localEndpointId = { endpointId ?: error("$displayName is not on a network") },
             // Resolve encoded name → hardware ID before handing off to the network
-            send            = { toEncodedName, message ->
+            send = { toEncodedName, message ->
                 val hardwareId = requireNetwork().encodedNameToHardwareId(toEncodedName)
                 if (hardwareId != null) {
                     sendDirectoryMessage(hardwareId, message)
@@ -106,8 +106,23 @@ class Client(
                     logger.warn { "DirectoryManager: no hardware ID for encoded name '$toEncodedName', dropping message" }
                 }
             },
-            scope           = scope
+            scope = scope
         )
+    }
+
+    private val messageHandlers = mutableListOf<MessageHandler>()
+
+    fun addMessageHandler(handler: MessageHandler) {
+        android.util.Log.d("Client", "message handler added: ${handler::class.simpleName}")
+        messageHandlers.add(handler);
+    }
+
+    fun removeMessageHandler(handler: MessageHandler): Boolean {
+        val mod = messageHandlers.remove(handler);
+        if(mod) {
+            android.util.Log.d("Client", "message handler removed: ${handler::class.simpleName}")
+        }
+        return mod;
     }
 
     /**
@@ -547,6 +562,20 @@ class Client(
         hops.forEach { hop -> net.sendMessage(hop, finalMessage) }
     }
 
+    fun broadcastMessage(message: Message) {
+        val enriched = message.copy(
+            senderRole     = role,
+            presentationId = message.presentationId ?: presentationId
+        )
+        seenMessageIds.add(enriched.id)
+
+        val net = requireNetwork()
+        hardwareToEncoded.keys.forEach { hardwareId ->
+            net.sendMessage(hardwareId, enriched)
+        }
+        android.util.Log.d("Client", "broadcastMessage: type=${message.type} to ${hardwareToEncoded.size} peers")
+    }
+
     /**
      * Sends a directory message directly to a peer, bypassing topology routing.
      * Directory messages are always point-to-point between direct neighbors and
@@ -622,6 +651,13 @@ class Client(
         val consumedByDirectory = directoryManager.onMessage(message)
         android.util.Log.d("Client", "handleMessage: consumedByDirectory=$consumedByDirectory")
         if (consumedByDirectory) return
+
+        for(handler in messageHandlers) {
+            if(handler.processMessage(message)) {
+                android.util.Log.d("Client", "handleMessage: consumed by ${handler::class.simpleName}")
+                return;
+            }
+        }
 
         when (message.type) {
             MessageType.TEXT_MESSAGE -> {

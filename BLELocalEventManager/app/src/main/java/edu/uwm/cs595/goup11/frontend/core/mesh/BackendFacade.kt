@@ -1,7 +1,6 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
 import android.content.Context
-import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Client
 import edu.uwm.cs595.goup11.backend.network.ClientType
 import edu.uwm.cs595.goup11.backend.network.ConnectNetwork
@@ -11,7 +10,9 @@ import edu.uwm.cs595.goup11.backend.network.Network
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.NetworkState
 import edu.uwm.cs595.goup11.backend.network.PeerEntry
+import edu.uwm.cs595.goup11.backend.network.PresentationEntry
 import edu.uwm.cs595.goup11.backend.network.UserRole
+import edu.uwm.cs595.goup11.backend.network.handlers.CollectionDataSyncHandler
 import edu.uwm.cs595.goup11.backend.network.topology.HubAndSpokeTopology
 import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.network.topology.SnakeTopology
@@ -45,6 +46,9 @@ interface BackendFacade {
     val localEncodedName: String?
     val networkPeers:     StateFlow<List<PeerEntry>>
 
+    /** Live synced presentation collection — updated via [CollectionDataSyncHandler]. */
+    val presentations: StateFlow<List<PresentationEntry>>
+
     fun start()
 
     fun setDisplayName(name: String)
@@ -65,8 +69,24 @@ interface BackendFacade {
     fun sendMessage(to: String, message: Message)
 
     fun addMessageListener(listener: (Message) -> Unit)
-
     fun removeMessageListener(listener: (Message) -> Unit)
+
+    /** Add a presentation to the synced collection and broadcast to all peers. */
+    fun addPresentation(entry: PresentationEntry)
+
+    /** Update an existing presentation and broadcast to all peers. */
+    fun updatePresentation(entry: PresentationEntry)
+
+    /** Remove a presentation and broadcast to all peers. */
+    fun removePresentation(entry: PresentationEntry)
+
+    /** Called when a peer connects — sends full presentation list to them. */
+    fun onPeerConnectedForSync(toEndpoint: String)
+
+    /** Clear presentations on session leave. */
+    fun clearPresentations()
+
+    fun broadcastMessage(message: Message)
 }
 
 @Suppress("DEPRECATION")
@@ -95,16 +115,58 @@ class DefaultBackendFacade(
     override val localEncodedName: String?
         get() = _client?.endpointId
 
+    // ── Presentations handler ─────────────────────────────────────────────────
+
+    private val presentationsHandler = CollectionDataSyncHandler(
+        identifier      = "presentations",
+        serializer      = PresentationEntry.serializer(),
+        localEndpointId = { _client?.endpointId ?: "" },
+        send            = { _, msg -> _client?.sendMessage(msg) },
+        broadcast = { msg ->
+            android.util.Log.d("BackendFacade", "sending presentation message {$msg}")
+            broadcastMessage(msg)
+                    },
+        isSameItem      = { a, b -> a.id == b.id }
+    )
+
+    override fun broadcastMessage(message: Message) {
+        client.broadcastMessage(message)
+    }
+
+    override val presentations: StateFlow<List<PresentationEntry>> =
+        presentationsHandler.data
+
+    override fun addPresentation(entry: PresentationEntry) {
+        android.util.Log.d("BackendFacade", "addPresentation: ${entry.name}")
+        presentationsHandler.addItem(entry)
+    }
+
+    override fun updatePresentation(entry: PresentationEntry) {
+        android.util.Log.d("BackendFacade", "updatePresentation: ${entry.name}")
+        presentationsHandler.updateItem(entry)
+    }
+
+    override fun removePresentation(entry: PresentationEntry) {
+        android.util.Log.d("BackendFacade", "removePresentation: ${entry.name}")
+        presentationsHandler.removeItem(entry)
+    }
+
+    override fun onPeerConnectedForSync(toEndpoint: String) {
+        android.util.Log.d("BackendFacade", "onPeerConnectedForSync: $toEndpoint")
+        presentationsHandler.onPeerConnected(toEndpoint)
+    }
+
+    override fun clearPresentations() {
+        android.util.Log.d("BackendFacade", "clearPresentations")
+        presentationsHandler.clear()
+    }
+
     // ── Display name ──────────────────────────────────────────────────────────
 
     private var displayName: String = myId
 
     // ── Client ────────────────────────────────────────────────────────────────
 
-    // Client is created lazily so the display name can be updated before
-    // the first network operation via setDisplayName().
-    // _client is nulled in leave() so each session gets a fresh instance
-    // with attachNetwork() called, which re-registers networkMessageListener.
     private var _client: Client? = null
     private val client: Client
         get() = _client ?: Client(
@@ -113,15 +175,14 @@ class DefaultBackendFacade(
             scope       = scope
         ).also {
             it.attachNetwork(network, config)
-            // Bridge app listeners into the new client instance
             it.addMessageListener { msg -> appListeners.forEach { l -> l(msg) } }
+            // Register presentation handler in the message pipeline
+            it.addMessageHandler(presentationsHandler)
             _client = it
         }
 
     // ── Application-layer message listeners ───────────────────────────────────
 
-    // We maintain our own listener list and route through Client so the
-    // Client → network listener chain is never bypassed.
     private val appListeners = mutableListOf<(Message) -> Unit>()
 
     // ── Synthesised state ─────────────────────────────────────────────────────
@@ -140,8 +201,6 @@ class DefaultBackendFacade(
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     override fun start() {
-        // Eagerly create client so networkPeersFlow is stable from the start
-        // and attachNetwork() + listener bridge are wired before any events arrive
         val c = client
 
         scope.launch {
@@ -168,9 +227,12 @@ class DefaultBackendFacade(
         scope.launch {
             network.events.collect { ev ->
                 when (ev) {
-                    is NetworkEvent.EndpointConnected    -> {
+                    is NetworkEvent.EndpointConnected -> {
                         _events.tryEmit(ev)
                         currentEventName?.let { _events.tryEmit(NetworkEvent.Joined(it)) }
+                        // Sync presentations to newly connected peer
+                        android.util.Log.d("BackendFacade", "EndpointConnected: syncing presentations to ${ev.endpointId}")
+                        presentationsHandler.onPeerConnected(ev.endpointId)
                     }
                     is NetworkEvent.EndpointDisconnected -> _events.tryEmit(ev)
                     else                                 -> _events.tryEmit(ev)
@@ -225,7 +287,6 @@ class DefaultBackendFacade(
     override fun setDisplayName(name: String) {
         if (name == displayName) return
         displayName = name
-        // Only invalidate client if not in a session — name takes effect next session
         if (currentEventName == null) {
             _client = null
         }
@@ -234,9 +295,6 @@ class DefaultBackendFacade(
     override suspend fun leave() {
         client.leaveNetwork()
         currentEventName = null
-        // Null client so the next session gets a fresh instance — this ensures
-        // attachNetwork() is called again, re-registering networkMessageListener
-        // with the network transport which leaveNetwork() removed.
         _client = null
     }
 
@@ -246,9 +304,6 @@ class DefaultBackendFacade(
         client.sendMessage(message)
     }
 
-    // Route through appListeners which are bridged into Client in the lazy getter,
-    // so messages flow: network → Client.networkMessageListener → Client.messageListeners
-    // → appListeners bridge → RealMeshGateway.onBackendMessage
     override fun addMessageListener(listener: (Message) -> Unit) {
         appListeners.add(listener)
     }

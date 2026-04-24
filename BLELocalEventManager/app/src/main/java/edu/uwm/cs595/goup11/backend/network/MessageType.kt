@@ -100,6 +100,36 @@ enum class MessageType {
      * Response to DIRECTORY_VERIFY. Contains OK status, or MISMATCH + full directory.
      */
     DIRECTORY_VERIFY_ACK,
+
+    /*
+      Presentation info
+     */
+
+    /**
+     * Sent to new user to sync their list of presentations
+     */
+    PRESENTATION_SYNC,
+
+    /**
+     * Sent to all users when a presentation is added
+     */
+    PRESENTATION_ADDED,
+
+    /**
+     * Sent to all users when a presentation ended
+     */
+    PRESENTATION_ENDED,
+
+    /**
+     * Sent to all users that a presentation info has been updated
+     */
+    PRESENTATION_UPDATED,
+
+    /**
+     * Sent when presentation owners want to give info or alerts about presentation
+     */
+    PRESENTATION_ALERT,
+
     /*
     Security Mesages
      */
@@ -119,6 +149,22 @@ enum class MessageType {
      * Basic Messages
      */
     TEXT_MESSAGE,
+
+
+    /*
+     * Data sync messages (used for custom sync)
+     */
+
+
+    DATA_SYNC,
+
+    DATA_SYNC_ACK,
+
+    DATA_UPDATE_REMOVE,
+
+    DATA_UPDATE_ADD,
+
+    DATA_UPDATE_MOD
 
 
 

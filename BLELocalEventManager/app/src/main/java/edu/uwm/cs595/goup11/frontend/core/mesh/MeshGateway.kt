@@ -1,6 +1,7 @@
 package edu.uwm.cs595.goup11.frontend.core.mesh
 
 import edu.uwm.cs595.goup11.backend.network.UserRole
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -30,7 +31,6 @@ data class JoinedEventBundle(
 
 /**
  * A peer currently connected to this node, as seen by the gateway layer.
- * Populated from [NetworkEvent.EndpointConnected] events.
  */
 data class GatewayPeer(
     val endpointId:  String,
@@ -42,14 +42,11 @@ data class ChatMessage(
     val sessionId:   String,
     val sender:      String,
     val senderName:  String = sender,
-    /** Role of the sender — frontend-only, not carried in the network Message. */
     val senderRole:  UserRole = UserRole.ATTENDEE,
     val text:        String,
     val timestampMs: Long,
     val isMine:      Boolean,
-    /** Distinguishes between event-wide broadcast and direct peer-to-peer message */
     val isBroadcast: Boolean = false,
-    /** For direct messages, stores the recipient's endpoint ID. Null for broadcasts. */
     val recipientId: String? = null
 )
 
@@ -60,15 +57,10 @@ sealed class MeshUiState {
     data class  InEvent(val sessionId: String) : MeshUiState()
     data class  Error(val reason: String)      : MeshUiState()
 
-    // ── Deprecated variants — kept so RealMeshGateway compiles without changes ─
     @Deprecated("Use Scanning") data class Joining(val sessionId: String) : MeshUiState()
     @Deprecated("Use InEvent")  data class Hosting(val sessionId: String) : MeshUiState()
 }
 
-/**
- * Topology options exposed to the UI layer.
- * Maps to backend topology strategy codes without leaking backend types.
- */
 enum class TopologyChoice(val code: String) {
     SNAKE("snk"),
     MESH("msh"),
@@ -92,14 +84,13 @@ interface MeshGateway {
     val connectedPeers: StateFlow<List<GatewayPeer>>
 
     /**
-     * Update the display name used when hosting or joining events.
-     * Must be called before [hostEvent] or [joinEvent].
+     * Live list of presentations synced across the mesh.
+     * Maps backend [PresentationEntry] to the frontend [Presentation] UI model.
      */
+    val presentations: StateFlow<List<Presentation>>
+
     fun setDisplayName(name: String)
 
-    /**
-     * Returns the list of all chat messages received or sent during the current session.
-     */
     fun getChatHistory(): List<ChatMessage>
 
     suspend fun start()
@@ -107,22 +98,23 @@ interface MeshGateway {
     suspend fun startScanning()
     suspend fun stopScanning()
 
-    /** Host a new event with an explicit topology choice. */
-    suspend fun hostEvent(
-        eventName: String,
-        topology: TopologyChoice = TopologyChoice.SNAKE,
-        venue: String = "",
-        description: String = ""
-    )
+    suspend fun hostEvent(eventName: String)
+    suspend fun hostEvent(eventName: String, topology: TopologyChoice)
 
     suspend fun joinEvent(sessionId: String): JoinedEventBundle
     suspend fun leaveEvent()
 
-    /** Broadcast a message to all connected peers (topology floods). */
     suspend fun sendChat(text: String)
-
-    /** Send a message directly to a specific peer by their encoded name. */
     suspend fun sendDirectMessage(toEncodedName: String, text: String)
 
     suspend fun addItineraryItem(item: ItineraryItem)
+
+    /** Add a presentation to the synced collection. Broadcasts to all peers. */
+    fun addPresentation(presentation: Presentation)
+
+    /** Remove a presentation from the synced collection. Broadcasts to all peers. */
+    fun removePresentation(presentation: Presentation)
+
+    /** Update an existing presentation. Broadcasts to all peers. */
+    fun updatePresentation(presentation: Presentation)
 }

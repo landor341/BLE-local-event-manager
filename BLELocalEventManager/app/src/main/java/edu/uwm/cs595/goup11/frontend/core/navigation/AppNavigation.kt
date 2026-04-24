@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.HelpOutline
@@ -63,15 +64,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.frontend.core.AppContainer
-import edu.uwm.cs595.goup11.frontend.domain.models.User
+import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
+import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatViewModel
-import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUserUi
 import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUsersScreen
 import edu.uwm.cs595.goup11.frontend.features.connectedusers.ConnectedUsersViewModel
-import edu.uwm.cs595.goup11.frontend.features.connectedusers.PeerStatus
 import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventScreen
 import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventViewModel
 import edu.uwm.cs595.goup11.frontend.features.createpresentation.CreatePresentationScreen
@@ -84,6 +84,7 @@ import edu.uwm.cs595.goup11.frontend.features.explore.ExploreViewModel
 import edu.uwm.cs595.goup11.frontend.features.home.HomeScreen
 import edu.uwm.cs595.goup11.frontend.features.inbox.InboxScreen
 import edu.uwm.cs595.goup11.frontend.features.inbox.InboxViewModel
+import edu.uwm.cs595.goup11.frontend.features.presentation.PresentationDetailScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileSetupScreen
@@ -109,20 +110,15 @@ private fun DrawerItem(
     onClick: () -> Unit
 ) {
     NavigationDrawerItem(
-        label = { Text(text = label, style = MaterialTheme.typography.bodyLarge) },
-        icon = {
-            Icon(
-                imageVector = icon,
-                contentDescription = null
-            )
-        },
+        label    = { Text(text = label, style = MaterialTheme.typography.bodyLarge) },
+        icon     = { Icon(imageVector = icon, contentDescription = null) },
         selected = selected,
-        onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
-        colors = NavigationDrawerItemDefaults.colors(
+        onClick  = onClick,
+        shape    = RoundedCornerShape(18.dp),
+        colors   = NavigationDrawerItemDefaults.colors(
             selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-            selectedIconColor = MaterialTheme.colorScheme.primary,
-            selectedTextColor = MaterialTheme.colorScheme.primary
+            selectedIconColor      = MaterialTheme.colorScheme.primary,
+            selectedTextColor      = MaterialTheme.colorScheme.primary
         )
     )
 }
@@ -134,24 +130,38 @@ private fun AppDrawer(
     navController: NavHostController,
     showDrawerButton: Boolean,
     displayName: String,
+    meshGateway: MeshGateway,
+    onViewEvent: () -> Unit,
     content: @Composable (PaddingValues) -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val meshState by meshGateway.state.collectAsState()
 
-    val primaryItems = listOf(
-        DrawerDestination("Home", SealedDestinations.HOME.route, Icons.Default.Home),
-        DrawerDestination("Inbox", SealedDestinations.INBOX.route, Icons.Default.ChatBubbleOutline),
-        DrawerDestination("Explore", SealedDestinations.EXPLORE.route, Icons.Default.Explore),
-        DrawerDestination("Create Event", SealedDestinations.CREATE_EVENT.route, Icons.Default.AddCircleOutline),
-        DrawerDestination("Profile", SealedDestinations.PROFILE.route, Icons.Default.Person)
-    )
+    val isInEvent = meshState is MeshUiState.InEvent || meshState is MeshUiState.Hosting
+
+    val primaryItems = if (isInEvent) {
+        listOf(
+            DrawerDestination("Home",       SealedDestinations.HOME.route,       Icons.Default.Home),
+            DrawerDestination("View Event", SealedDestinations.EVENT_DETAIL.route, Icons.Default.CalendarMonth),
+            DrawerDestination("Inbox",      SealedDestinations.INBOX.route,      Icons.Default.ChatBubbleOutline),
+            DrawerDestination("Profile",    SealedDestinations.PROFILE.route,    Icons.Default.Person)
+        )
+    } else {
+        listOf(
+            DrawerDestination("Home",         SealedDestinations.HOME.route,         Icons.Default.Home),
+            DrawerDestination("Inbox",        SealedDestinations.INBOX.route,        Icons.Default.ChatBubbleOutline),
+            DrawerDestination("Explore",      SealedDestinations.EXPLORE.route,      Icons.Default.Explore),
+            DrawerDestination("Create Event", SealedDestinations.CREATE_EVENT.route, Icons.Default.AddCircleOutline),
+            DrawerDestination("Profile",      SealedDestinations.PROFILE.route,      Icons.Default.Person)
+        )
+    }
 
     val secondaryItems = listOf(
-        DrawerDestination("Help", SealedDestinations.TUTORIAL_INTRO.route, Icons.Default.HelpOutline),
-        DrawerDestination("Developer", SealedDestinations.DEVELOPER.route, Icons.Default.BugReport)
+        DrawerDestination("Help",      SealedDestinations.TUTORIAL_INTRO.route, Icons.Default.HelpOutline),
+        DrawerDestination("Developer", SealedDestinations.DEVELOPER.route,      Icons.Default.BugReport)
     )
 
     fun isRouteSelected(itemRoute: String): Boolean {
@@ -170,22 +180,27 @@ private fun AppDrawer(
 
     fun navigateToTopLevel(route: String) {
         scope.launch { drawerState.close() }
+
+        // View Event is handled via the dedicated callback so selectedSessionId is set correctly
+        if (route == SealedDestinations.EVENT_DETAIL.route) {
+            onViewEvent()
+            return
+        }
+
         navController.navigate(route) {
             popUpTo(navController.graph.findStartDestination().id) {
                 saveState = true
             }
             launchSingleTop = true
-            restoreState = true
+            restoreState    = true
         }
     }
 
     ModalNavigationDrawer(
-        drawerState = drawerState,
+        drawerState     = drawerState,
         gesturesEnabled = showDrawerButton,
-        drawerContent = {
-            ModalDrawerSheet(
-                modifier = Modifier.width(320.dp)
-            ) {
+        drawerContent   = {
+            ModalDrawerSheet(modifier = Modifier.width(320.dp)) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -196,11 +211,12 @@ private fun AppDrawer(
                         .padding(horizontal = 16.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // ── Header ────────────────────────────────────────────────
                     Surface(
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape         = RoundedCornerShape(28.dp),
+                        color         = MaterialTheme.colorScheme.primaryContainer,
                         tonalElevation = 2.dp,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier      = Modifier.fillMaxWidth()
                     ) {
                         Column(
                             modifier = Modifier
@@ -217,28 +233,28 @@ private fun AppDrawer(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                                shape    = CircleShape,
+                                color    = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
                                 modifier = Modifier.size(52.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Default.Person,
+                                        imageVector        = Icons.Default.Person,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(26.dp)
+                                        tint               = MaterialTheme.colorScheme.primary,
+                                        modifier           = Modifier.size(26.dp)
                                     )
                                 }
                             }
 
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
-                                    text = "BLE Local Event Manager",
+                                    text  = "BLE Local Event Manager",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = if (displayName.isBlank()) "Welcome" else displayName,
+                                    text  = if (displayName.isBlank()) "Welcome" else displayName,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -250,10 +266,10 @@ private fun AppDrawer(
 
                     primaryItems.forEach { item ->
                         DrawerItem(
-                            label = item.label,
-                            icon = item.icon,
+                            label    = item.label,
+                            icon     = item.icon,
                             selected = isRouteSelected(item.route),
-                            onClick = { navigateToTopLevel(item.route) }
+                            onClick  = { navigateToTopLevel(item.route) }
                         )
                     }
 
@@ -263,10 +279,10 @@ private fun AppDrawer(
 
                     secondaryItems.forEach { item ->
                         DrawerItem(
-                            label = item.label,
-                            icon = item.icon,
+                            label    = item.label,
+                            icon     = item.icon,
                             selected = isRouteSelected(item.route),
-                            onClick = { navigateToTopLevel(item.route) }
+                            onClick  = { navigateToTopLevel(item.route) }
                         )
                     }
                 }
@@ -285,14 +301,15 @@ private fun AppDrawer(
                     Surface(
                         onClick = {
                             scope.launch {
-                                if (drawerState.isClosed) drawerState.open() else drawerState.close()
+                                if (drawerState.isClosed) drawerState.open()
+                                else drawerState.close()
                             }
                         },
-                        shape = CircleShape,
+                        shape          = CircleShape,
                         tonalElevation = 6.dp,
                         shadowElevation = 6.dp,
-                        color = MaterialTheme.colorScheme.surface,
-                        modifier = Modifier
+                        color          = MaterialTheme.colorScheme.surface,
+                        modifier       = Modifier
                             .align(Alignment.TopStart)
                             .statusBarsPadding()
                             .padding(start = 16.dp, top = 12.dp)
@@ -300,15 +317,16 @@ private fun AppDrawer(
                         IconButton(
                             onClick = {
                                 scope.launch {
-                                    if (drawerState.isClosed) drawerState.open() else drawerState.close()
+                                    if (drawerState.isClosed) drawerState.open()
+                                    else drawerState.close()
                                 }
                             },
                             modifier = Modifier.size(52.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Menu,
+                                imageVector        = Icons.Default.Menu,
                                 contentDescription = "Open menu",
-                                tint = MaterialTheme.colorScheme.onSurface
+                                tint               = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -318,29 +336,38 @@ private fun AppDrawer(
     }
 }
 
+// ── Helper to get current session ID from mesh state ─────────────────────────
+
+private fun sessionIdFromState(state: MeshUiState): String? = when (state) {
+    is MeshUiState.InEvent -> state.sessionId
+    is MeshUiState.Hosting -> state.sessionId
+    else                   -> null
+}
+
+// ── AppNavigation ─────────────────────────────────────────────────────────────
+
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
-    var selectedSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedSessionId    by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedPresentation by remember { mutableStateOf<Presentation?>(null) }
 
     val meshGateway = AppContainer.meshGateway
-    val exploreVm = remember { ExploreViewModel(meshGateway) }
-    val userVm = remember { UserViewModel() }
-    val inboxVm = remember { InboxViewModel(meshGateway) }
-    val eventDetailVm = remember { EventDetailViewModel(meshGateway) }
-    val createEventVm = remember { CreateEventViewModel(meshGateway) }
-    val createPresentationVm = remember { CreatePresentationViewModel(meshGateway) }
 
-    val userState by userVm.user.collectAsState()
+    val exploreVm          = remember { ExploreViewModel(meshGateway) }
+    val userVm             = remember { UserViewModel() }
+    val inboxVm            = remember { InboxViewModel(meshGateway) }
+    val eventDetailVm      = remember { EventDetailViewModel(meshGateway) }
+    val createEventVm      = remember { CreateEventViewModel(meshGateway) }
+    val connectedUsersVm   = remember { ConnectedUsersViewModel(meshGateway) }
 
+    val userState        by userVm.user.collectAsState()
     val drawerDisplayName = userState.username.ifBlank { "Guest" }
 
-    val connectedUsersVm = remember { ConnectedUsersViewModel(meshGateway) }
-
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentDestination = backStackEntry?.destination
-    val currentRoute = currentDestination?.route
+    val backStackEntry     by navController.currentBackStackEntryAsState()
+    val currentDestination  = backStackEntry?.destination
+    val currentRoute        = currentDestination?.route
 
     val showDrawerButton = currentDestination?.hierarchy?.any { destination ->
         destination.route in setOf(
@@ -356,26 +383,36 @@ fun AppNavigation() {
         )
     } == true && currentRoute != PROFILE_SETUP_ROUTE
 
-
     LaunchedEffect(userState.username) {
         if (userState.username.isNotBlank()) {
             meshGateway.setDisplayName(userState.username)
         }
     }
 
+    // Shared "navigate to current event" lambda used by both home screen and drawer
+    fun navigateToCurrentEvent() {
+        val sessionId = sessionIdFromState(meshGateway.state.value) ?: return
+        selectedSessionId = sessionId
+        navController.navigate(SealedDestinations.EVENT_DETAIL.route) {
+            launchSingleTop = true
+        }
+    }
+
     AppDrawer(
-        navController = navController,
+        navController    = navController,
         showDrawerButton = showDrawerButton,
-        displayName = drawerDisplayName
-    ) { innerPadding ->
+        displayName      = drawerDisplayName,
+        meshGateway      = meshGateway,
+        onViewEvent      = { navigateToCurrentEvent() }
+    ) { _ ->
         NavHost(
-            navController = navController,
-            startDestination = PROFILE_SETUP_ROUTE,
-            modifier = Modifier.padding(innerPadding)
+            navController    = navController,
+            startDestination = PROFILE_SETUP_ROUTE
         ) {
+            // ── Profile setup ─────────────────────────────────────────────────
             composable(PROFILE_SETUP_ROUTE) {
                 ProfileSetupScreen(
-                    viewModel = userVm,
+                    viewModel  = userVm,
                     onContinue = {
                         navController.navigate(SealedDestinations.HOME.route) {
                             popUpTo(PROFILE_SETUP_ROUTE) { inclusive = true }
@@ -385,6 +422,7 @@ fun AppNavigation() {
                 )
             }
 
+            // ── Home ──────────────────────────────────────────────────────────
             composable(SealedDestinations.HOME.route) {
                 HomeScreen(
                     onProfileClick = {
@@ -402,13 +440,21 @@ fun AppNavigation() {
                             launchSingleTop = true
                         }
                     },
-                    mesh = meshGateway
+                    mesh         = meshGateway,
+                    onEventClick = { navigateToCurrentEvent() },
+                    onPresentationsClick = { navigateToCurrentEvent() },
+                    onPeersClick = {
+                        navController.navigate(SealedDestinations.CONNECTED_USERS.route) {
+                            launchSingleTop = true
+                        }
+                    }
                 )
             }
 
+            // ── Explore ───────────────────────────────────────────────────────
             composable(SealedDestinations.EXPLORE.route) {
                 ExploreScreen(
-                    onBack = { navController.popBackStack() },
+                    onBack       = { navController.popBackStack() },
                     onEventClick = { sessionId ->
                         selectedSessionId = sessionId
                         navController.navigate(SealedDestinations.EVENT_DETAIL.route)
@@ -417,47 +463,81 @@ fun AppNavigation() {
                 )
             }
 
+            // ── Event detail ──────────────────────────────────────────────────
             composable(SealedDestinations.EVENT_DETAIL.route) {
                 val sessionId = selectedSessionId
 
                 if (sessionId == null) {
-                    // No valid session, go back to home
                     navController.popBackStack(SealedDestinations.HOME.route, false)
                     return@composable
                 }
 
                 EventDetailScreen(
-                    sessionId = sessionId,
-                    viewModel = eventDetailVm,
-                    onBack = { navController.popBackStack() },
-                    onOpenChat = {
+                    sessionId            = sessionId,
+                    viewModel            = eventDetailVm,
+                    onBack               = {
+                        navController.popBackStack(SealedDestinations.HOME.route, false)
+                    },
+                    onOpenChat           = {
                         navController.navigate("${SealedDestinations.CHAT.route}/router/Event Chat")
                     },
                     onViewConnectedUsers = {
                         navController.navigate(SealedDestinations.CONNECTED_USERS.route)
                     },
-                    onLeaveSuccess = {
+                    onLeaveSuccess       = {
                         selectedSessionId = null
                         navController.popBackStack(SealedDestinations.HOME.route, false)
+                    },
+                    onViewPresentation   = { presentationId ->
+                        selectedPresentation = eventDetailVm.presentations.value
+                            .firstOrNull { it.id == presentationId }
+                        if (selectedPresentation != null) {
+                            navController.navigate(SealedDestinations.PRESENTATION_DETAIL.route)
+                        }
+                    },
+                    onCreatePresentation = {
+                        navController.navigate(SealedDestinations.CREATE_PRESENTATION.route) {
+                            launchSingleTop = true
+                        }
                     }
                 )
             }
 
+            // ── Presentation detail ───────────────────────────────────────────
+            composable(SealedDestinations.PRESENTATION_DETAIL.route) {
+                val presentation = selectedPresentation
+
+                if (presentation == null) {
+                    navController.popBackStack()
+                    return@composable
+                }
+
+                PresentationDetailScreen(
+                    presentation = presentation,
+                    onBack       = { navController.popBackStack() },
+                    onNavigateToSpeaker = {}
+                )
+            }
+
+            // ── Connected users ───────────────────────────────────────────────
             composable(SealedDestinations.CONNECTED_USERS.route) {
                 ConnectedUsersScreen(
-                    sessionId = selectedSessionId ?: "unknown",
-                    viewModel = connectedUsersVm,
-                    onBack = { navController.popBackStack() },
+                    sessionId   = selectedSessionId ?: "unknown",
+                    viewModel   = connectedUsersVm,
+                    onBack      = { navController.popBackStack() },
                     onUserClick = { user ->
-                        navController.navigate("${SealedDestinations.CHAT.route}/${user.id}/${user.username}")
+                        navController.navigate(
+                            "${SealedDestinations.CHAT.route}/${user.id}/${user.username}"
+                        )
                     }
                 )
             }
 
+            // ── Create event ──────────────────────────────────────────────────
             composable(SealedDestinations.CREATE_EVENT.route) {
                 CreateEventScreen(
-                    viewModel = createEventVm,
-                    onBack = { navController.popBackStack() },
+                    viewModel    = createEventVm,
+                    onBack       = { navController.popBackStack() },
                     onHostingStarted = { hostedSessionId ->
                         selectedSessionId = hostedSessionId
                         navController.navigate(SealedDestinations.EVENT_DETAIL.route)
@@ -468,75 +548,78 @@ fun AppNavigation() {
                 )
             }
 
+            // ── Create presentation ───────────────────────────────────────────
             composable(SealedDestinations.CREATE_PRESENTATION.route) {
                 CreatePresentationScreen(
-                    viewModel = createPresentationVm,
-                    onBack = { navController.popBackStack() },
-                    onSuccess = {
-                        navController.popBackStack()
-                    }
+                    viewModel = remember { CreatePresentationViewModel(meshGateway) },
+                    onBack    = { navController.popBackStack() },
+                    onSuccess = { navController.popBackStack() }
                 )
             }
 
+            // ── Profile ───────────────────────────────────────────────────────
             composable(SealedDestinations.PROFILE.route) {
                 ProfileScreen(
                     viewModel = userVm,
-                    onBack = { navController.popBackStack() },
-                    onEdit = {
-                        navController.navigate(SealedDestinations.EDIT_PROFILE.route)
-                    }
+                    onBack    = { navController.popBackStack() },
+                    onEdit    = { navController.navigate(SealedDestinations.EDIT_PROFILE.route) }
                 )
             }
 
             composable(SealedDestinations.EDIT_PROFILE.route) {
-
                 EditProfileScreen(
                     viewModel = userVm,
-                    onBack = { navController.popBackStack() },
-                    onSave = { navController.popBackStack() }
+                    onBack    = { navController.popBackStack() },
+                    onSave    = { navController.popBackStack() }
                 )
             }
 
+            // ── Chat ──────────────────────────────────────────────────────────
             composable("${SealedDestinations.CHAT.route}/{peerId}/{userName}") { entry ->
-                val peerId = entry.arguments?.getString("peerId") ?: "Unknown User"
+                val peerId   = entry.arguments?.getString("peerId")   ?: "Unknown User"
                 val userName = entry.arguments?.getString("userName") ?: "Unknown User"
-                val chatVm = remember(peerId) { ChatViewModel(meshGateway, peerId) }
+                val chatVm   = remember(peerId) { ChatViewModel(meshGateway, peerId) }
 
                 ChatScreen(
                     viewModel = chatVm,
-                    onBack = { navController.popBackStack() },
-                    peerId = peerId,
-                    sender = userName
+                    onBack    = { navController.popBackStack() },
+                    peerId    = peerId,
+                    sender    = userName
                 )
             }
 
+            // ── Tutorial ──────────────────────────────────────────────────────
             composable(SealedDestinations.TUTORIAL_INTRO.route) {
                 introTutorialScreen(
                     onYesClick = { navController.navigate(SealedDestinations.TUTORIAL.route) },
-                    onNoClick = { navController.navigate(SealedDestinations.HOME.route) }
+                    onNoClick  = { navController.navigate(SealedDestinations.HOME.route) }
                 )
             }
 
             composable(SealedDestinations.TUTORIAL.route) {
                 TutorialScreen(
                     onNoClick = { navController.navigate(SealedDestinations.HOME.route) },
-                    onBack = { navController.popBackStack() }
+                    onBack    = { navController.popBackStack() }
                 )
             }
 
+            // ── Inbox ─────────────────────────────────────────────────────────
             composable(SealedDestinations.INBOX.route) {
                 InboxScreen(
-                    viewModel = inboxVm,
-                    onBack = { navController.popBackStack() },
+                    viewModel       = inboxVm,
+                    onBack          = { navController.popBackStack() },
                     onNavigateToChat = { peerId, userName ->
-                        navController.navigate("${SealedDestinations.CHAT.route}/$peerId/$userName")
+                        navController.navigate(
+                            "${SealedDestinations.CHAT.route}/$peerId/$userName"
+                        )
                     }
                 )
             }
 
+            // ── Developer ─────────────────────────────────────────────────────
             composable(SealedDestinations.DEVELOPER.route) {
                 DeveloperScreen(
-                    mesh = meshGateway,
+                    mesh   = meshGateway,
                     onBack = { navController.popBackStack() }
                 )
             }

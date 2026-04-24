@@ -5,9 +5,12 @@ import androidx.lifecycle.viewModelScope
 import edu.uwm.cs595.goup11.frontend.core.mesh.JoinedEventBundle
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 sealed class EventDetailUiState {
@@ -26,6 +29,17 @@ class EventDetailViewModel(
 
     private val _meshState = MutableStateFlow<MeshUiState>(MeshUiState.Idle)
     val meshState: StateFlow<MeshUiState> = _meshState.asStateFlow()
+
+    /**
+     * Live list of presentations synced across the mesh.
+     * Backed directly by [MeshGateway.presentations] — no local copy needed.
+     */
+    val presentations: StateFlow<List<Presentation>> = mesh.presentations
+        .stateIn(
+            scope          = viewModelScope,
+            started        = SharingStarted.WhileSubscribed(5_000),
+            initialValue   = emptyList()
+        )
 
     private var joinedSessionId: String? = null
 
