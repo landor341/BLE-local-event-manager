@@ -391,7 +391,7 @@ private fun InEventActionsSection(
             ActionTile(
                 modifier  = Modifier.weight(1f),
                 title     = "Peers",
-                subtitle  = if (peers.isEmpty()) "No peers connected"
+                subtitle  = if (peers.isEmpty()) "No peers connected."
                 else "${peers.size} connected",
                 icon      = Icons.Default.Groups,
                 onClick   = onPeersClick,
@@ -676,7 +676,7 @@ private fun statusDescription(state: MeshUiState): String = when (state) {
     is MeshUiState.Joining ->
         "Connecting to ${state.sessionId}."
     is MeshUiState.InEvent ->
-        "You're currently connected to ${state.sessionId}."
+        "You're currently connected to ${state.sessionId}. If you just joined the event and don't see any peers, please give the network some time to auto-connect to peers"
     is MeshUiState.Hosting ->
         "You're hosting ${state.sessionId}."
     is MeshUiState.Error ->

@@ -101,16 +101,14 @@ class RealMeshGateway(
 
         scope.launch {
             backend.state.collect { s ->
-                log("collector fired: ${s::class.simpleName} isLeaving=$isLeaving")
                 if (isLeaving) {
                     if (s is NetworkState.Idle) {
-                        log("backend settled to Idle, clearing isLeaving")
                         isLeaving = false
                     }
                     return@collect
                 }
 
-                _state.value = when (s) {
+                val newState = when (s) {
                     is NetworkState.Idle     -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning
                     is NetworkState.Joining  -> MeshUiState.Scanning
@@ -125,6 +123,16 @@ class RealMeshGateway(
                     is NetworkState.Error    -> MeshUiState.Error(s.reason)
                     else                     -> MeshUiState.Error("Unsupported Event")
                 }
+
+                // If we have an active session, don't let transi ent Idle/Scanning
+                // states from mesh topology retry loops overwrite InEvent
+                if (currentEventName != null &&
+                    (newState is MeshUiState.Idle || newState is MeshUiState.Scanning)) {
+                    log("Ignoring transient $newState — still in session $currentEventName")
+                    return@collect
+                }
+
+                _state.value = newState
             }
         }
 

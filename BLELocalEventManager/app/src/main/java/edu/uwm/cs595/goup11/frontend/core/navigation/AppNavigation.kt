@@ -467,14 +467,16 @@ fun AppNavigation() {
                 EventDetailScreen(
                     sessionId = sessionId,
                     viewModel = eventDetailVm,
-                    onBack = { navController.popBackStack() },
+                    onBack               = {
+                        navController.popBackStack(SealedDestinations.HOME.route, false)
+                    },
                     onOpenChat = {
                         navController.navigate("${SealedDestinations.CHAT.route}/router/Event Chat")
                     },
                     onViewConnectedUsers = {
                         navController.navigate(SealedDestinations.CONNECTED_USERS.route)
                     },
-                    onLeaveSuccess = {
+                    onLeaveSuccess       = {
                         selectedSessionId = null
                         navController.popBackStack(SealedDestinations.HOME.route, false)
                     },
