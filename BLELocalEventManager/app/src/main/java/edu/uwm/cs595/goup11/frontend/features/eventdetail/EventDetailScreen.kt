@@ -53,7 +53,8 @@ fun EventDetailScreen(
     onOpenChat: (String) -> Unit = {},
     onViewConnectedUsers: () -> Unit = {},
     onViewPresentation: (String) -> Unit = {},
-    onLeaveSuccess: () -> Unit = {}
+    onLeaveSuccess: () -> Unit = {},
+    onCreatePresentation: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val meshState by viewModel.meshState.collectAsState()
@@ -103,13 +104,14 @@ fun EventDetailScreen(
                     meshState is MeshUiState.InEvent || meshState is MeshUiState.Hosting
 
                 JoinedEventContent(
-                    event         = state.event,
-                    presentations = presentations,
-                    onOpenChat    = { if (canOpenEventActions) onOpenChat(state.event.sessionId) },
+                    event                = state.event,
+                    presentations        = presentations,
+                    onOpenChat           = { if (canOpenEventActions) onOpenChat(state.event.sessionId) },
                     onViewConnectedUsers = { if (canOpenEventActions) onViewConnectedUsers() },
                     onViewPresentation   = onViewPresentation,
-                    onLeave       = { viewModel.leaveEvent() },
-                    modifier      = Modifier.padding(innerPadding)
+                    onCreatePresentation = onCreatePresentation,
+                    onLeave              = { viewModel.leaveEvent() },
+                    modifier             = Modifier.padding(innerPadding)
                 )
             }
         }
@@ -177,7 +179,8 @@ private fun JoinedEventContent(
     onViewConnectedUsers: () -> Unit,
     onViewPresentation: (String) -> Unit,
     onLeave: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCreatePresentation: () -> Unit = {}
 ) {
     Column(
         modifier = modifier
@@ -297,7 +300,11 @@ private fun JoinedEventContent(
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape    = RoundedCornerShape(14.dp)
         ) { Text("Open Chat") }
-
+        Button(
+            onClick  = { onCreatePresentation() },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape    = RoundedCornerShape(14.dp)
+        ) { Text("Add Presentation") }
         Button(
             onClick  = onViewConnectedUsers,
             modifier = Modifier.fillMaxWidth().height(56.dp),

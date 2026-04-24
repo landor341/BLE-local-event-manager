@@ -8,7 +8,6 @@ import edu.uwm.cs595.goup11.backend.network.PresentationEntry
 import edu.uwm.cs595.goup11.backend.network.PresentationStatus
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-
 data class Presentation(
     val id: String,
     val name: String,
@@ -17,6 +16,7 @@ data class Presentation(
     val location: String,
     val speakerName: String,
     val speakerEndpointId: String,
+    val description: String = "",  // ← add
     val status: PresentationStatus
 )
 

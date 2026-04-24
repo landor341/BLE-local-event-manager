@@ -96,7 +96,8 @@ class CreatePresentationViewModel(
                     location = draftValue.location,
                     speakerName = draftValue.speaker,
                     speakerEndpointId = mesh.myId,
-                    status = PresentationStatus.ACTIVE
+                    status = PresentationStatus.ACTIVE,
+                    description = draftValue.description
                 )
                 mesh.addPresentation(presentation)
             }.onSuccess {

@@ -65,6 +65,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.frontend.core.AppContainer
+import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import edu.uwm.cs595.goup11.frontend.domain.models.User
 import edu.uwm.cs595.goup11.frontend.features.chat.ChatScreen
@@ -404,7 +405,42 @@ fun AppNavigation() {
                             launchSingleTop = true
                         }
                     },
-                    mesh = meshGateway
+                    mesh = meshGateway,
+                    onEventClick = {
+                        val state = meshGateway.state.value
+                        val sessionId = when (state) {
+                            is MeshUiState.InEvent -> state.sessionId
+                            is MeshUiState.Hosting -> state.sessionId
+                            else -> null
+                        }
+                        if (sessionId != null) {
+                            selectedSessionId = sessionId
+                            navController.navigate(SealedDestinations.EVENT_DETAIL.route) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                    onPresentationsClick = {
+                        // Navigate to event detail which shows presentations
+                        // or a dedicated presentations screen if you add one later
+                        val state = meshGateway.state.value
+                        val sessionId = when (state) {
+                            is MeshUiState.InEvent -> state.sessionId
+                            is MeshUiState.Hosting -> state.sessionId
+                            else -> null
+                        }
+                        if (sessionId != null) {
+                            selectedSessionId = sessionId
+                            navController.navigate(SealedDestinations.EVENT_DETAIL.route) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                    onPeersClick = {
+                        navController.navigate(SealedDestinations.CONNECTED_USERS.route) {
+                            launchSingleTop = true
+                        }
+                    }
                 )
             }
 
@@ -447,6 +483,11 @@ fun AppNavigation() {
                             .firstOrNull { it.id == presentationId }
                         if (selectedPresentation != null) {
                             navController.navigate(SealedDestinations.PRESENTATION_DETAIL.route)
+                        }
+                    },
+                    onCreatePresentation = {
+                        navController.navigate(SealedDestinations.CREATE_PRESENTATION.route) {
+                            launchSingleTop = true
                         }
                     }
                 )
@@ -492,11 +533,9 @@ fun AppNavigation() {
 
             composable(SealedDestinations.CREATE_PRESENTATION.route) {
                 CreatePresentationScreen(
-                    viewModel = createPresentationVm,
-                    onBack = { navController.popBackStack() },
-                    onSuccess = {
-                        navController.popBackStack()
-                    }
+                    viewModel = remember { CreatePresentationViewModel(meshGateway) },
+                    onBack    = { navController.popBackStack() },
+                    onSuccess = { navController.popBackStack() }
                 )
             }
 

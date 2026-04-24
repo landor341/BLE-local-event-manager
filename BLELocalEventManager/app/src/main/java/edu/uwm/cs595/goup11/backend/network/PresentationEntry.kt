@@ -8,14 +8,14 @@ import java.util.UUID
 data class PresentationEntry(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val startTime: Long,        // epoch ms
-    val endTime: Long,          // epoch ms
+    val startTime: Long,
+    val endTime: Long,
     val location: String,
     val speakerName: String,
     val speakerEndpointId: String,
+    val description: String = "",
     val status: PresentationStatus = PresentationStatus.ACTIVE
 )
-
 @Serializable
 enum class PresentationStatus {
     ACTIVE,

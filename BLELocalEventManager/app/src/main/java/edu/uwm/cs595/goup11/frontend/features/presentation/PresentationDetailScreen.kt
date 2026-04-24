@@ -3,6 +3,7 @@ package edu.uwm.cs595.goup11.frontend.features.presentation
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
 import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -76,14 +77,14 @@ fun PresentationDetailScreen(
                 .padding(24.dp),
             horizontalAlignment = Alignment.Start,
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.map_sample),
-                contentDescription = "Presentation Location",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(250.dp)
-            )
+//            Image(
+//                painter = painterResource(id = R.drawable.map_sample),
+//                contentDescription = "Presentation Location",
+//                contentScale = ContentScale.Crop,
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .height(250.dp)
+//            )
 
             Spacer(Modifier.height(8.dp))
 
@@ -111,6 +112,15 @@ fun PresentationDetailScreen(
             HorizontalDivider(thickness = 0.5.dp)
             Spacer(Modifier.height(24.dp))
 
+            if (presentation.description.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text  = presentation.description,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Text(
                 text = "Presented by",
                 style = MaterialTheme.typography.titleLarge,
@@ -119,43 +129,24 @@ fun PresentationDetailScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            OutlinedCard(
-                onClick = { onNavigateToSpeaker(presentation.speakerEndpointId) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.profile_picture),
-                        contentDescription = "Speaker Profile",
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
+                Image(
+                    painter = painterResource(id = R.drawable.profile_picture),
+                    contentDescription = "Speaker Profile",
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
 
-                    Spacer(Modifier.width(16.dp))
-
-                    Text(
-                        text = presentation.speakerName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(Modifier.weight(1f))
-
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowRight,
-                        contentDescription = "View Profile",
-                        tint = MaterialTheme.colorScheme.outline
-                    )
-                }
+                Text(
+                    text = presentation.speakerName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

@@ -469,7 +469,8 @@ class RealMeshGateway(
         location          = location,
         speakerName       = speakerName,
         speakerEndpointId = speakerEndpointId,
-        status            = status
+        status            = status,
+        description = description
     )
 
     private fun Presentation.toBackendEntry(): PresentationEntry = PresentationEntry(
@@ -480,6 +481,7 @@ class RealMeshGateway(
         location          = location,
         speakerName       = speakerName,
         speakerEndpointId = speakerEndpointId,
-        status            = status
+        status            = status,
+        description = description
     )
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
+import edu.uwm.cs595.goup11.frontend.core.mesh.TopologyChoice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,9 +12,7 @@ import kotlinx.coroutines.launch
 
 data class CreateEventDraft(
     val title: String = "",
-    val description: String = "",
-    val venue: String = "",
-    val hostDisplayName: String = ""
+    val topology: TopologyChoice = TopologyChoice.SNAKE
 )
 
 sealed class CreateEventUiState {
@@ -26,8 +25,6 @@ sealed class CreateEventUiState {
 class CreateEventViewModel(
     private val mesh: MeshGateway
 ) : ViewModel() {
-
-
 
     private val _draft = MutableStateFlow(CreateEventDraft())
     val draft: StateFlow<CreateEventDraft> = _draft.asStateFlow()
@@ -52,16 +49,8 @@ class CreateEventViewModel(
         }
     }
 
-    fun updateDescription(value: String) {
-        _draft.value = _draft.value.copy(description = value)
-    }
-
-    fun updateVenue(value: String) {
-        _draft.value = _draft.value.copy(venue = value)
-    }
-
-    fun updateHostDisplayName(value: String) {
-        _draft.value = _draft.value.copy(hostDisplayName = value)
+    fun updateTopology(value: TopologyChoice) {
+        _draft.value = _draft.value.copy(topology = value)
     }
 
     fun hostEvent() {
@@ -77,7 +66,7 @@ class CreateEventViewModel(
 
             runCatching {
                 mesh.start()
-                mesh.hostEvent(title)
+                mesh.hostEvent(title, _draft.value.topology)
             }.onSuccess {
                 _uiState.value = CreateEventUiState.Hosting(title)
             }.onFailure { e ->
@@ -89,7 +78,7 @@ class CreateEventViewModel(
     }
 
     fun reset() {
-        _uiState.value = CreateEventUiState.Editing
         _draft.value = CreateEventDraft()
+        _uiState.value = CreateEventUiState.Editing
     }
 }
