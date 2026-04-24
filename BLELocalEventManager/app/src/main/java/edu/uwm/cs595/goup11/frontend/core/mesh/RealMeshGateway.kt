@@ -75,6 +75,8 @@ class RealMeshGateway(
             )
 
     private var currentEventName: String? = null
+    private var currentEventVenue: String? = null
+    private var currentEventDescription: String? = null
     private var started: Boolean = false
     private var scanJob: Job? = null
     private var scanTimeoutJob: Job? = null
@@ -215,17 +217,16 @@ class RealMeshGateway(
         }
     }
 
-    @Deprecated(
-        "Defaults to SnakeTopology. Use hostEvent(eventName, topology) to specify.",
-        ReplaceWith("hostEvent(eventName, TopologyChoice.SNAKE)")
-    )
-    override suspend fun hostEvent(eventName: String) {
-        hostEvent(eventName, TopologyChoice.SNAKE)
-    }
-
-    override suspend fun hostEvent(eventName: String, topology: TopologyChoice) {
+    override suspend fun hostEvent(
+        eventName: String,
+        topology: TopologyChoice,
+        venue: String,
+        description: String
+    ) {
         log("Hosting event: $eventName (topology: ${topology.code})")
         currentEventName = eventName
+        currentEventVenue = venue
+        currentEventDescription = description
         backend.createNetwork(eventName, topology)
     }
 
@@ -293,6 +294,7 @@ class RealMeshGateway(
         scanTimeoutJob = null
 
         seenSessionIds.clear()
+        customItinerary.clear()
         currentEventName = null
         _connectedPeers.value = emptyList()
         synchronized(chatHistory) { chatHistory.clear() }

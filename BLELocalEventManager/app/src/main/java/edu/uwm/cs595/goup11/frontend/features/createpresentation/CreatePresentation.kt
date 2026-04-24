@@ -67,6 +67,10 @@ fun CreatePresentationScreen(
     onBack: () -> Unit,
     onSuccess: () -> Unit
 ) {
+    LaunchedEffect(Unit) {
+        viewModel.reset()
+    }
+
     val draft by viewModel.draft.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
 
