@@ -453,6 +453,7 @@ fun AppNavigation() {
 
             // ── Explore ───────────────────────────────────────────────────────
             composable(SealedDestinations.EXPLORE.route) {
+                val exploreVm = remember { ExploreViewModel(meshGateway) }  // ← move inside composable
                 ExploreScreen(
                     onBack       = { navController.popBackStack() },
                     onEventClick = { sessionId ->

@@ -84,7 +84,7 @@ class RealMeshGateway(
     private val customItinerary = mutableListOf<ItineraryItem>()
 
     private val chatHistory = mutableListOf<ChatMessage>()
-
+    private val seenChatMessageIds = mutableSetOf<String>()
     override fun setDisplayName(name: String) {
         backend.setDisplayName(name)
         log("Display name set to: $name")
@@ -284,7 +284,7 @@ class RealMeshGateway(
     override suspend fun leaveEvent() {
         log("Leaving event")
         isLeaving = true
-
+        seenChatMessageIds.clear()
         backend.removeMessageListener(::onBackendMessage)
 
         backend.stopScan()
@@ -427,8 +427,12 @@ class RealMeshGateway(
     private fun onBackendMessage(msg: Message) {
         when (msg.type) {
             MessageType.TEXT_MESSAGE -> {
+                if (msg.from == backend.localEncodedName || msg.from == backend.myId) return
+                // Deduplicate
+                if (!seenChatMessageIds.add(msg.id)) return
                 val sessionId = currentEventName ?: "unknown"
                 val text = msg.data?.toString(StandardCharsets.UTF_8).orEmpty()
+
                 log("Received chat from ${msg.from}: $text")
 
                 val isBroadcast = msg.to == "ALL"
