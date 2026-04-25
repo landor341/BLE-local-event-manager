@@ -1,9 +1,9 @@
 package edu.uwm.cs595.goup11.backend.network
 
 import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.protobuf.ProtoBuf
-import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
+import kotlinx.serialization.protobuf.ProtoBuf
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -25,9 +25,11 @@ data class Message(
     @OptIn(ExperimentalSerializationApi::class)
     inline fun <reified T : Any> withPayload(payload: T): Message =
         copy(data = ProtoBuf.encodeToByteArray(payload))
+
     @OptIn(ExperimentalSerializationApi::class)
     inline fun <reified T : Any> decodePayload(): T =
         ProtoBuf.decodeFromByteArray(data ?: error("Message ${id} has no payload"))
+
     /**
      * Serialize message into bytes for Nearby Payload
      */
@@ -101,7 +103,11 @@ data class Message(
                 ttl = ttl,
                 replyTo = replyToRaw.ifEmpty { null },
                 id = id,
-                senderRole = try { UserRole.valueOf(roleName) } catch (e: Exception) { UserRole.ATTENDEE },
+                senderRole = try {
+                    UserRole.valueOf(roleName)
+                } catch (e: Exception) {
+                    UserRole.ATTENDEE
+                },
                 presentationId = presentationIdRaw.ifEmpty { null },
                 signature = if (signature.isEmpty()) null else signature,
                 senderPublicKey = if (senderPublicKey.isEmpty()) null else senderPublicKey

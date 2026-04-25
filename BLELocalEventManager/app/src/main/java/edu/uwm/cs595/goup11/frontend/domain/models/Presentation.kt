@@ -8,6 +8,7 @@ import edu.uwm.cs595.goup11.backend.network.PresentationEntry
 import edu.uwm.cs595.goup11.backend.network.PresentationStatus
 import java.time.LocalDateTime
 import java.time.ZoneOffset
+
 data class Presentation(
     val id: String,
     val name: String,
@@ -21,12 +22,12 @@ data class Presentation(
 )
 
 fun PresentationEntry.toUiModel(): Presentation = Presentation(
-    id                = id,
-    name              = name,
-    startTime         = LocalDateTime.ofEpochSecond(startTime / 1000, 0, ZoneOffset.UTC),
-    endTime           = LocalDateTime.ofEpochSecond(endTime / 1000, 0, ZoneOffset.UTC),
-    location          = location,
-    speakerName       = speakerName,
+    id = id,
+    name = name,
+    startTime = LocalDateTime.ofEpochSecond(startTime / 1000, 0, ZoneOffset.UTC),
+    endTime = LocalDateTime.ofEpochSecond(endTime / 1000, 0, ZoneOffset.UTC),
+    location = location,
+    speakerName = speakerName,
     speakerEndpointId = speakerEndpointId,
-    status            = status
+    status = status
 )

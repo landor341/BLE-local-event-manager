@@ -16,7 +16,12 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.protobuf.ProtoBuf
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import java.util.UUID
@@ -41,17 +46,17 @@ class DirectoryManagerUnitTest {
     // -------------------------------------------------------------------------
 
     private val LOCAL_ID = "local-endpoint"
-    private val PEER_A   = "peer-a"
-    private val PEER_B   = "peer-b"
-    private val PEER_C   = "peer-c"
+    private val PEER_A = "peer-a"
+    private val PEER_B = "peer-b"
+    private val PEER_C = "peer-c"
 
     private val unconfinedDispatcher = UnconfinedTestDispatcher()
-    private val testScope            = TestScope(unconfinedDispatcher)
+    private val testScope = TestScope(unconfinedDispatcher)
 
     // Separate scope only for verify loop tests — StandardTestDispatcher
     // pauses at every delay() so advanceTimeBy() works correctly
     private val verifyDispatcher = StandardTestDispatcher()
-    private val verifyScope      = TestScope(verifyDispatcher)
+    private val verifyScope = TestScope(verifyDispatcher)
 
     /** All messages captured by the [send] lambda, in order */
     private val sentMessages = mutableListOf<Pair<String, Message>>()
@@ -62,9 +67,9 @@ class DirectoryManagerUnitTest {
     fun setUp() {
         sentMessages.clear()
         manager = DirectoryManager(
-            localEndpointId  = { LOCAL_ID },
-            send             = { to, msg -> sentMessages.add(to to msg) },
-            scope            = testScope,
+            localEndpointId = { LOCAL_ID },
+            send = { to, msg -> sentMessages.add(to to msg) },
+            scope = testScope,
             verifyIntervalMs = 10_000L
         )
         manager.registerSelf()
@@ -75,40 +80,40 @@ class DirectoryManagerUnitTest {
     // -------------------------------------------------------------------------
 
     private fun fakeAdvertisedName(displayName: String) = AdvertisedName(
-        eventName    = "TestEvent",
+        eventName = "TestEvent",
         topologyCode = "msh",
-        role         = TopologyStrategy.Role.PEER,
-        displayName  = displayName
+        role = TopologyStrategy.Role.PEER,
+        displayName = displayName
     )
 
     private fun peerEntry(
-        endpointId:    String,
-        displayName:   String     = endpointId,
-        lamportClock:  Long       = 1L,
-        status:        PeerStatus = PeerStatus.ACTIVE,
-        joinTimestamp: Long       = System.currentTimeMillis()
+        endpointId: String,
+        displayName: String = endpointId,
+        lamportClock: Long = 1L,
+        status: PeerStatus = PeerStatus.ACTIVE,
+        joinTimestamp: Long = System.currentTimeMillis()
     ) = PeerEntry(
-        endpointId    = endpointId,
-        displayName   = displayName,
+        endpointId = endpointId,
+        displayName = displayName,
         joinTimestamp = joinTimestamp,
-        lamportClock  = lamportClock,
-        status        = status
+        lamportClock = lamportClock,
+        status = status
     )
 
     private inline fun <reified T : Any> buildMessage(
-        from:    String,
-        to:      String      = LOCAL_ID,
-        type:    MessageType,
+        from: String,
+        to: String = LOCAL_ID,
+        type: MessageType,
         payload: T,
-        replyTo: String?     = null
+        replyTo: String? = null
     ) = Message(
-        to      = to,
-        from    = from,
-        type    = type,
-        data    = ProtoBuf.encodeToByteArray(payload),
-        ttl     = 1,
+        to = to,
+        from = from,
+        type = type,
+        data = ProtoBuf.encodeToByteArray(payload),
+        ttl = 1,
         replyTo = replyTo,
-        id      = UUID.randomUUID().toString()
+        id = UUID.randomUUID().toString()
     )
 
     private fun lastSentTo(endpointId: String): Message? =
@@ -121,7 +126,7 @@ class DirectoryManagerUnitTest {
     // Convenience accessors — read current StateFlow values
     // -------------------------------------------------------------------------
 
-    private fun allPeers()    = manager.allPeers.value
+    private fun allPeers() = manager.allPeers.value
     private fun activePeers() = manager.activePeers.value
 
     // -------------------------------------------------------------------------
@@ -337,8 +342,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleSync_returnsTrue() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_A)))
         )
         assertTrue(manager.onMessage(msg))
@@ -347,8 +352,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleSync_mergesIncomingPeersIntoDirectory() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_B, lamportClock = 5L)))
         )
         manager.onMessage(msg)
@@ -358,8 +363,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleSync_repliesWithSyncAck() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_A)))
         )
         sentMessages.clear()
@@ -373,8 +378,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleSync_ackCorrelatesWithRequestId() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_A)))
         )
         manager.onMessage(msg)
@@ -385,8 +390,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleSync_ackContainsLocalPeer() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_A)))
         )
         manager.onMessage(msg)
@@ -399,8 +404,8 @@ class DirectoryManagerUnitTest {
     fun handleSync_doesNotOverwriteLocalPeerEntry() {
         val spoofedLocalEntry = peerEntry(LOCAL_ID, displayName = "spoofed", lamportClock = 999L)
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC,
             payload = DirectorySyncPayload(listOf(spoofedLocalEntry))
         )
         manager.onMessage(msg)
@@ -415,8 +420,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleSyncAck_returnsTrue() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC_ACK,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC_ACK,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_A)))
         )
         assertTrue(manager.onMessage(msg))
@@ -425,8 +430,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleSyncAck_mergesNewPeersIntoDirectory() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC_ACK,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC_ACK,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_B, lamportClock = 5L)))
         )
         manager.onMessage(msg)
@@ -439,8 +444,8 @@ class DirectoryManagerUnitTest {
         sentMessages.clear()
 
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC_ACK,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC_ACK,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_C, lamportClock = 5L)))
         )
         manager.onMessage(msg)
@@ -456,8 +461,8 @@ class DirectoryManagerUnitTest {
         sentMessages.clear()
 
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC_ACK,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC_ACK,
             payload = DirectorySyncPayload(listOf(peerEntry(PEER_B, lamportClock = 5L)))
         )
         manager.onMessage(msg)
@@ -474,8 +479,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handlePeerAdded_returnsTrue() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
             payload = DirectoryPeerPayload(peerEntry(PEER_B))
         )
         assertTrue(manager.onMessage(msg))
@@ -484,8 +489,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handlePeerAdded_addsPeerToDirectory() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
             payload = DirectoryPeerPayload(peerEntry(PEER_B, lamportClock = 3L))
         )
         manager.onMessage(msg)
@@ -498,8 +503,8 @@ class DirectoryManagerUnitTest {
         sentMessages.clear()
 
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
             payload = DirectoryPeerPayload(peerEntry(PEER_C, lamportClock = 5L))
         )
         manager.onMessage(msg)
@@ -512,8 +517,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handlePeerAdded_staleLowerClock_doesNotUpdateDirectory() {
         val highClockMsg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
             payload = DirectoryPeerPayload(peerEntry(PEER_B, lamportClock = 10L))
         )
         manager.onMessage(highClockMsg)
@@ -521,8 +526,8 @@ class DirectoryManagerUnitTest {
         sentMessages.clear()
 
         val lowClockMsg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
             payload = DirectoryPeerPayload(peerEntry(PEER_B, lamportClock = 2L))
         )
         manager.onMessage(lowClockMsg)
@@ -536,16 +541,16 @@ class DirectoryManagerUnitTest {
         manager.onPeerConnected(PEER_B, fakeAdvertisedName("Bob"))
 
         val highClockMsg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
             payload = DirectoryPeerPayload(peerEntry(PEER_C, lamportClock = 10L))
         )
         manager.onMessage(highClockMsg)
         sentMessages.clear()
 
         val lowClockMsg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
             payload = DirectoryPeerPayload(peerEntry(PEER_C, lamportClock = 2L))
         )
         manager.onMessage(lowClockMsg)
@@ -561,9 +566,15 @@ class DirectoryManagerUnitTest {
     fun handlePeerDisconnected_returnsTrue() {
         manager.onPeerConnected(PEER_A, fakeAdvertisedName("Alice"))
         val msg = buildMessage(
-            from    = PEER_B,
-            type    = MessageType.DIRECTORY_PEER_DISCONNECTED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_A, status = PeerStatus.DISCONNECTED, lamportClock = 99L))
+            from = PEER_B,
+            type = MessageType.DIRECTORY_PEER_DISCONNECTED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_A,
+                    status = PeerStatus.DISCONNECTED,
+                    lamportClock = 99L
+                )
+            )
         )
         assertTrue(manager.onMessage(msg))
     }
@@ -572,9 +583,15 @@ class DirectoryManagerUnitTest {
     fun handlePeerDisconnected_tombstonesPeer() {
         manager.onPeerConnected(PEER_A, fakeAdvertisedName("Alice"))
         val msg = buildMessage(
-            from    = PEER_B,
-            type    = MessageType.DIRECTORY_PEER_DISCONNECTED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_A, status = PeerStatus.DISCONNECTED, lamportClock = 99L))
+            from = PEER_B,
+            type = MessageType.DIRECTORY_PEER_DISCONNECTED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_A,
+                    status = PeerStatus.DISCONNECTED,
+                    lamportClock = 99L
+                )
+            )
         )
         manager.onMessage(msg)
         val entry = allPeers().first { it.endpointId == PEER_A }
@@ -584,16 +601,28 @@ class DirectoryManagerUnitTest {
     @Test
     fun handlePeerDisconnected_reconnectRace_higherClockWins() {
         val rejoinMsg = buildMessage(
-            from    = PEER_B,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_A, status = PeerStatus.ACTIVE, lamportClock = 50L))
+            from = PEER_B,
+            type = MessageType.DIRECTORY_PEER_ADDED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_A,
+                    status = PeerStatus.ACTIVE,
+                    lamportClock = 50L
+                )
+            )
         )
         manager.onMessage(rejoinMsg)
 
         val disconnectMsg = buildMessage(
-            from    = PEER_B,
-            type    = MessageType.DIRECTORY_PEER_DISCONNECTED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_A, status = PeerStatus.DISCONNECTED, lamportClock = 10L))
+            from = PEER_B,
+            type = MessageType.DIRECTORY_PEER_DISCONNECTED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_A,
+                    status = PeerStatus.DISCONNECTED,
+                    lamportClock = 10L
+                )
+            )
         )
         manager.onMessage(disconnectMsg)
 
@@ -606,17 +635,23 @@ class DirectoryManagerUnitTest {
         manager.onPeerConnected(PEER_B, fakeAdvertisedName("Bob"))
 
         val addMsg = buildMessage(
-            from    = PEER_C,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
+            from = PEER_C,
+            type = MessageType.DIRECTORY_PEER_ADDED,
             payload = DirectoryPeerPayload(peerEntry(PEER_A, lamportClock = 50L))
         )
         manager.onMessage(addMsg)
         sentMessages.clear()
 
         val disconnectMsg = buildMessage(
-            from    = PEER_C,
-            type    = MessageType.DIRECTORY_PEER_DISCONNECTED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_A, status = PeerStatus.DISCONNECTED, lamportClock = 5L))
+            from = PEER_C,
+            type = MessageType.DIRECTORY_PEER_DISCONNECTED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_A,
+                    status = PeerStatus.DISCONNECTED,
+                    lamportClock = 5L
+                )
+            )
         )
         manager.onMessage(disconnectMsg)
 
@@ -630,8 +665,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleVerify_returnsTrue() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY,
             payload = DirectoryVerifyPayload(hash = "somehash")
         )
         assertTrue(manager.onMessage(msg))
@@ -640,8 +675,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleVerify_mismatchHash_repliesWithMismatchAndFullDirectory() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY,
             payload = DirectoryVerifyPayload(hash = "definitely-wrong-hash")
         )
         sentMessages.clear()
@@ -660,8 +695,8 @@ class DirectoryManagerUnitTest {
     fun handleVerify_mismatchReply_containsFullDirectory() {
         manager.onPeerConnected(PEER_B, fakeAdvertisedName("Bob"))
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY,
             payload = DirectoryVerifyPayload(hash = "wrong")
         )
         manager.onMessage(msg)
@@ -676,40 +711,43 @@ class DirectoryManagerUnitTest {
         val sentFromSecond = mutableListOf<Pair<String, Message>>()
         val second = DirectoryManager(
             localEndpointId = { LOCAL_ID },
-            send            = { to, msg -> sentFromSecond.add(to to msg) },
-            scope           = testScope
+            send = { to, msg -> sentFromSecond.add(to to msg) },
+            scope = testScope
         )
         second.start()
 
         val probeVerify = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY,
             payload = DirectoryVerifyPayload(hash = "probe")
         )
         second.onMessage(probeVerify)
 
-        val ack = sentFromSecond.lastOrNull { it.second.type == MessageType.DIRECTORY_VERIFY_ACK }?.second
+        val ack =
+            sentFromSecond.lastOrNull { it.second.type == MessageType.DIRECTORY_VERIFY_ACK }?.second
         assertNotNull("Second manager should have replied with a verify ack", ack)
 
         val mismatchPayload = ProtoBuf.decodeFromByteArray<DirectoryVerifyAckPayload>(ack!!.data!!)
 
         val syncMsg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_SYNC,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_SYNC,
             payload = DirectorySyncPayload(mismatchPayload.peers)
         )
         manager.onMessage(syncMsg)
 
         val secondVerify = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY,
             payload = DirectoryVerifyPayload(hash = "probe")
         )
         sentFromSecond.clear()
         second.onMessage(secondVerify)
 
-        val secondAck = sentFromSecond.last { it.second.type == MessageType.DIRECTORY_VERIFY_ACK }.second
-        val secondAckPayload = ProtoBuf.decodeFromByteArray<DirectoryVerifyAckPayload>(secondAck.data!!)
+        val secondAck =
+            sentFromSecond.last { it.second.type == MessageType.DIRECTORY_VERIFY_ACK }.second
+        val secondAckPayload =
+            ProtoBuf.decodeFromByteArray<DirectoryVerifyAckPayload>(secondAck.data!!)
         assertEquals(VerifyStatus.MISMATCH, secondAckPayload.status)
 
         second.stop()
@@ -722,8 +760,8 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleVerifyAck_returnsTrue() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY_ACK,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY_ACK,
             payload = DirectoryVerifyAckPayload(status = VerifyStatus.OK)
         )
         assertTrue(manager.onMessage(msg))
@@ -733,8 +771,8 @@ class DirectoryManagerUnitTest {
     fun handleVerifyAck_ok_doesNotModifyDirectory() {
         val peersBefore = allPeers().map { it.endpointId }.toSet()
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY_ACK,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY_ACK,
             payload = DirectoryVerifyAckPayload(status = VerifyStatus.OK)
         )
         manager.onMessage(msg)
@@ -744,11 +782,11 @@ class DirectoryManagerUnitTest {
     @Test
     fun handleVerifyAck_mismatch_mergesMissingPeers() {
         val msg = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY_ACK,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY_ACK,
             payload = DirectoryVerifyAckPayload(
                 status = VerifyStatus.MISMATCH,
-                peers  = listOf(peerEntry(PEER_B, lamportClock = 5L))
+                peers = listOf(peerEntry(PEER_B, lamportClock = 5L))
             )
         )
         manager.onMessage(msg)
@@ -761,11 +799,11 @@ class DirectoryManagerUnitTest {
         sentMessages.clear()
 
         val msg = buildMessage(
-            from    = PEER_B,
-            type    = MessageType.DIRECTORY_VERIFY_ACK,
+            from = PEER_B,
+            type = MessageType.DIRECTORY_VERIFY_ACK,
             payload = DirectoryVerifyAckPayload(
                 status = VerifyStatus.MISMATCH,
-                peers  = listOf(peerEntry(PEER_C, lamportClock = 5L))
+                peers = listOf(peerEntry(PEER_C, lamportClock = 5L))
             )
         )
         manager.onMessage(msg)
@@ -781,11 +819,11 @@ class DirectoryManagerUnitTest {
         sentMessages.clear()
 
         val msg = buildMessage(
-            from    = PEER_B,
-            type    = MessageType.DIRECTORY_VERIFY_ACK,
+            from = PEER_B,
+            type = MessageType.DIRECTORY_VERIFY_ACK,
             payload = DirectoryVerifyAckPayload(
                 status = VerifyStatus.MISMATCH,
-                peers  = listOf(peerEntry(PEER_C, lamportClock = 5L))
+                peers = listOf(peerEntry(PEER_C, lamportClock = 5L))
             )
         )
         manager.onMessage(msg)
@@ -818,16 +856,28 @@ class DirectoryManagerUnitTest {
     @Test
     fun lamport_higherClockWins() {
         val lowClock = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_B, displayName = "OldName", lamportClock = 2L))
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_B,
+                    displayName = "OldName",
+                    lamportClock = 2L
+                )
+            )
         )
         manager.onMessage(lowClock)
 
         val highClock = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_B, displayName = "NewName", lamportClock = 10L))
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_B,
+                    displayName = "NewName",
+                    lamportClock = 10L
+                )
+            )
         )
         manager.onMessage(highClock)
 
@@ -837,16 +887,28 @@ class DirectoryManagerUnitTest {
     @Test
     fun lamport_lowerClockLoses() {
         val highClock = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_B, displayName = "NewName", lamportClock = 10L))
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_B,
+                    displayName = "NewName",
+                    lamportClock = 10L
+                )
+            )
         )
         manager.onMessage(highClock)
 
         val lowClock = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_B, displayName = "OldName", lamportClock = 2L))
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_B,
+                    displayName = "OldName",
+                    lamportClock = 2L
+                )
+            )
         )
         manager.onMessage(lowClock)
 
@@ -856,16 +918,28 @@ class DirectoryManagerUnitTest {
     @Test
     fun lamport_tieClock_activeBeatsDisconnected() {
         val disconnected = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_B, status = PeerStatus.DISCONNECTED, lamportClock = 5L))
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_B,
+                    status = PeerStatus.DISCONNECTED,
+                    lamportClock = 5L
+                )
+            )
         )
         manager.onMessage(disconnected)
 
         val active = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_PEER_ADDED,
-            payload = DirectoryPeerPayload(peerEntry(PEER_B, status = PeerStatus.ACTIVE, lamportClock = 5L))
+            from = PEER_A,
+            type = MessageType.DIRECTORY_PEER_ADDED,
+            payload = DirectoryPeerPayload(
+                peerEntry(
+                    PEER_B,
+                    status = PeerStatus.ACTIVE,
+                    lamportClock = 5L
+                )
+            )
         )
         manager.onMessage(active)
 
@@ -879,9 +953,9 @@ class DirectoryManagerUnitTest {
     @Test
     fun verifyLoop_afterInterval_sendsVerifyToNeighbor() = verifyScope.runTest {
         val verifyManager = DirectoryManager(
-            localEndpointId  = { LOCAL_ID },
-            send             = { to, msg -> sentMessages.add(to to msg) },
-            scope            = verifyScope,
+            localEndpointId = { LOCAL_ID },
+            send = { to, msg -> sentMessages.add(to to msg) },
+            scope = verifyScope,
             verifyIntervalMs = 10_000L
         )
         verifyManager.registerSelf()
@@ -898,9 +972,9 @@ class DirectoryManagerUnitTest {
     @Test
     fun verifyLoop_noNeighbors_doesNotSendVerify() = verifyScope.runTest {
         val verifyManager = DirectoryManager(
-            localEndpointId  = { LOCAL_ID },
-            send             = { to, msg -> sentMessages.add(to to msg) },
-            scope            = verifyScope,
+            localEndpointId = { LOCAL_ID },
+            send = { to, msg -> sentMessages.add(to to msg) },
+            scope = verifyScope,
             verifyIntervalMs = 10_000L
         )
         verifyManager.registerSelf()
@@ -916,9 +990,9 @@ class DirectoryManagerUnitTest {
     @Test
     fun verifyLoop_sendsToLeastRecentlyVerifiedPeer() = verifyScope.runTest {
         val verifyManager = DirectoryManager(
-            localEndpointId  = { LOCAL_ID },
-            send             = { to, msg -> sentMessages.add(to to msg) },
-            scope            = verifyScope,
+            localEndpointId = { LOCAL_ID },
+            send = { to, msg -> sentMessages.add(to to msg) },
+            scope = verifyScope,
             verifyIntervalMs = 10_000L
         )
         verifyManager.registerSelf()
@@ -927,8 +1001,8 @@ class DirectoryManagerUnitTest {
         verifyManager.onPeerConnected(PEER_B, fakeAdvertisedName("Bob"))
 
         val okAck = buildMessage(
-            from    = PEER_A,
-            type    = MessageType.DIRECTORY_VERIFY_ACK,
+            from = PEER_A,
+            type = MessageType.DIRECTORY_VERIFY_ACK,
             payload = DirectoryVerifyAckPayload(status = VerifyStatus.OK)
         )
         verifyManager.onMessage(okAck)
@@ -975,11 +1049,11 @@ class DirectoryManagerUnitTest {
 
     @Test
     fun networkIntegration_largeNetwork_directoriesConvergeAfterChurn() {
-        val NUM_PEERS         = 10
+        val NUM_PEERS = 10
         val JOIN_LEAVE_CYCLES = 10
 
-        val managers     = mutableMapOf<String, DirectoryManager>()
-        val activePeers  = mutableListOf<String>()
+        val managers = mutableMapOf<String, DirectoryManager>()
+        val activePeers = mutableListOf<String>()
         val droppedPeers = mutableListOf<String>()
 
         fun route(toEndpointId: String, message: Message) {
@@ -988,11 +1062,11 @@ class DirectoryManagerUnitTest {
 
         fun buildManager(id: String, initialClock: Long = 0L): DirectoryManager {
             val m = DirectoryManager(
-                localEndpointId  = { id },
-                send             = { to, msg -> route(to, msg) },
-                scope            = testScope,
+                localEndpointId = { id },
+                send = { to, msg -> route(to, msg) },
+                scope = testScope,
                 verifyIntervalMs = 10_000L,
-                initialClock     = initialClock
+                initialClock = initialClock
             )
             m.registerSelf()
             return m
@@ -1052,6 +1126,7 @@ class DirectoryManagerUnitTest {
                     val id = droppedPeers[random.nextInt(droppedPeers.size)]
                     rejoin(id)
                 }
+
                 activePeers.size > 2 -> {
                     val id = activePeers[random.nextInt(activePeers.size)]
                     drop(id)
@@ -1061,8 +1136,8 @@ class DirectoryManagerUnitTest {
 
         // Assert convergence — read activePeers StateFlow value
         val expectedActiveIds = activePeers.toSortedSet()
-        var consistentCount   = 0
-        val inconsistencies   = mutableListOf<String>()
+        var consistentCount = 0
+        val inconsistencies = mutableListOf<String>()
 
         activePeers.forEach { id ->
             val seen = managers[id]
@@ -1083,7 +1158,13 @@ class DirectoryManagerUnitTest {
         inconsistencies.forEach { println(it) }
 
         val pct = (consistentCount.toDouble() / activePeers.size) * 100
-        println("Convergence: $consistentCount/${activePeers.size} managers consistent (${"%.1f".format(pct)}%)")
+        println(
+            "Convergence: $consistentCount/${activePeers.size} managers consistent (${
+                "%.1f".format(
+                    pct
+                )
+            }%)"
+        )
 
         assertTrue(
             "Expected >=95% directory consistency but got ${"%.1f".format(pct)}%",

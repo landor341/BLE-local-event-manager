@@ -1,9 +1,8 @@
 package edu.uwm.cs595.goup11.backend.network.topology
 
 import edu.uwm.cs595.goup11.backend.network.Message
-import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import edu.uwm.cs595.goup11.backend.network.Network
-import edu.uwm.cs595.goup11.backend.network.Peer
+import edu.uwm.cs595.goup11.backend.network.NetworkEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharedFlow
@@ -57,7 +56,8 @@ class TopologyContext(
     fun sendMessage(to: String, message: Message) = network.sendMessage(to, message)
 
     /** Send to a peer using its hardware ID — preferred overload for topology code. */
-    fun sendMessage(peer: TopologyPeer, message: Message) = network.sendMessage(peer.hardwareId, message)
+    fun sendMessage(peer: TopologyPeer, message: Message) =
+        network.sendMessage(peer.hardwareId, message)
 
     /**
      * Translate a peer's encoded name (logical address) to the transport-layer
@@ -67,10 +67,10 @@ class TopologyContext(
         network.encodedNameToHardwareId(encodedName)
 
     fun startAdvertising(encodedName: String) = onAdvertisingChanged(true, encodedName)
-    fun stopAdvertising()                     = onAdvertisingChanged(false, null)
+    fun stopAdvertising() = onAdvertisingChanged(false, null)
 
     fun startScan() = onScanChanged(true)
-    fun stopScan()  = onScanChanged(false)
+    fun stopScan() = onScanChanged(false)
 
     fun notifyRoleChanged(role: TopologyStrategy.Role) = onRoleChanged(role)
 

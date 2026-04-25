@@ -1,7 +1,7 @@
 package edu.uwm.cs595.goup11
 
-import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import edu.uwm.cs595.goup11.backend.network.ClientType
 import edu.uwm.cs595.goup11.backend.network.LocalNetwork
 import edu.uwm.cs595.goup11.backend.network.MockClient
@@ -10,7 +10,6 @@ import edu.uwm.cs595.goup11.frontend.core.AppContainer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test

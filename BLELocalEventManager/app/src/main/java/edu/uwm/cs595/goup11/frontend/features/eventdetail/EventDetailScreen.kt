@@ -93,8 +93,8 @@ fun EventDetailScreen(
 
             is EventDetailUiState.Error -> {
                 ErrorContent(
-                    message  = state.message,
-                    onRetry  = { viewModel.joinEvent(sessionId) },
+                    message = state.message,
+                    onRetry = { viewModel.joinEvent(sessionId) },
                     modifier = Modifier.padding(innerPadding)
                 )
             }
@@ -104,14 +104,14 @@ fun EventDetailScreen(
                     meshState is MeshUiState.InEvent || meshState is MeshUiState.Hosting
 
                 JoinedEventContent(
-                    event                = state.event,
-                    presentations        = presentations,
-                    onOpenChat           = { if (canOpenEventActions) onOpenChat(state.event.sessionId) },
+                    event = state.event,
+                    presentations = presentations,
+                    onOpenChat = { if (canOpenEventActions) onOpenChat(state.event.sessionId) },
                     onViewConnectedUsers = { if (canOpenEventActions) onViewConnectedUsers() },
-                    onViewPresentation   = onViewPresentation,
+                    onViewPresentation = onViewPresentation,
                     onCreatePresentation = onCreatePresentation,
-                    onLeave              = { viewModel.leaveEvent() },
-                    modifier             = Modifier.padding(innerPadding)
+                    onLeave = { viewModel.leaveEvent() },
+                    modifier = Modifier.padding(innerPadding)
                 )
             }
         }
@@ -129,12 +129,12 @@ private fun JoiningContent(modifier: Modifier = Modifier) {
     ) {
         CircularProgressIndicator()
         Text(
-            text  = "Joining event...",
+            text = "Joining event...",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            text  = "Preparing the local mesh session.",
+            text = "Preparing the local mesh session.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -155,13 +155,13 @@ private fun ErrorContent(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text       = "Couldn't join event",
-            style      = MaterialTheme.typography.titleLarge,
+            text = "Couldn't join event",
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
-            color      = MaterialTheme.colorScheme.error
+            color = MaterialTheme.colorScheme.error
         )
         Text(
-            text  = message,
+            text = message,
             style = MaterialTheme.typography.bodyMedium
         )
         Button(onClick = onRetry) {
@@ -190,10 +190,10 @@ private fun JoinedEventContent(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Text(
-            text       = event.title,
-            style      = MaterialTheme.typography.headlineMedium,
+            text = event.title,
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            color      = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.primary
         )
 
         Card(
@@ -214,12 +214,12 @@ private fun JoinedEventContent(
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text       = "Description",
-                style      = MaterialTheme.typography.titleLarge,
+                text = "Description",
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text  = event.description,
+                text = event.description,
                 style = MaterialTheme.typography.bodyLarge
             )
         }
@@ -230,21 +230,21 @@ private fun JoinedEventContent(
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                text       = "Presentations",
-                style      = MaterialTheme.typography.titleLarge,
+                text = "Presentations",
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
 
             if (presentations.isEmpty()) {
                 Text(
-                    text  = "No presentations scheduled yet.",
+                    text = "No presentations scheduled yet.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
                 presentations.forEach { presentation ->
                     PresentationCard(
-                        presentation     = presentation,
+                        presentation = presentation,
                         onViewPresentation = onViewPresentation
                     )
                 }
@@ -258,8 +258,8 @@ private fun JoinedEventContent(
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text       = "Schedule",
-                    style      = MaterialTheme.typography.titleLarge,
+                    text = "Schedule",
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
 
@@ -274,15 +274,15 @@ private fun JoinedEventContent(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text       = item.title,
-                                style      = MaterialTheme.typography.titleMedium,
+                                text = item.title,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
                             MetaRow(icon = Icons.Default.Schedule, text = item.time)
                             MetaRow(icon = Icons.Default.LocationOn, text = item.location)
                             item.speaker?.let {
                                 Text(
-                                    text  = "Speaker: $it",
+                                    text = "Speaker: $it",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -296,25 +296,33 @@ private fun JoinedEventContent(
         Spacer(Modifier.height(8.dp))
 
         Button(
-            onClick  = onOpenChat,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape    = RoundedCornerShape(14.dp)
+            onClick = onOpenChat,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(14.dp)
         ) { Text("Open Chat") }
         Button(
-            onClick  = { onCreatePresentation() },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape    = RoundedCornerShape(14.dp)
+            onClick = { onCreatePresentation() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(14.dp)
         ) { Text("Add Presentation") }
         Button(
-            onClick  = onViewConnectedUsers,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape    = RoundedCornerShape(14.dp)
+            onClick = onViewConnectedUsers,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(14.dp)
         ) { Text("View Connected Users") }
 
         Button(
-            onClick  = onLeave,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors   = ButtonDefaults.buttonColors(
+            onClick = onLeave,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.error
             ),
             shape = RoundedCornerShape(14.dp)
@@ -329,17 +337,17 @@ private fun PresentationCard(
     onViewPresentation: (String) -> Unit
 ) {
     OutlinedCard(
-        onClick  = { onViewPresentation(presentation.id) },
+        onClick = { onViewPresentation(presentation.id) },
         modifier = Modifier.fillMaxWidth(),
-        shape    = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(12.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text       = presentation.name,
-                style      = MaterialTheme.typography.titleMedium,
+                text = presentation.name,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
             MetaRow(
@@ -351,7 +359,7 @@ private fun PresentationCard(
                 text = presentation.location
             )
             Text(
-                text  = "Speaker: ${presentation.speakerName}",
+                text = "Speaker: ${presentation.speakerName}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -366,15 +374,15 @@ private fun MetaRow(
 ) {
     androidx.compose.foundation.layout.Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment     = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector     = icon,
+            imageVector = icon,
             contentDescription = null,
-            tint            = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            text  = text,
+            text = text,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

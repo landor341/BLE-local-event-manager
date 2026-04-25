@@ -55,8 +55,6 @@ class CreateEventViewModel(
 
     fun hostEvent() {
         val title = _draft.value.title.trim()
-        val venue = _draft.value.venue.trim()
-        val desc = _draft.value.description.trim()
 
         if (title.isBlank()) {
             _uiState.value = CreateEventUiState.Error("Enter an event name to continue.")

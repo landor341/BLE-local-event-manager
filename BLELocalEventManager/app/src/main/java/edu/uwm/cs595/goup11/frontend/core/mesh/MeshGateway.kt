@@ -6,59 +6,61 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 data class DiscoveredEventSummary(
-    val sessionId:    String,
-    val title:        String = sessionId,
+    val sessionId: String,
+    val title: String = sessionId,
     val topologyCode: String = "snk",
-    val hostName:     String = "",
-    val venue:        String = "Nearby"
+    val hostName: String = "",
+    val venue: String = "Nearby"
 )
 
 data class ItineraryItem(
-    val id:       String,
-    val title:    String,
-    val time:     String,
+    val id: String,
+    val title: String,
+    val time: String,
     val location: String,
-    val speaker:  String? = null
+    val speaker: String? = null
 )
 
 data class JoinedEventBundle(
-    val sessionId:   String,
-    val title:       String,
-    val venue:       String,
+    val sessionId: String,
+    val title: String,
+    val venue: String,
     val description: String,
-    val itinerary:   List<ItineraryItem>
+    val itinerary: List<ItineraryItem>
 )
 
 /**
  * A peer currently connected to this node, as seen by the gateway layer.
  */
 data class GatewayPeer(
-    val endpointId:  String,
+    val endpointId: String,
     val displayName: String,
     val encodedName: String
 )
 
 data class ChatMessage(
-    val sessionId:   String,
-    val sender:      String,
-    val senderName:  String = sender,
-    val senderRole:  UserRole = UserRole.ATTENDEE,
-    val text:        String,
+    val sessionId: String,
+    val sender: String,
+    val senderName: String = sender,
+    val senderRole: UserRole = UserRole.ATTENDEE,
+    val text: String,
     val timestampMs: Long,
-    val isMine:      Boolean,
+    val isMine: Boolean,
     val isBroadcast: Boolean = false,
     val recipientId: String? = null
 )
 
 sealed class MeshUiState {
-    data object Idle        : MeshUiState()
-    data object Scanning    : MeshUiState()
+    data object Idle : MeshUiState()
+    data object Scanning : MeshUiState()
     data object Advertising : MeshUiState()
-    data class  InEvent(val sessionId: String) : MeshUiState()
-    data class  Error(val reason: String)      : MeshUiState()
+    data class InEvent(val sessionId: String) : MeshUiState()
+    data class Error(val reason: String) : MeshUiState()
 
-    @Deprecated("Use Scanning") data class Joining(val sessionId: String) : MeshUiState()
-    @Deprecated("Use InEvent")  data class Hosting(val sessionId: String) : MeshUiState()
+    @Deprecated("Use Scanning")
+    data class Joining(val sessionId: String) : MeshUiState()
+    @Deprecated("Use InEvent")
+    data class Hosting(val sessionId: String) : MeshUiState()
 }
 
 enum class TopologyChoice(val code: String) {
@@ -73,12 +75,12 @@ enum class TopologyChoice(val code: String) {
  * backend/network types MUST NOT leak past the gateway/facade.
  */
 interface MeshGateway {
-    val myId:  String
+    val myId: String
     val state: StateFlow<MeshUiState>
 
     val discoveredEvents: Flow<DiscoveredEventSummary>
-    val chat:             Flow<ChatMessage>
-    val logs:             Flow<String>
+    val chat: Flow<ChatMessage>
+    val logs: Flow<String>
 
     /** Live list of peers currently connected to this node. */
     val connectedPeers: StateFlow<List<GatewayPeer>>

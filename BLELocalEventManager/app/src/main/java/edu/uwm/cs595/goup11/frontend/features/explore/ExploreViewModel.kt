@@ -48,7 +48,7 @@ class ExploreViewModel(
                 if (state is MeshUiState.Error) {
                     _uiState.value = ExploreUiState.Error
                 }
-                
+
                 // If we are hosting or already in an event, ensure it's in the list
                 getSessionId(state)?.let { sessionId ->
                     _events.update { current ->
@@ -83,7 +83,7 @@ class ExploreViewModel(
         viewModelScope.launch {
             _events.value = emptyList()
             _uiState.value = ExploreUiState.Loading
-            
+
             // Re-add self if already in a session when starting a fresh scan
             getSessionId(mesh.state.value)?.let { sessionId ->
                 _events.value = listOf(

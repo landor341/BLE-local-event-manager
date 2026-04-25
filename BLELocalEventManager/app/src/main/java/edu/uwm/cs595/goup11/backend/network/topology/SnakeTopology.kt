@@ -40,13 +40,13 @@ class SnakeTopology(
     override val maxPeerCount: Int = 2,
     private val discoveryIntervalMs: Long = 5_000,
     private val keepaliveIntervalMs: Long = 5_000,
-    private val keepaliveTimeoutMs:  Long = 15_000
+    private val keepaliveTimeoutMs: Long = 15_000
 ) : TopologyStrategy {
 
     override val topologyCode: String = "snk"
     override val localRole: TopologyStrategy.Role = TopologyStrategy.Role.PEER
 
-    private val peers       = ConcurrentHashMap<String, TopologyPeer>()
+    private val peers = ConcurrentHashMap<String, TopologyPeer>()
 
     /**
      * All endpoint IDs known to be in this node's chain segment, including
@@ -81,7 +81,6 @@ class SnakeTopology(
     }
 
 
-
     private fun startKeepalive(context: TopologyContext) {
         keepaliveJob = context.launchJob {
             while (true) {
@@ -107,10 +106,10 @@ class SnakeTopology(
                 context.sendMessage(
                     topoPeer,
                     Message(
-                        to   = topoPeer.hardwareId,
+                        to = topoPeer.hardwareId,
                         from = context.endpointId,
                         type = MessageType.PING,
-                        ttl  = 1
+                        ttl = 1
                     )
                 )
             }
@@ -169,6 +168,7 @@ class SnakeTopology(
                 }
         }
     }
+
     private fun stopDiscovery(context: TopologyContext) {
         discoveryJob?.cancel()
         discoveryJob = null
@@ -204,7 +204,7 @@ class SnakeTopology(
         advertisedName: AdvertisedName
     ) {
         peers[endpointId] = TopologyPeer(
-            hardwareId     = endpointId,
+            hardwareId = endpointId,
             advertisedName = advertisedName
         )
 
@@ -257,10 +257,10 @@ class SnakeTopology(
             context.sendMessage(
                 peer,
                 Message(
-                    to   = peer.hardwareId,
+                    to = peer.hardwareId,
                     from = context.endpointId,
                     type = MessageType.HELLO,
-                    ttl  = maxPeerCount + 1,   // enough hops to traverse the whole chain
+                    ttl = maxPeerCount + 1,   // enough hops to traverse the whole chain
                     data = memberList.toByteArray(Charsets.UTF_8)
                 )
             )
@@ -281,11 +281,11 @@ class SnakeTopology(
                 context.sendMessage(
                     peer,
                     Message(
-                        to      = peer.hardwareId,
-                        from    = context.endpointId,
-                        type    = MessageType.PONG,
+                        to = peer.hardwareId,
+                        from = context.endpointId,
+                        type = MessageType.PONG,
                         replyTo = message.id,
-                        ttl     = 1
+                        ttl = 1
                     )
                 )
                 true
@@ -314,10 +314,10 @@ class SnakeTopology(
                             context.sendMessage(
                                 peer,
                                 Message(
-                                    to   = peer.hardwareId,
+                                    to = peer.hardwareId,
                                     from = context.endpointId,
                                     type = MessageType.HELLO,
-                                    ttl  = (message.ttl - 1).coerceAtLeast(0),
+                                    ttl = (message.ttl - 1).coerceAtLeast(0),
                                     data = memberList.toByteArray(Charsets.UTF_8)
                                 )
                             )
@@ -363,6 +363,7 @@ class SnakeTopology(
             context.disconnect(endpointId)
         }
     }
+
     override fun retrieveAllConnectedClients(): List<TopologyPeer> {
         return peers.values.toList()
     }

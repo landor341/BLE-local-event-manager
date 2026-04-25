@@ -16,6 +16,7 @@ data class PresentationEntry(
     val description: String = "",
     val status: PresentationStatus = PresentationStatus.ACTIVE
 )
+
 @Serializable
 enum class PresentationStatus {
     ACTIVE,

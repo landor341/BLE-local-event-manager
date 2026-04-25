@@ -1,17 +1,15 @@
 package edu.uwm.cs595.goup11.backend.network
 
-import edu.uwm.cs595.goup11.backend.network.Message
-import edu.uwm.cs595.goup11.backend.network.MessageType
-import edu.uwm.cs595.goup11.backend.network.PresentationEntry
-import edu.uwm.cs595.goup11.backend.network.PresentationStatus
 import edu.uwm.cs595.goup11.backend.network.handlers.CollectionDataSyncHandler
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.protobuf.ProtoBuf
-import kotlinx.serialization.encodeToByteArray
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.UUID
@@ -34,13 +32,13 @@ class CollectionDataSyncHandlerTest {
     // -------------------------------------------------------------------------
 
     private val LOCAL_ID = "local-endpoint"
-    private val PEER_A   = "peer-a"
-    private val PEER_B   = "peer-b"
-    private val PEER_C   = "peer-c"
+    private val PEER_A = "peer-a"
+    private val PEER_B = "peer-b"
+    private val PEER_C = "peer-c"
     private val IDENTIFIER = "presentations"
 
     private val unconfinedDispatcher = UnconfinedTestDispatcher()
-    private val testScope            = TestScope(unconfinedDispatcher)
+    private val testScope = TestScope(unconfinedDispatcher)
 
     /** All messages sent via [send] lambda, in order */
     private val sentMessages = mutableListOf<Pair<String, Message>>()
@@ -66,12 +64,12 @@ class CollectionDataSyncHandlerTest {
         sent: MutableList<Pair<String, Message>> = sentMessages,
         broadcast: MutableList<Message> = broadcastMessages
     ) = CollectionDataSyncHandler(
-        identifier      = IDENTIFIER,
-        serializer      = PresentationEntry.serializer(),
+        identifier = IDENTIFIER,
+        serializer = PresentationEntry.serializer(),
         localEndpointId = { localId },
-        send            = { to, msg -> sent.add(to to msg) },
-        broadcast       = { msg -> broadcast.add(msg) },
-        isSameItem      = { a, b -> a.id == b.id }
+        send = { to, msg -> sent.add(to to msg) },
+        broadcast = { msg -> broadcast.add(msg) },
+        isSameItem = { a, b -> a.id == b.id }
     )
 
     private fun presentation(
@@ -84,14 +82,14 @@ class CollectionDataSyncHandlerTest {
         speakerEndpointId: String = PEER_A,
         status: PresentationStatus = PresentationStatus.ACTIVE
     ) = PresentationEntry(
-        id                = id,
-        name              = name,
-        startTime         = startTime,
-        endTime           = endTime,
-        location          = location,
-        speakerName       = speakerName,
+        id = id,
+        name = name,
+        startTime = startTime,
+        endTime = endTime,
+        location = location,
+        speakerName = speakerName,
         speakerEndpointId = speakerEndpointId,
-        status            = status
+        status = status
     )
 
     /**
@@ -109,19 +107,19 @@ class CollectionDataSyncHandlerTest {
     ): Message {
         val envelope = CollectionDataSyncHandler.DataEnvelope(
             identifier = IDENTIFIER,
-            items      = items,
+            items = items,
             singleItem = singleItem
         )
         val serializer = CollectionDataSyncHandler.DataEnvelope.serializer(
             PresentationEntry.serializer()
         )
         return Message(
-            to   = to,
+            to = to,
             from = from,
             type = type,
             data = ProtoBuf.encodeToByteArray(serializer, envelope),
-            ttl  = ttl,
-            id   = id
+            ttl = ttl,
+            id = id
         )
     }
 
@@ -139,12 +137,12 @@ class CollectionDataSyncHandlerTest {
             PresentationEntry.serializer()
         )
         return Message(
-            to   = LOCAL_ID,
+            to = LOCAL_ID,
             from = from,
             type = type,
             data = ProtoBuf.encodeToByteArray(serializer, envelope),
-            ttl  = 5,
-            id   = UUID.randomUUID().toString()
+            ttl = 5,
+            id = UUID.randomUUID().toString()
         )
     }
 
@@ -355,8 +353,8 @@ class CollectionDataSyncHandlerTest {
         val p1 = presentation(id = "p1")
         val p2 = presentation(id = "p2")
         val msg = buildSyncMessage(
-            from  = PEER_A,
-            type  = MessageType.DATA_SYNC,
+            from = PEER_A,
+            type = MessageType.DATA_SYNC,
             items = listOf(p1, p2)
         )
         handler.processMessage(msg)
@@ -366,8 +364,8 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_dataSync_repliesWithDataSyncAck() {
         val msg = buildSyncMessage(
-            from  = PEER_A,
-            type  = MessageType.DATA_SYNC,
+            from = PEER_A,
+            type = MessageType.DATA_SYNC,
             items = emptyList()
         )
         handler.processMessage(msg)
@@ -380,8 +378,8 @@ class CollectionDataSyncHandlerTest {
     fun processMessage_dataSync_ackContainsLocalItems() {
         handler.addItem(presentation(id = "local-p1"))
         val msg = buildSyncMessage(
-            from  = PEER_A,
-            type  = MessageType.DATA_SYNC,
+            from = PEER_A,
+            type = MessageType.DATA_SYNC,
             items = emptyList()
         )
         handler.processMessage(msg)
@@ -397,8 +395,8 @@ class CollectionDataSyncHandlerTest {
         val p = presentation(id = "p1")
         handler.addItem(p)
         val msg = buildSyncMessage(
-            from  = PEER_A,
-            type  = MessageType.DATA_SYNC,
+            from = PEER_A,
+            type = MessageType.DATA_SYNC,
             items = listOf(p)
         )
         handler.processMessage(msg)
@@ -408,8 +406,8 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_dataSync_returnsTrueWhenConsumed() {
         val msg = buildSyncMessage(
-            from  = PEER_A,
-            type  = MessageType.DATA_SYNC,
+            from = PEER_A,
+            type = MessageType.DATA_SYNC,
             items = emptyList()
         )
         assertTrue(handler.processMessage(msg))
@@ -423,8 +421,8 @@ class CollectionDataSyncHandlerTest {
     fun processMessage_dataSyncAck_mergesIncomingItems() {
         val p = presentation(id = "p1")
         val msg = buildSyncMessage(
-            from  = PEER_A,
-            type  = MessageType.DATA_SYNC_ACK,
+            from = PEER_A,
+            type = MessageType.DATA_SYNC_ACK,
             items = listOf(p)
         )
         handler.processMessage(msg)
@@ -434,8 +432,8 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_dataSyncAck_doesNotReply() {
         val msg = buildSyncMessage(
-            from  = PEER_A,
-            type  = MessageType.DATA_SYNC_ACK,
+            from = PEER_A,
+            type = MessageType.DATA_SYNC_ACK,
             items = emptyList()
         )
         handler.processMessage(msg)
@@ -450,10 +448,10 @@ class CollectionDataSyncHandlerTest {
     fun processMessage_dataUpdateAdd_addsItem() {
         val p = presentation(id = "p1")
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = p,
-            ttl        = 5
+            ttl = 5
         )
         handler.processMessage(msg)
         assertTrue(currentData().any { it.id == "p1" })
@@ -462,10 +460,10 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_dataUpdateAdd_rebroadcastsWhenTtlAboveOne() {
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = presentation(id = "p1"),
-            ttl        = 3
+            ttl = 3
         )
         handler.processMessage(msg)
         assertEquals(1, allBroadcastOfType(MessageType.DATA_UPDATE_ADD).size)
@@ -474,10 +472,10 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_dataUpdateAdd_doesNotRebroadcastWhenTtlIsOne() {
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = presentation(id = "p1"),
-            ttl        = 1
+            ttl = 1
         )
         handler.processMessage(msg)
         assertTrue(allBroadcastOfType(MessageType.DATA_UPDATE_ADD).isEmpty())
@@ -488,10 +486,10 @@ class CollectionDataSyncHandlerTest {
         val p = presentation(id = "p1")
         handler.addItem(p)
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = p,
-            ttl        = 5
+            ttl = 5
         )
         handler.processMessage(msg)
         assertEquals(1, currentData().size)
@@ -506,10 +504,10 @@ class CollectionDataSyncHandlerTest {
         val p = presentation(id = "p1", name = "Original")
         handler.addItem(p)
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_MOD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_MOD,
             singleItem = p.copy(name = "Updated"),
-            ttl        = 5
+            ttl = 5
         )
         handler.processMessage(msg)
         assertEquals("Updated", currentData().first { it.id == "p1" }.name)
@@ -520,10 +518,10 @@ class CollectionDataSyncHandlerTest {
         val p = presentation(id = "p1")
         handler.addItem(p)
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_MOD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_MOD,
             singleItem = p.copy(name = "Updated"),
-            ttl        = 3
+            ttl = 3
         )
         handler.processMessage(msg)
         assertEquals(1, allBroadcastOfType(MessageType.DATA_UPDATE_MOD).size)
@@ -532,10 +530,10 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_dataUpdateMod_itemNotFound_doesNothing() {
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_MOD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_MOD,
             singleItem = presentation(id = "nonexistent"),
-            ttl        = 5
+            ttl = 5
         )
         handler.processMessage(msg)
         assertTrue(currentData().isEmpty())
@@ -551,10 +549,10 @@ class CollectionDataSyncHandlerTest {
         val p = presentation(id = "p1")
         handler.addItem(p)
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_REMOVE,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_REMOVE,
             singleItem = p,
-            ttl        = 5
+            ttl = 5
         )
         handler.processMessage(msg)
         assertTrue(currentData().none { it.id == "p1" })
@@ -565,10 +563,10 @@ class CollectionDataSyncHandlerTest {
         val p = presentation(id = "p1")
         handler.addItem(p)
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_REMOVE,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_REMOVE,
             singleItem = p,
-            ttl        = 3
+            ttl = 3
         )
         handler.processMessage(msg)
         assertEquals(1, allBroadcastOfType(MessageType.DATA_UPDATE_REMOVE).size)
@@ -577,10 +575,10 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_dataUpdateRemove_itemNotFound_doesNothing() {
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_REMOVE,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_REMOVE,
             singleItem = presentation(id = "nonexistent"),
-            ttl        = 5
+            ttl = 5
         )
         handler.processMessage(msg)
         assertTrue(broadcastMessages.isEmpty())
@@ -593,8 +591,8 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_wrongIdentifier_returnsFalse() {
         val msg = buildWrongIdentifierMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = presentation()
         )
         assertFalse(handler.processMessage(msg))
@@ -603,8 +601,8 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_wrongIdentifier_doesNotModifyData() {
         val msg = buildWrongIdentifierMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = presentation()
         )
         handler.processMessage(msg)
@@ -614,11 +612,11 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun processMessage_unrelatedMessageType_returnsFalse() {
         val msg = Message(
-            to   = LOCAL_ID,
+            to = LOCAL_ID,
             from = PEER_A,
             type = MessageType.TEXT_MESSAGE,
             data = "hello".toByteArray(),
-            ttl  = 5
+            ttl = 5
         )
         assertFalse(handler.processMessage(msg))
     }
@@ -632,11 +630,11 @@ class CollectionDataSyncHandlerTest {
         val fixedId = UUID.randomUUID().toString()
         val p = presentation(id = "p1")
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = p,
-            ttl        = 5,
-            id         = fixedId
+            ttl = 5,
+            id = fixedId
         )
         handler.processMessage(msg)
         handler.processMessage(msg) // second call with same message id
@@ -647,11 +645,11 @@ class CollectionDataSyncHandlerTest {
     fun processMessage_duplicateMessageId_rebroadcastsOnlyOnce() {
         val fixedId = UUID.randomUUID().toString()
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = presentation(id = "p1"),
-            ttl        = 5,
-            id         = fixedId
+            ttl = 5,
+            id = fixedId
         )
         handler.processMessage(msg)
         handler.processMessage(msg)
@@ -663,11 +661,11 @@ class CollectionDataSyncHandlerTest {
         val fixedId = UUID.randomUUID().toString()
         val p = presentation(id = "p1")
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = p,
-            ttl        = 5,
-            id         = fixedId
+            ttl = 5,
+            id = fixedId
         )
         handler.processMessage(msg)
         handler.clear()
@@ -682,20 +680,20 @@ class CollectionDataSyncHandlerTest {
     @Test
     fun twoHandlers_differentIdentifiers_dontInterfere() {
         val pollsHandler = CollectionDataSyncHandler(
-            identifier      = "polls",
-            serializer      = PresentationEntry.serializer(),
+            identifier = "polls",
+            serializer = PresentationEntry.serializer(),
             localEndpointId = { LOCAL_ID },
-            send            = { _, _ -> },
-            broadcast       = { },
-            isSameItem      = { a, b -> a.id == b.id }
+            send = { _, _ -> },
+            broadcast = { },
+            isSameItem = { a, b -> a.id == b.id }
         )
 
         val p = presentation(id = "p1")
         val msg = buildSyncMessage(
-            from       = PEER_A,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_A,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = p,
-            ttl        = 5
+            ttl = 5
         )
 
         // presentations handler should consume it
@@ -717,9 +715,9 @@ class CollectionDataSyncHandlerTest {
         val sentA = mutableListOf<Pair<String, Message>>()
         val sentB = mutableListOf<Pair<String, Message>>()
         val sentC = mutableListOf<Pair<String, Message>>()
-        val bcA   = mutableListOf<Message>()
-        val bcB   = mutableListOf<Message>()
-        val bcC   = mutableListOf<Message>()
+        val bcA = mutableListOf<Message>()
+        val bcB = mutableListOf<Message>()
+        val bcC = mutableListOf<Message>()
 
         val handlerA = makeHandler(PEER_A, sentA, bcA)
         val handlerB = makeHandler(PEER_B, sentB, bcB)
@@ -828,11 +826,11 @@ class CollectionDataSyncHandlerTest {
 
         val fixedId = UUID.randomUUID().toString()
         val msg = buildSyncMessage(
-            from       = PEER_B,
-            type       = MessageType.DATA_UPDATE_ADD,
+            from = PEER_B,
+            type = MessageType.DATA_UPDATE_ADD,
             singleItem = presentation(id = "p1"),
-            ttl        = 5,
-            id         = fixedId
+            ttl = 5,
+            id = fixedId
         )
 
         handlerA.processMessage(msg)

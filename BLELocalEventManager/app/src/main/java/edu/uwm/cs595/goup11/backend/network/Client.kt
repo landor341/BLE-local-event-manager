@@ -6,14 +6,20 @@ import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
 import edu.uwm.cs595.goup11.backend.security.Crypto
 import edu.uwm.cs595.goup11.backend.security.Manager
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The application layer of the mesh network stack.
@@ -119,7 +125,7 @@ class Client(
 
     fun removeMessageHandler(handler: MessageHandler): Boolean {
         val mod = messageHandlers.remove(handler);
-        if(mod) {
+        if (mod) {
             android.util.Log.d("Client", "message handler removed: ${handler::class.simpleName}")
         }
         return mod;
@@ -170,14 +176,16 @@ class Client(
     private val messageListeners = mutableListOf<(Message) -> Unit>()
 
     /** Seen message IDs to prevent duplicate processing and infinite loops */
-    private val seenMessageIds = Collections.newSetFromMap(object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean {
-            return size > 100 // Keep last 100 message IDs
-        }
-    })
+    private val seenMessageIds =
+        Collections.newSetFromMap(object : LinkedHashMap<String, Boolean>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean {
+                return size > 100 // Keep last 100 message IDs
+            }
+        })
 
     /** Stored so we can unregister it from the network on leaveNetwork(). */
-    private val networkMessageListener: (Message) -> Unit = { message -> onMessageReceived(message) }
+    private val networkMessageListener: (Message) -> Unit =
+        { message -> onMessageReceived(message) }
 
     fun addMessageListener(listener: (Message) -> Unit) {
         messageListeners.add(listener)
@@ -196,7 +204,10 @@ class Client(
             runCatching {
                 net.startDiscovery()
             }.onFailure { e ->
-                android.util.Log.e("Client", "startScan: startDiscovery FAILED: ${e::class.simpleName}: ${e.message}")
+                android.util.Log.e(
+                    "Client",
+                    "startScan: startDiscovery FAILED: ${e::class.simpleName}: ${e.message}"
+                )
             }
             android.util.Log.d("Client", "startScan: startDiscovery returned")
         }
@@ -223,25 +234,25 @@ class Client(
 
     private val topologyContext by lazy {
         TopologyContext(
-            localEndpointId      = { endpointId ?: error("Not on a network") },
-            localEncodedName     = { currentAdvertisedName?.encode() ?: error("Not on a network") },
-            network              = requireNetwork(),
+            localEndpointId = { endpointId ?: error("Not on a network") },
+            localEncodedName = { currentAdvertisedName?.encode() ?: error("Not on a network") },
+            network = requireNetwork(),
             onAdvertisingChanged = { advertising, encodedName ->
                 if (advertising && encodedName != null)
                     requireNetwork().startAdvertising(encodedName)
                 else
                     requireNetwork().stopAdvertising()
             },
-            onScanChanged        = { scanning ->
+            onScanChanged = { scanning ->
                 scope.launch {
                     if (scanning) requireNetwork().startDiscovery()
-                    else          requireNetwork().stopDiscovery()
+                    else requireNetwork().stopDiscovery()
                 }
             },
-            onRoleChanged        = { role -> handleRoleChange(role) },
-            coroutineScope       = scope,
-            onConnect            = { endpointId -> requireNetwork().connect(endpointId) },
-            networkEvents        = requireNetwork().events,
+            onRoleChanged = { role -> handleRoleChange(role) },
+            coroutineScope = scope,
+            onConnect = { endpointId -> requireNetwork().connect(endpointId) },
+            networkEvents = requireNetwork().events,
             disconnectFromEndpoint = { endpointId -> requireNetwork().disconnect(endpointId) }
         )
     }
@@ -293,10 +304,10 @@ class Client(
         topology = topo
 
         currentAdvertisedName = AdvertisedName(
-            eventName    = eventName,
+            eventName = eventName,
             topologyCode = topo.topologyCode,
-            role         = topo.localRole,
-            displayName  = displayName
+            role = topo.localRole,
+            displayName = displayName
         )
 
         requireNetwork().init(currentAdvertisedName!!.encode(), Network.Config(defaultTtl = 5))
@@ -343,10 +354,10 @@ class Client(
 
         val advertisedName = AdvertisedName.decode(ev.encodedName)!!
         currentAdvertisedName = AdvertisedName(
-            eventName    = eventName,
+            eventName = eventName,
             topologyCode = advertisedName.topologyCode,
-            role         = TopologyStrategy.Role.PEER,
-            displayName  = displayName
+            role = TopologyStrategy.Role.PEER,
+            displayName = displayName
         )
 
         val topo = TopologyFactory.create(advertisedName)
@@ -364,7 +375,7 @@ class Client(
      * Stops advertising, stops topology background jobs, and resets identity.
      */
     suspend fun leaveNetwork() {
-        val net  = network
+        val net = network
         val topo = topology
 
         // Stop directory first — cancels verify loop before identity is cleared
@@ -496,7 +507,7 @@ class Client(
      * The topology resolves which endpoint(s) to actually deliver to.
      */
     fun sendMessage(message: Message) {
-        val net  = requireNetwork()
+        val net = requireNetwork()
 
         // Automatically populate metadata if missing
         val enriched = message.copy(
@@ -523,34 +534,36 @@ class Client(
         }
 
         // Apply encryption and signature for application messages if a key is available
-        val finalMessage = if (enriched.type == MessageType.TEXT_MESSAGE && Manager.isInitialized()) {
-            try {
-                var signedMessage = enriched
-                
-                // If it's an admin, sign the message content
-                if (role == UserRole.ADMIN) {
-                    val dataToSign = enriched.data ?: ByteArray(0)
-                    val signature = Manager.sign(dataToSign)
-                    signedMessage = enriched.copy(
-                        signature = signature,
-                        senderPublicKey = Manager.getPublicKey()
-                    )
-                }
+        val finalMessage =
+            if (enriched.type == MessageType.TEXT_MESSAGE && Manager.isInitialized()) {
+                try {
+                    var signedMessage = enriched
 
-                // Encrypt data if it exists
-                if (signedMessage.data != null) {
-                    val encryptedData = Crypto.encryptMessage(signedMessage.data!!, Manager.getKey())
-                    signedMessage.copy(data = encryptedData)
-                } else {
-                    signedMessage
+                    // If it's an admin, sign the message content
+                    if (role == UserRole.ADMIN) {
+                        val dataToSign = enriched.data ?: ByteArray(0)
+                        val signature = Manager.sign(dataToSign)
+                        signedMessage = enriched.copy(
+                            signature = signature,
+                            senderPublicKey = Manager.getPublicKey()
+                        )
+                    }
+
+                    // Encrypt data if it exists
+                    if (signedMessage.data != null) {
+                        val encryptedData =
+                            Crypto.encryptMessage(signedMessage.data!!, Manager.getKey())
+                        signedMessage.copy(data = encryptedData)
+                    } else {
+                        signedMessage
+                    }
+                } catch (e: Exception) {
+                    logger.error(e) { "Failed to secure message ${enriched.id}" }
+                    enriched
                 }
-            } catch (e: Exception) {
-                logger.error(e) { "Failed to secure message ${enriched.id}" }
+            } else {
                 enriched
             }
-        } else {
-            enriched
-        }
 
         val hops = requireTopology().resolveNextHop(topologyContext, finalMessage)
 
@@ -564,7 +577,7 @@ class Client(
 
     fun broadcastMessage(message: Message) {
         val enriched = message.copy(
-            senderRole     = role,
+            senderRole = role,
             presentationId = message.presentationId ?: presentationId
         )
         seenMessageIds.add(enriched.id)
@@ -573,7 +586,10 @@ class Client(
         hardwareToEncoded.keys.forEach { hardwareId ->
             net.sendMessage(hardwareId, enriched)
         }
-        android.util.Log.d("Client", "broadcastMessage: type=${message.type} to ${hardwareToEncoded.size} peers")
+        android.util.Log.d(
+            "Client",
+            "broadcastMessage: type=${message.type} to ${hardwareToEncoded.size} peers"
+        )
     }
 
     /**
@@ -642,7 +658,10 @@ class Client(
      *  3. Application — TEXT_MESSAGE and other app-layer messages
      */
     private fun handleMessage(message: Message) {
-        android.util.Log.d("Client", "handleMessage: type=${message.type} to=${message.to} from=${message.from} endpointId=$endpointId")
+        android.util.Log.d(
+            "Client",
+            "handleMessage: type=${message.type} to=${message.to} from=${message.from} endpointId=$endpointId"
+        )
 
         val consumedByTopology = topology?.onMessage(topologyContext, message) ?: false
         android.util.Log.d("Client", "handleMessage: consumedByTopology=$consumedByTopology")
@@ -652,9 +671,12 @@ class Client(
         android.util.Log.d("Client", "handleMessage: consumedByDirectory=$consumedByDirectory")
         if (consumedByDirectory) return
 
-        for(handler in messageHandlers) {
-            if(handler.processMessage(message)) {
-                android.util.Log.d("Client", "handleMessage: consumed by ${handler::class.simpleName}")
+        for (handler in messageHandlers) {
+            if (handler.processMessage(message)) {
+                android.util.Log.d(
+                    "Client",
+                    "handleMessage: consumed by ${handler::class.simpleName}"
+                )
                 return;
             }
         }
@@ -676,27 +698,32 @@ class Client(
                 }
 
                 // Verify signature if it's an Admin message
-                val processedMessage = if (decryptedMessage.senderRole == UserRole.ADMIN && decryptedMessage.signature != null && decryptedMessage.senderPublicKey != null) {
-                    val isValid = Manager.verify(
-                        decryptedMessage.data ?: ByteArray(0),
-                        decryptedMessage.signature!!,
-                        decryptedMessage.senderPublicKey!!
-                    )
-                    if (!isValid) {
-                        logger.error { "SECURITY ALERT: Signature verification failed for Admin message ${decryptedMessage.id}" }
-                        // We could drop the message here, or mark it as unverified
-                        decryptedMessage 
+                val processedMessage =
+                    if (decryptedMessage.senderRole == UserRole.ADMIN && decryptedMessage.signature != null && decryptedMessage.senderPublicKey != null) {
+                        val isValid = Manager.verify(
+                            decryptedMessage.data ?: ByteArray(0),
+                            decryptedMessage.signature!!,
+                            decryptedMessage.senderPublicKey!!
+                        )
+                        if (!isValid) {
+                            logger.error { "SECURITY ALERT: Signature verification failed for Admin message ${decryptedMessage.id}" }
+                            // We could drop the message here, or mark it as unverified
+                            decryptedMessage
+                        } else {
+                            logger.info { "Verified Admin message ${decryptedMessage.id}" }
+                            decryptedMessage
+                        }
                     } else {
-                        logger.info { "Verified Admin message ${decryptedMessage.id}" }
                         decryptedMessage
                     }
-                } else {
-                    decryptedMessage
-                }
 
 
-                val isForMe = processedMessage.to == endpointId || processedMessage.to == "ALL" // ALL for broadcast
-                android.util.Log.d("Client", "TEXT_MESSAGE: to=${processedMessage.to} endpointId=$endpointId isForMe=$isForMe presentationId=${processedMessage.presentationId} myPresentationId=$presentationId role=$role")
+                val isForMe =
+                    processedMessage.to == endpointId || processedMessage.to == "ALL" // ALL for broadcast
+                android.util.Log.d(
+                    "Client",
+                    "TEXT_MESSAGE: to=${processedMessage.to} endpointId=$endpointId isForMe=$isForMe presentationId=${processedMessage.presentationId} myPresentationId=$presentationId role=$role"
+                )
                 if (isForMe) {
                     // Check presentation differentiation & admin visibility
                     val isSamePresentation = processedMessage.presentationId == presentationId
@@ -721,6 +748,7 @@ class Client(
                     }
                 }
             }
+
             MessageType.HELLO -> logger.info { "HELLO from ${message.from} (${message.senderRole})" }
             MessageType.KEY_EXCHANGE -> {
                 if (message.data != null) {
@@ -728,6 +756,7 @@ class Client(
                     logger.info { "Security Manager initialized with key from ${message.from}" }
                 }
             }
+
             else -> logger.warn { "Unhandled message type: ${message.type}" }
         }
     }
@@ -763,6 +792,7 @@ class Client(
     // Guards
     // -------------------------------------------------------------------------
 
-    private fun requireNetwork()  = network  ?: error("Network is not attached")
-    private fun requireTopology() = topology ?: error("Topology is not configured — join or create a network first")
+    private fun requireNetwork() = network ?: error("Network is not attached")
+    private fun requireTopology() =
+        topology ?: error("Topology is not configured — join or create a network first")
 }

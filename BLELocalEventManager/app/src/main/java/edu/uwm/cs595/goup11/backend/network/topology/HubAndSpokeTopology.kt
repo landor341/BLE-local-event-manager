@@ -9,10 +9,10 @@ import kotlinx.coroutines.delay
 import java.util.concurrent.ConcurrentHashMap
 
 class HubAndSpokeTopology(
-    private val maxLeaves:      Int  = 5,
-    private val maxRouterLinks: Int  = 2,
+    private val maxLeaves: Int = 5,
+    private val maxRouterLinks: Int = 2,
     private val keepaliveIntervalMs: Long = 5_000,
-    private val keepaliveTimeoutMs:  Long = 15_000,
+    private val keepaliveTimeoutMs: Long = 15_000,
     initialRole: TopologyStrategy.Role = TopologyStrategy.Role.LEAF
 ) : TopologyStrategy {
 
@@ -71,10 +71,10 @@ class HubAndSpokeTopology(
                 context.sendMessage(
                     topoPeer,
                     Message(
-                        to   = topoPeer.hardwareId,
+                        to = topoPeer.hardwareId,
                         from = context.endpointId,
                         type = MessageType.PING,
-                        ttl  = 1
+                        ttl = 1
                     )
                 )
             }
@@ -96,9 +96,11 @@ class HubAndSpokeTopology(
         return when (advertisedName.role) {
             TopologyStrategy.Role.ROUTER -> {
                 // Accept router-to-router links up to our router link limit
-                val currentRouterLinks = peers.values.count { it.role == TopologyStrategy.Role.ROUTER }
+                val currentRouterLinks =
+                    peers.values.count { it.role == TopologyStrategy.Role.ROUTER }
                 currentRouterLinks < maxRouterLinks
             }
+
             TopologyStrategy.Role.LEAF, TopologyStrategy.Role.PEER -> {
                 // Only routers accept leaf connections, and only up to maxLeaves
                 localRole == TopologyStrategy.Role.ROUTER &&
@@ -113,7 +115,7 @@ class HubAndSpokeTopology(
         advertisedName: AdvertisedName
     ) {
         peers[endpointId] = TopologyPeer(
-            hardwareId     = endpointId,
+            hardwareId = endpointId,
             advertisedName = advertisedName
         )
 
@@ -146,6 +148,7 @@ class HubAndSpokeTopology(
                     context.startScan()
                 }
             }
+
             else -> Unit // Leaf left — just free up the slot
         }
 
@@ -169,19 +172,21 @@ class HubAndSpokeTopology(
                 context.sendMessage(
                     peer,
                     Message(
-                        to      = peer.hardwareId,
-                        from    = context.endpointId,
-                        type    = MessageType.PONG,
+                        to = peer.hardwareId,
+                        from = context.endpointId,
+                        type = MessageType.PONG,
                         replyTo = message.id,
-                        ttl     = 1
+                        ttl = 1
                     )
                 )
                 true
             }
+
             MessageType.PONG -> {
                 senderPeer?.lastPongAt = System.currentTimeMillis()
                 true
             }
+
             else -> false
         }
     }
@@ -207,6 +212,7 @@ class HubAndSpokeTopology(
                     .map { it.hardwareId }
                     .also { if (it.isEmpty()) logger.warn { "No router links to forward ${message.to}" } }
             }
+
             TopologyStrategy.Role.LEAF, TopologyStrategy.Role.PEER -> {
                 // Leaves always send up to their router
                 peers.values

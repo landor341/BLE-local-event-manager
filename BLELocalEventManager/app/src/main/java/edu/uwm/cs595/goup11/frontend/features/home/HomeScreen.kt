@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -99,35 +98,35 @@ fun HomeScreen(
             HomeHeader(onProfileClick = onProfileClick)
 
             HeroSection(
-                state        = uiState,
+                state = uiState,
                 onExploreClick = onExploreClick,
-                onHostClick  = onHostClick,
+                onHostClick = onHostClick,
                 onEventClick = onEventClick
             )
 
             if (isInEvent) {
                 InEventActionsSection(
-                    state                = uiState,
-                    presentations        = presentations,
-                    peers                = peers,
-                    onProfileClick       = onProfileClick,
+                    state = uiState,
+                    presentations = presentations,
+                    peers = peers,
+                    onProfileClick = onProfileClick,
                     onPresentationsClick = onPresentationsClick,
-                    onPeersClick         = onPeersClick
+                    onPeersClick = onPeersClick
                 )
             } else {
                 PrimaryActionsSection(
-                    state          = uiState,
+                    state = uiState,
                     onExploreClick = onExploreClick,
-                    onHostClick    = onHostClick,
+                    onHostClick = onHostClick,
                     onProfileClick = onProfileClick
                 )
 
                 SecondaryActionsSection(
-                    isInEvent            = false,
-                    presentations        = presentations,
-                    peers                = peers,
+                    isInEvent = false,
+                    presentations = presentations,
+                    peers = peers,
                     onPresentationsClick = onPresentationsClick,
-                    onPeersClick         = onPeersClick
+                    onPeersClick = onPeersClick
                 )
             }
 
@@ -147,10 +146,10 @@ private fun HomeHeader(onProfileClick: () -> Unit) {
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                text       = " ",
-                style      = MaterialTheme.typography.headlineMedium,
+                text = " ",
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.SemiBold,
-                color      = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
 
@@ -163,9 +162,9 @@ private fun HomeHeader(onProfileClick: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector    = Icons.Default.Person,
+                imageVector = Icons.Default.Person,
                 contentDescription = "Profile",
-                tint           = MaterialTheme.colorScheme.onSurface
+                tint = MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -191,8 +190,8 @@ private fun HeroSection(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape    = RoundedCornerShape(28.dp),
-        colors   = CardDefaults.cardColors(
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primary
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -208,13 +207,13 @@ private fun HeroSection(
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text       = heroTitle(state),
-                    style      = MaterialTheme.typography.headlineMedium,
+                    text = heroTitle(state),
+                    style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    color      = MaterialTheme.colorScheme.onPrimary
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
                 Text(
-                    text  = statusDescription(state),
+                    text = statusDescription(state),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.84f)
                 )
@@ -224,14 +223,14 @@ private fun HeroSection(
                 // In event — show single "Go to Event" button
                 Button(
                     onClick = onEventClick,
-                    shape   = RoundedCornerShape(18.dp),
-                    colors  = ButtonDefaults.buttonColors(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.onPrimary,
-                        contentColor   = MaterialTheme.colorScheme.primary
+                        contentColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
                     Icon(
-                        imageVector        = Icons.Default.CalendarMonth,
+                        imageVector = Icons.Default.CalendarMonth,
                         contentDescription = null
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -241,18 +240,18 @@ private fun HeroSection(
                 // Not in event — show Explore + Host
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment     = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
                         onClick = onExploreClick,
-                        shape   = RoundedCornerShape(18.dp),
-                        colors  = ButtonDefaults.buttonColors(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.onPrimary,
-                            contentColor   = MaterialTheme.colorScheme.primary
+                            contentColor = MaterialTheme.colorScheme.primary
                         )
                     ) {
                         Icon(
-                            imageVector        = Icons.AutoMirrored.Filled.BluetoothSearching,
+                            imageVector = Icons.AutoMirrored.Filled.BluetoothSearching,
                             contentDescription = null
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -261,14 +260,14 @@ private fun HeroSection(
 
                     FilledTonalButton(
                         onClick = onHostClick,
-                        shape   = RoundedCornerShape(18.dp),
-                        colors  = ButtonDefaults.filledTonalButtonColors(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.12f),
-                            contentColor   = MaterialTheme.colorScheme.onPrimary
+                            contentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     ) {
                         Icon(
-                            imageVector        = Icons.Default.Podcasts,
+                            imageVector = Icons.Default.Podcasts,
                             contentDescription = null
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -290,7 +289,7 @@ private fun StateBadge(state: MeshUiState) {
             .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.14f))
             .padding(horizontal = 12.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment     = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
@@ -299,10 +298,10 @@ private fun StateBadge(state: MeshUiState) {
                 .background(MaterialTheme.colorScheme.onPrimary)
         )
         Text(
-            text       = statusTitle(state),
-            style      = MaterialTheme.typography.labelLarge,
+            text = statusTitle(state),
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Medium,
-            color      = MaterialTheme.colorScheme.onPrimary
+            color = MaterialTheme.colorScheme.onPrimary
         )
     }
 }
@@ -320,42 +319,42 @@ private fun PrimaryActionsSection(
         SectionTitle("Get started")
 
         Row(
-            modifier              = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             ActionTile(
-                modifier  = Modifier.weight(1f),
-                title     = "Explore",
-                subtitle  = "Find nearby events",
-                icon      = Icons.AutoMirrored.Filled.BluetoothSearching,
-                onClick   = onExploreClick,
-                enabled   = true
+                modifier = Modifier.weight(1f),
+                title = "Explore",
+                subtitle = "Find nearby events",
+                icon = Icons.AutoMirrored.Filled.BluetoothSearching,
+                onClick = onExploreClick,
+                enabled = true
             )
             ActionTile(
-                modifier  = Modifier.weight(1f),
-                title     = "Host",
-                subtitle  = "Create an event",
-                icon      = Icons.Default.Podcasts,
-                onClick   = onHostClick,
-                enabled   = true
+                modifier = Modifier.weight(1f),
+                title = "Host",
+                subtitle = "Create an event",
+                icon = Icons.Default.Podcasts,
+                onClick = onHostClick,
+                enabled = true
             )
         }
 
         Row(
-            modifier              = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             ActionTile(
-                modifier  = Modifier.weight(1f),
-                title     = "Profile",
-                subtitle  = "Manage your info",
-                icon      = Icons.Default.Person,
-                onClick   = onProfileClick,
-                enabled   = true
+                modifier = Modifier.weight(1f),
+                title = "Profile",
+                subtitle = "Manage your info",
+                icon = Icons.Default.Person,
+                onClick = onProfileClick,
+                enabled = true
             )
             StatusSummaryTile(
                 modifier = Modifier.weight(1f),
-                state    = stateSummary(state)
+                state = stateSummary(state)
             )
         }
     }
@@ -376,44 +375,44 @@ private fun InEventActionsSection(
         SectionTitle("Event")
 
         Row(
-            modifier              = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             ActionTile(
-                modifier  = Modifier.weight(1f),
-                title     = "Presentations",
-                subtitle  = if (presentations.isEmpty()) "None yet"
+                modifier = Modifier.weight(1f),
+                title = "Presentations",
+                subtitle = if (presentations.isEmpty()) "None yet"
                 else "${presentations.size} scheduled",
-                icon      = Icons.Default.CalendarMonth,
-                onClick   = onPresentationsClick,
-                enabled   = true
+                icon = Icons.Default.CalendarMonth,
+                onClick = onPresentationsClick,
+                enabled = true
             )
             ActionTile(
-                modifier  = Modifier.weight(1f),
-                title     = "Peers",
-                subtitle  = if (peers.isEmpty()) "No peers connected."
+                modifier = Modifier.weight(1f),
+                title = "Peers",
+                subtitle = if (peers.isEmpty()) "No peers connected."
                 else "${peers.size} connected",
-                icon      = Icons.Default.Groups,
-                onClick   = onPeersClick,
-                enabled   = peers.isNotEmpty()
+                icon = Icons.Default.Groups,
+                onClick = onPeersClick,
+                enabled = peers.isNotEmpty()
             )
         }
 
         Row(
-            modifier              = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             ActionTile(
-                modifier  = Modifier.weight(1f),
-                title     = "Profile",
-                subtitle  = "Manage your info",
-                icon      = Icons.Default.Person,
-                onClick   = onProfileClick,
-                enabled   = true
+                modifier = Modifier.weight(1f),
+                title = "Profile",
+                subtitle = "Manage your info",
+                icon = Icons.Default.Person,
+                onClick = onProfileClick,
+                enabled = true
             )
             StatusSummaryTile(
                 modifier = Modifier.weight(1f),
-                state    = stateSummary(state)
+                state = stateSummary(state)
             )
         }
     }
@@ -433,28 +432,28 @@ private fun SecondaryActionsSection(
         SectionTitle("More")
 
         Row(
-            modifier              = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             ActionTile(
-                modifier  = Modifier.weight(1f),
-                title     = "Presentations",
-                subtitle  = if (isInEvent && presentations.isNotEmpty())
+                modifier = Modifier.weight(1f),
+                title = "Presentations",
+                subtitle = if (isInEvent && presentations.isNotEmpty())
                     "${presentations.size} scheduled"
                 else "Join an event to view",
-                icon      = Icons.Default.CalendarMonth,
-                onClick   = onPresentationsClick,
-                enabled   = isInEvent && presentations.isNotEmpty()
+                icon = Icons.Default.CalendarMonth,
+                onClick = onPresentationsClick,
+                enabled = isInEvent && presentations.isNotEmpty()
             )
             ActionTile(
-                modifier  = Modifier.weight(1f),
-                title     = "Peers",
-                subtitle  = if (isInEvent && peers.isNotEmpty())
+                modifier = Modifier.weight(1f),
+                title = "Peers",
+                subtitle = if (isInEvent && peers.isNotEmpty())
                     "${peers.size} connected"
                 else "Join an event to view",
-                icon      = Icons.Default.Groups,
-                onClick   = onPeersClick,
-                enabled   = isInEvent && peers.isNotEmpty()
+                icon = Icons.Default.Groups,
+                onClick = onPeersClick,
+                enabled = isInEvent && peers.isNotEmpty()
             )
         }
     }
@@ -473,8 +472,8 @@ private fun ActionTile(
 ) {
     Card(
         modifier = if (enabled) modifier.clickable { onClick() } else modifier,
-        shape    = RoundedCornerShape(22.dp),
-        colors   = CardDefaults.cardColors(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
                 alpha = if (enabled) 0.45f else 0.24f
             )
@@ -482,7 +481,7 @@ private fun ActionTile(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier            = Modifier.padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Box(
@@ -496,23 +495,23 @@ private fun ActionTile(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector        = icon,
+                    imageVector = icon,
                     contentDescription = null,
-                    tint               = if (enabled) MaterialTheme.colorScheme.primary
+                    tint = if (enabled) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
-                    text       = title,
-                    style      = MaterialTheme.typography.titleMedium,
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color      = if (enabled) MaterialTheme.colorScheme.onSurface
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface
                     else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text  = subtitle,
+                    text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -527,25 +526,25 @@ private fun StatusSummaryTile(
     state: String
 ) {
     Card(
-        modifier  = modifier,
-        shape     = RoundedCornerShape(22.dp),
-        colors    = CardDefaults.cardColors(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier            = Modifier.padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                text       = "Status",
-                style      = MaterialTheme.typography.titleMedium,
+                text = "Status",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color      = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text  = state,
+                text = state,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -561,15 +560,15 @@ private fun StatusSection(state: MeshUiState) {
         SectionTitle("Live status")
 
         Card(
-            modifier  = Modifier.fillMaxWidth(),
-            shape     = RoundedCornerShape(24.dp),
-            colors    = CardDefaults.cardColors(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
-                modifier            = Modifier.padding(18.dp),
+                modifier = Modifier.padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 StatusRow(label = "State", value = statusTitle(state))
@@ -582,7 +581,7 @@ private fun StatusSection(state: MeshUiState) {
                         is MeshUiState.Joining -> state.sessionId
                         is MeshUiState.InEvent -> state.sessionId
                         is MeshUiState.Hosting -> state.sessionId
-                        else                   -> "None"
+                        else -> "None"
                     }
                 )
 
@@ -591,12 +590,12 @@ private fun StatusSection(state: MeshUiState) {
                 StatusRow(
                     label = "Connection",
                     value = when (state) {
-                        MeshUiState.Scanning      -> "Searching"
-                        is MeshUiState.InEvent    -> "Connected"
-                        is MeshUiState.Hosting    -> "Broadcasting"
-                        is MeshUiState.Joining    -> "Joining"
-                        is MeshUiState.Error      -> "Attention needed"
-                        is MeshUiState.Idle       -> "Ready"
+                        MeshUiState.Scanning -> "Searching"
+                        is MeshUiState.InEvent -> "Connected"
+                        is MeshUiState.Hosting -> "Broadcasting"
+                        is MeshUiState.Joining -> "Joining"
+                        is MeshUiState.Error -> "Attention needed"
+                        is MeshUiState.Idle -> "Ready"
                         is MeshUiState.Advertising -> "Currently advertising"
                     }
                 )
@@ -608,20 +607,20 @@ private fun StatusSection(state: MeshUiState) {
 @Composable
 private fun StatusRow(label: String, value: String) {
     Row(
-        modifier              = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment     = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text  = label,
+            text = label,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            text       = value,
-            style      = MaterialTheme.typography.titleSmall,
+            text = value,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Medium,
-            color      = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.onSurface
         )
     }
 }
@@ -629,58 +628,64 @@ private fun StatusRow(label: String, value: String) {
 @Composable
 private fun SectionTitle(text: String) {
     Text(
-        text       = text,
-        style      = MaterialTheme.typography.titleLarge,
+        text = text,
+        style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.SemiBold,
-        color      = MaterialTheme.colorScheme.onBackground
+        color = MaterialTheme.colorScheme.onBackground
     )
 }
 
 // ── String helpers ────────────────────────────────────────────────────────────
 
 private fun heroTitle(state: MeshUiState): String = when (state) {
-    MeshUiState.Idle          -> "Find or host local events."
-    MeshUiState.Scanning      -> "Looking for nearby events."
-    is MeshUiState.Joining    -> "Joining ${state.sessionId}."
-    is MeshUiState.InEvent    -> "You're connected."
-    is MeshUiState.Hosting    -> "Your event is live."
-    is MeshUiState.Error      -> "Something needs attention."
+    MeshUiState.Idle -> "Find or host local events."
+    MeshUiState.Scanning -> "Looking for nearby events."
+    is MeshUiState.Joining -> "Joining ${state.sessionId}."
+    is MeshUiState.InEvent -> "You're connected."
+    is MeshUiState.Hosting -> "Your event is live."
+    is MeshUiState.Error -> "Something needs attention."
     is MeshUiState.Advertising -> "Currently advertising."
 }
 
 private fun stateSummary(state: MeshUiState): String = when (state) {
-    MeshUiState.Idle          -> "Ready to explore or host"
-    MeshUiState.Scanning      -> "Scanning nearby"
-    is MeshUiState.Joining    -> "Joining event"
-    is MeshUiState.InEvent    -> "In active event"
-    is MeshUiState.Hosting    -> "Hosting now"
-    is MeshUiState.Error      -> "Check connection state"
+    MeshUiState.Idle -> "Ready to explore or host"
+    MeshUiState.Scanning -> "Scanning nearby"
+    is MeshUiState.Joining -> "Joining event"
+    is MeshUiState.InEvent -> "In active event"
+    is MeshUiState.Hosting -> "Hosting now"
+    is MeshUiState.Error -> "Check connection state"
     is MeshUiState.Advertising -> "Advertising"
 }
 
 private fun statusTitle(state: MeshUiState): String = when (state) {
-    MeshUiState.Idle          -> "Ready"
-    MeshUiState.Scanning      -> "Scanning"
-    is MeshUiState.Joining    -> "Joining"
-    is MeshUiState.InEvent    -> "Connected"
-    is MeshUiState.Hosting    -> "Hosting"
-    is MeshUiState.Error      -> "Error"
+    MeshUiState.Idle -> "Ready"
+    MeshUiState.Scanning -> "Scanning"
+    is MeshUiState.Joining -> "Joining"
+    is MeshUiState.InEvent -> "Connected"
+    is MeshUiState.Hosting -> "Hosting"
+    is MeshUiState.Error -> "Error"
     is MeshUiState.Advertising -> "Advertising"
 }
 
 private fun statusDescription(state: MeshUiState): String = when (state) {
     MeshUiState.Idle ->
         "Start by exploring nearby events or host your own event."
+
     MeshUiState.Scanning ->
         "Searching for active local sessions."
+
     is MeshUiState.Joining ->
         "Connecting to ${state.sessionId}."
+
     is MeshUiState.InEvent ->
         "You're currently connected to ${state.sessionId}. If you just joined the event and don't see any peers, please give the network some time to auto-connect to peers"
+
     is MeshUiState.Hosting ->
         "You're hosting ${state.sessionId}."
+
     is MeshUiState.Error ->
         "Something needs attention: ${state.reason}"
+
     is MeshUiState.Advertising ->
         "Currently advertising"
 }

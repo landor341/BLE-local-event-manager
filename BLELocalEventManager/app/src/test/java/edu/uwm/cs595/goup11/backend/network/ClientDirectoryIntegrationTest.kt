@@ -9,7 +9,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -26,9 +28,9 @@ import org.junit.Test
 class ClientDirectoryIntegrationTest {
 
     companion object {
-        private const val EVENT_NAME       = "IntegrationTestEvent"
+        private const val EVENT_NAME = "IntegrationTestEvent"
         private const val CONVERGE_TIMEOUT = 15_000L  // mesh topology needs time to fully connect
-        private const val SETTLE_DELAY     = 200L
+        private const val SETTLE_DELAY = 200L
     }
 
     // -------------------------------------------------------------------------
@@ -40,9 +42,9 @@ class ClientDirectoryIntegrationTest {
      * DirectoryManager is owned internally by Client — no manual wiring needed.
      */
     inner class TestNode(val name: String) {
-        val scope   = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val network = LocalNetwork(scope = scope)
-        val client  = Client(displayName = name, scope = scope)
+        val client = Client(displayName = name, scope = scope)
 
         suspend fun createNetwork() {
             client.attachNetwork(network, Network.Config(defaultTtl = 5))
@@ -60,7 +62,7 @@ class ClientDirectoryIntegrationTest {
 
         val endpointId: String? get() = client.endpointId
         fun activePeers() = client.networkPeers()
-        fun allPeers()    = client.fullDirectory()
+        fun allPeers() = client.fullDirectory()
     }
 
     private val nodes = mutableListOf<TestNode>()
@@ -79,7 +81,10 @@ class ClientDirectoryIntegrationTest {
     fun tearDown() {
         runBlocking {
             nodes.forEach { node ->
-                try { node.leave() } catch (_: Exception) {}
+                try {
+                    node.leave()
+                } catch (_: Exception) {
+                }
             }
         }
         LocalNetwork.purge()
@@ -175,7 +180,7 @@ class ClientDirectoryIntegrationTest {
     @Test
     fun twoNodes_afterJoin_bothAppearInEachOthersDirectory() = runBlocking {
         val alice = node("Alice")
-        val bob   = node("Bob")
+        val bob = node("Bob")
 
         alice.createNetwork()
         bob.joinNetwork()
@@ -189,7 +194,7 @@ class ClientDirectoryIntegrationTest {
     @Test
     fun twoNodes_afterJoin_eachDirectoryHasTwoActiveEntries() = runBlocking {
         val alice = node("Alice")
-        val bob   = node("Bob")
+        val bob = node("Bob")
 
         alice.createNetwork()
         bob.joinNetwork()
@@ -203,7 +208,7 @@ class ClientDirectoryIntegrationTest {
     @Test
     fun twoNodes_bobLeaves_aliceDirectoryTombstonesBob() = runBlocking {
         val alice = node("Alice")
-        val bob   = node("Bob")
+        val bob = node("Bob")
 
         alice.createNetwork()
         bob.joinNetwork()
@@ -221,7 +226,7 @@ class ClientDirectoryIntegrationTest {
     @Test
     fun twoNodes_bobLeaves_aliceActivePeersOnlyShowsAlice() = runBlocking {
         val alice = node("Alice")
-        val bob   = node("Bob")
+        val bob = node("Bob")
 
         alice.createNetwork()
         bob.joinNetwork()
@@ -241,8 +246,8 @@ class ClientDirectoryIntegrationTest {
 
     @Test
     fun threeNodes_allJoin_allDirectoriesContainAllThree() = runBlocking {
-        val alice   = node("Alice")
-        val bob     = node("Bob")
+        val alice = node("Alice")
+        val bob = node("Bob")
         val charlie = node("Charlie")
 
         alice.createNetwork()
@@ -259,8 +264,8 @@ class ClientDirectoryIntegrationTest {
 
     @Test
     fun threeNodes_oneLeaves_remainingTwoStillKnowAboutEachOther() = runBlocking {
-        val alice   = node("Alice")
-        val bob     = node("Bob")
+        val alice = node("Alice")
+        val bob = node("Bob")
         val charlie = node("Charlie")
 
         alice.createNetwork()
@@ -279,8 +284,8 @@ class ClientDirectoryIntegrationTest {
 
     @Test
     fun threeNodes_oneLeaves_leaverIsTombstonedInRemainingDirectories() = runBlocking {
-        val alice   = node("Alice")
-        val bob     = node("Bob")
+        val alice = node("Alice")
+        val bob = node("Bob")
         val charlie = node("Charlie")
 
         alice.createNetwork()
@@ -294,7 +299,7 @@ class ClientDirectoryIntegrationTest {
         awaitPeerGone(bob, charlieId)
 
         val aliceTombstone = alice.allPeers().firstOrNull { it.endpointId == charlieId }
-        val bobTombstone   = bob.allPeers().firstOrNull { it.endpointId == charlieId }
+        val bobTombstone = bob.allPeers().firstOrNull { it.endpointId == charlieId }
         assertNotNull("Charlie should be tombstoned in Alice's directory", aliceTombstone)
         assertNotNull("Charlie should be tombstoned in Bob's directory", bobTombstone)
         assertEquals(PeerStatus.DISCONNECTED, aliceTombstone!!.status)
@@ -308,7 +313,7 @@ class ClientDirectoryIntegrationTest {
     @Test
     fun directoryMessages_areConsumedByDirectoryManager_notForwardedToAppListeners() = runBlocking {
         val alice = node("Alice")
-        val bob   = node("Bob")
+        val bob = node("Bob")
 
         val appMessages = mutableListOf<Message>()
         alice.createNetwork()
@@ -327,7 +332,7 @@ class ClientDirectoryIntegrationTest {
     @Test
     fun textMessage_sentBetweenConnectedPeers_isDelivered() = runBlocking {
         val alice = node("Alice")
-        val bob   = node("Bob")
+        val bob = node("Bob")
 
         val received = mutableListOf<Message>()
         alice.createNetwork()
@@ -338,10 +343,10 @@ class ClientDirectoryIntegrationTest {
 
         bob.client.sendMessage(
             Message(
-                to   = alice.endpointId!!,
+                to = alice.endpointId!!,
                 from = bob.endpointId!!,
                 type = MessageType.TEXT_MESSAGE,
-                ttl  = 5
+                ttl = 5
             )
         )
         delay(SETTLE_DELAY)
@@ -356,7 +361,7 @@ class ClientDirectoryIntegrationTest {
     @Test
     fun rejoin_afterLeaving_networkStillFunctions() = runBlocking {
         val alice = node("Alice")
-        val bob   = node("Bob")
+        val bob = node("Bob")
 
         alice.createNetwork()
         bob.joinNetwork()
@@ -379,8 +384,8 @@ class ClientDirectoryIntegrationTest {
 
     @Test
     fun networkPeers_returnsOnlyActivePeers() = runBlocking {
-        val alice   = node("Alice")
-        val bob     = node("Bob")
+        val alice = node("Alice")
+        val bob = node("Bob")
         val charlie = node("Charlie")
 
         alice.createNetwork()
@@ -398,7 +403,7 @@ class ClientDirectoryIntegrationTest {
     @Test
     fun fullDirectory_includesTombstones() = runBlocking {
         val alice = node("Alice")
-        val bob   = node("Bob")
+        val bob = node("Bob")
 
         alice.createNetwork()
         bob.joinNetwork()
@@ -417,11 +422,11 @@ class ClientDirectoryIntegrationTest {
 
     @Test
     fun fiveNodes_allJoin_allDirectoriesEventuallyConverge() = runBlocking {
-        val alice   = node("Alice")
-        val bob     = node("Bob")
+        val alice = node("Alice")
+        val bob = node("Bob")
         val charlie = node("Charlie")
-        val dave    = node("Dave")
-        val eve     = node("Eve")
+        val dave = node("Dave")
+        val eve = node("Eve")
 
         alice.createNetwork()
         bob.joinNetwork()
@@ -450,11 +455,11 @@ class ClientDirectoryIntegrationTest {
 
     @Test
     fun fiveNodes_twoLeave_remainingThreeDirectoriesConverge() = runBlocking {
-        val alice   = node("Alice")
-        val bob     = node("Bob")
+        val alice = node("Alice")
+        val bob = node("Bob")
         val charlie = node("Charlie")
-        val dave    = node("Dave")
-        val eve     = node("Eve")
+        val dave = node("Dave")
+        val eve = node("Eve")
 
         alice.createNetwork()
         bob.joinNetwork()
@@ -465,7 +470,7 @@ class ClientDirectoryIntegrationTest {
         awaitConvergence(alice, bob, charlie, dave, eve)
 
         val daveId = dave.endpointId!!
-        val eveId  = eve.endpointId!!
+        val eveId = eve.endpointId!!
 
         dave.leave()
         eve.leave()

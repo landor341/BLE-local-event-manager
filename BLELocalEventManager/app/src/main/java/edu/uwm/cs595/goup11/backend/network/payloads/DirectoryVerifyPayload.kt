@@ -16,4 +16,4 @@ data class DirectoryVerifyAckPayload(
 )
 
 @Serializable
-enum class VerifyStatus {OK, MISMATCH}
+enum class VerifyStatus { OK, MISMATCH }

@@ -7,14 +7,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -28,7 +26,6 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -509,7 +506,9 @@ private fun statusTitle(state: MeshUiState): String =
         is MeshUiState.InEvent -> "Connected"
         is MeshUiState.Hosting -> "Hosting"
         is MeshUiState.Error -> "Error"
-        else -> {"Error"}
+        else -> {
+            "Error"
+        }
     }
 
 private fun heroTitle(state: MeshUiState): String =
@@ -520,7 +519,9 @@ private fun heroTitle(state: MeshUiState): String =
         is MeshUiState.InEvent -> "Connected to ${state.sessionId}."
         is MeshUiState.Hosting -> "You’re hosting ${state.sessionId}."
         is MeshUiState.Error -> "Scan needs attention."
-        else -> {"Error"}
+        else -> {
+            "Error"
+        }
     }
 
 private fun heroSubtitle(state: MeshUiState): String =
@@ -542,9 +543,11 @@ private fun heroSubtitle(state: MeshUiState): String =
 
         is MeshUiState.Error ->
             "Something interrupted scanning. Please try again."
+
         is MeshUiState.Advertising ->
             ""
     }
+
 @Composable
 private fun heroContentColor(state: MeshUiState): Color =
     when (state) {

@@ -2,10 +2,6 @@ package edu.uwm.cs595.goup11.backend.network.topology
 
 import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
-import edu.uwm.cs595.goup11.backend.network.Network
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 
 /**
  * Defines the structural layer of the mesh network stack.
