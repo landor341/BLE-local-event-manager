@@ -32,7 +32,7 @@ class HomeTest {
 
 
         buttons[0].performClick()
-        assertTrue (clicked)
+        assertTrue(clicked)
 
         clicked = false
         buttons[1].performClick()
@@ -42,14 +42,14 @@ class HomeTest {
     }
 
     @Test
-    fun testProfileButtons(){
+    fun testProfileButtons() {
         var clicked = false
         var noClick = false
 
         composeTestRule.setContent {
             HomeScreen(
-                onExploreClick = {noClick =  true },
-                onProfileClick = {clicked = true }
+                onExploreClick = { noClick = true },
+                onProfileClick = { clicked = true }
             )
         }
 
@@ -67,11 +67,6 @@ class HomeTest {
 
         assertFalse((noClick))
     }
-
-
-
-
-
 
 
 }

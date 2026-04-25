@@ -1,6 +1,5 @@
 package edu.uwm.cs595.goup11.backend.network
 
-import edu.uwm.cs595.goup11.backend.network.topology.TopologyPeer
 import edu.uwm.cs595.goup11.backend.network.topology.TopologyStrategy
 import java.security.InvalidParameterException
 
@@ -43,9 +42,14 @@ data class Peer(
 ) {
 
     companion object {
-        fun generatePeer(eventName: String, topologyType: String, clientType: TopologyStrategy.Role, name: String): Peer {
+        fun generatePeer(
+            eventName: String,
+            topologyType: String,
+            clientType: TopologyStrategy.Role,
+            name: String
+        ): Peer {
             val str = "EVT:$eventName|TOP:$topologyType|TYP:${
-                when(clientType) {
+                when (clientType) {
                     TopologyStrategy.Role.PEER -> "p"
                     TopologyStrategy.Role.LEAF -> "l"
                     TopologyStrategy.Role.ROUTER -> "r"
@@ -53,11 +57,11 @@ data class Peer(
             }|N:$name"
 
             return Peer(
-                endpointId=str,
-                name=name,
-                topologyType=topologyType,
-                role=clientType,
-                eventName=eventName
+                endpointId = str,
+                name = name,
+                topologyType = topologyType,
+                role = clientType,
+                eventName = eventName
             )
         }
 
@@ -69,23 +73,27 @@ data class Peer(
 
                 // Checks
                 val validTopos: Array<String> = arrayOf("hub", "snk", "msh")
-                if(!validTopos.contains(topology)) {
-                    throw InvalidParameterException("Invalid topology type. Expected one of" +
-                            " $validTopos. Got: $topology")
+                if (!validTopos.contains(topology)) {
+                    throw InvalidParameterException(
+                        "Invalid topology type. Expected one of" +
+                                " $validTopos. Got: $topology"
+                    )
                 }
 
                 val validType: Array<String> = arrayOf("l", "r", "a", "p")
-                if(!validType.contains(type)) {
-                    throw InvalidParameterException("Invalid peer type. Expected one of" +
-                            " $validType. Got: $type")
+                if (!validType.contains(type)) {
+                    throw InvalidParameterException(
+                        "Invalid peer type. Expected one of" +
+                                " $validType. Got: $type"
+                    )
                 }
 
                 return Peer(
-                    endpointId=endpointId,
-                    name=name,
+                    endpointId = endpointId,
+                    name = name,
                     topologyType = topology,
-                    eventName=eventName,
-                    role = when(type) {
+                    eventName = eventName,
+                    role = when (type) {
                         "l" -> TopologyStrategy.Role.LEAF
                         "r" -> TopologyStrategy.Role.ROUTER
                         else -> TopologyStrategy.Role.PEER

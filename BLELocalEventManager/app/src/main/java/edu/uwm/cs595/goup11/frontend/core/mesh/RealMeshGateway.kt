@@ -69,7 +69,7 @@ class RealMeshGateway(
                     .map { it.toUiModel() }
             }
             .stateIn(
-                scope   = scope,
+                scope = scope,
                 started = SharingStarted.Eagerly,
                 initialValue = emptyList()
             )
@@ -111,25 +111,28 @@ class RealMeshGateway(
                 }
 
                 val newState = when (s) {
-                    is NetworkState.Idle     -> MeshUiState.Idle
+                    is NetworkState.Idle -> MeshUiState.Idle
                     is NetworkState.Scanning -> MeshUiState.Scanning
-                    is NetworkState.Joining  -> MeshUiState.Scanning
-                    is NetworkState.Joined   -> {
+                    is NetworkState.Joining -> MeshUiState.Scanning
+                    is NetworkState.Joined -> {
                         currentEventName = s.sessionId
                         MeshUiState.InEvent(s.sessionId)
                     }
-                    is NetworkState.Hosting  -> {
+
+                    is NetworkState.Hosting -> {
                         currentEventName = s.sessionId
                         MeshUiState.InEvent(s.sessionId)
                     }
-                    is NetworkState.Error    -> MeshUiState.Error(s.reason)
-                    else                     -> MeshUiState.Error("Unsupported Event")
+
+                    is NetworkState.Error -> MeshUiState.Error(s.reason)
+                    else -> MeshUiState.Error("Unsupported Event")
                 }
 
                 // If we have an active session, don't let transi ent Idle/Scanning
                 // states from mesh topology retry loops overwrite InEvent
                 if (currentEventName != null &&
-                    (newState is MeshUiState.Idle || newState is MeshUiState.Scanning)) {
+                    (newState is MeshUiState.Idle || newState is MeshUiState.Scanning)
+                ) {
                     log("Ignoring transient $newState — still in session $currentEventName")
                     return@collect
                 }
@@ -145,7 +148,7 @@ class RealMeshGateway(
                     .filter { it.endpointId != localId }
                     .map { entry ->
                         GatewayPeer(
-                            endpointId  = entry.endpointId,
+                            endpointId = entry.endpointId,
                             displayName = entry.displayName,
                             encodedName = entry.endpointId
                         )
@@ -156,13 +159,14 @@ class RealMeshGateway(
         scope.launch {
             backend.events.collect { event ->
                 when (event) {
-                    is NetworkEvent.Joined               -> log("Joined network: ${event.sessionId}")
-                    is NetworkEvent.EndpointConnected    -> log("endpoint connected: ${event.encodedName}")
+                    is NetworkEvent.Joined -> log("Joined network: ${event.sessionId}")
+                    is NetworkEvent.EndpointConnected -> log("endpoint connected: ${event.encodedName}")
                     is NetworkEvent.EndpointDisconnected -> log("endpoint disconnected: ${event.endpointId}")
-                    is NetworkEvent.MessageReceived      -> {
+                    is NetworkEvent.MessageReceived -> {
                         val text = event.message.data?.toString(StandardCharsets.UTF_8).orEmpty()
                         log("Message from ${event.message.from}: $text")
                     }
+
                     else -> Unit
                 }
             }
@@ -187,8 +191,8 @@ class RealMeshGateway(
                 _discovered.emit(
                     DiscoveredEventSummary(
                         sessionId = sessionId,
-                        title     = sessionId,
-                        venue     = "Nearby"
+                        title = sessionId,
+                        venue = "Nearby"
                     )
                 )
             }
@@ -273,11 +277,11 @@ class RealMeshGateway(
 
     private fun createJoinedEventBundle(sessionId: String): JoinedEventBundle {
         return JoinedEventBundle(
-            sessionId   = sessionId,
-            title       = sessionId,
-            venue       = "Venue (host broadcast later)",
+            sessionId = sessionId,
+            title = sessionId,
+            venue = "Venue (host broadcast later)",
             description = "Joined via mesh. Chat is live; event metadata can be synced later.",
-            itinerary   = customItinerary
+            itinerary = customItinerary
         )
     }
 
@@ -329,12 +333,12 @@ class RealMeshGateway(
         }
 
         val chatMessage = ChatMessage(
-            sessionId   = sessionId,
-            sender      = backend.myId,
-            senderRole  = backend.myRole,
-            text        = text,
+            sessionId = sessionId,
+            sender = backend.myId,
+            senderRole = backend.myRole,
+            text = text,
             timestampMs = System.currentTimeMillis(),
-            isMine      = true,
+            isMine = true,
             isBroadcast = true
         )
 
@@ -343,11 +347,11 @@ class RealMeshGateway(
         log("Sending chat: $text")
 
         val msg = Message(
-            to   = "ALL",
+            to = "ALL",
             from = backend.localEncodedName ?: backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl  = 5
+            ttl = 5
         )
 
         runCatching {
@@ -374,12 +378,12 @@ class RealMeshGateway(
         }
 
         val chatMessage = ChatMessage(
-            sessionId   = sessionId,
-            sender      = backend.myId,
-            senderRole  = backend.myRole,
-            text        = text,
+            sessionId = sessionId,
+            sender = backend.myId,
+            senderRole = backend.myRole,
+            text = text,
             timestampMs = System.currentTimeMillis(),
-            isMine      = true,
+            isMine = true,
             isBroadcast = false,
             recipientId = toEncodedName
         )
@@ -388,11 +392,11 @@ class RealMeshGateway(
         _chat.tryEmit(chatMessage)
 
         val msg = Message(
-            to   = toEncodedName,
+            to = toEncodedName,
             from = backend.localEncodedName ?: backend.myId,
             type = MessageType.TEXT_MESSAGE,
             data = text.toByteArray(StandardCharsets.UTF_8),
-            ttl  = 5
+            ttl = 5
         )
 
         runCatching {
@@ -438,13 +442,13 @@ class RealMeshGateway(
                 val isBroadcast = msg.to == "ALL"
 
                 val chatMessage = ChatMessage(
-                    sessionId   = sessionId,
-                    sender      = msg.from,
-                    senderName  = AdvertisedName.decode(msg.from)?.displayName ?: msg.from,
-                    senderRole  = UserRole.ATTENDEE,
-                    text        = text,
+                    sessionId = sessionId,
+                    sender = msg.from,
+                    senderName = AdvertisedName.decode(msg.from)?.displayName ?: msg.from,
+                    senderRole = UserRole.ATTENDEE,
+                    text = text,
                     timestampMs = System.currentTimeMillis(),
-                    isMine      = (msg.from == backend.localEncodedName ?: backend.myId),
+                    isMine = (msg.from == backend.localEncodedName ?: backend.myId),
                     isBroadcast = isBroadcast,
                     recipientId = if (isBroadcast) null else backend.myId
                 )
@@ -472,30 +476,30 @@ class RealMeshGateway(
     // ── Model mapping helpers ─────────────────────────────────────────────────
 
     private fun PresentationEntry.toUiModel(): Presentation = Presentation(
-        id                = id,
-        name              = name,
-        startTime         = LocalDateTime.ofInstant(
+        id = id,
+        name = name,
+        startTime = LocalDateTime.ofInstant(
             Instant.ofEpochMilli(startTime), ZoneOffset.UTC
         ),
-        endTime           = LocalDateTime.ofInstant(
+        endTime = LocalDateTime.ofInstant(
             Instant.ofEpochMilli(endTime), ZoneOffset.UTC
         ),
-        location          = location,
-        speakerName       = speakerName,
+        location = location,
+        speakerName = speakerName,
         speakerEndpointId = speakerEndpointId,
-        status            = status,
+        status = status,
         description = description
     )
 
     private fun Presentation.toBackendEntry(): PresentationEntry = PresentationEntry(
-        id                = id,
-        name              = name,
-        startTime         = startTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
-        endTime           = endTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
-        location          = location,
-        speakerName       = speakerName,
+        id = id,
+        name = name,
+        startTime = startTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
+        endTime = endTime.toInstant(ZoneOffset.UTC).toEpochMilli(),
+        location = location,
+        speakerName = speakerName,
         speakerEndpointId = speakerEndpointId,
-        status            = status,
+        status = status,
         description = description
     )
 }

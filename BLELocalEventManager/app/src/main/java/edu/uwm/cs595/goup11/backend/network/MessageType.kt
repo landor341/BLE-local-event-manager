@@ -31,8 +31,6 @@ enum class MessageType {
     PONG,
 
 
-
-
     /*
      * ATTACHING TO ROUTER
     */
@@ -165,8 +163,6 @@ enum class MessageType {
     DATA_UPDATE_ADD,
 
     DATA_UPDATE_MOD
-
-
 
 
 }

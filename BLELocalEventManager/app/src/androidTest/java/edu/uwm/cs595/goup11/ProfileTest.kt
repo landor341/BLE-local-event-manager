@@ -1,25 +1,20 @@
 package edu.uwm.cs595.goup11
 
-import android.R
 import androidx.compose.ui.test.assertTextContains
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
-import androidx.lifecycle.viewmodel.compose.viewModel
 import edu.uwm.cs595.goup11.frontend.features.profile.EditProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.ProfileScreen
 import edu.uwm.cs595.goup11.frontend.features.profile.UserViewModel
 import junit.framework.TestCase.assertTrue
 import org.junit.Rule
 import org.junit.Test
-
 
 
 class ProfileTest {

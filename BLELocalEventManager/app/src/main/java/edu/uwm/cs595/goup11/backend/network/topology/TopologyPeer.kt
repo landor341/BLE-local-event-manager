@@ -44,8 +44,8 @@ data class TopologyPeer(
     val pendingMessages: ArrayDeque<Message> = ArrayDeque()
 ) {
     // Convenience accessors — so callers don't need to drill into advertisedName
-    val role:         TopologyStrategy.Role get() = advertisedName.role
-    val displayName:  String                get() = advertisedName.displayName
-    val eventName:    String                get() = advertisedName.eventName
-    val topologyCode: String                get() = advertisedName.topologyCode
+    val role: TopologyStrategy.Role get() = advertisedName.role
+    val displayName: String get() = advertisedName.displayName
+    val eventName: String get() = advertisedName.eventName
+    val topologyCode: String get() = advertisedName.topologyCode
 }

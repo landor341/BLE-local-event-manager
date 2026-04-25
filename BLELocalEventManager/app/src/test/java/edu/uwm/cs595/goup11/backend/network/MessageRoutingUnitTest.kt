@@ -3,8 +3,15 @@ package edu.uwm.cs595.goup11.backend.network
 import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.network.topology.SnakeTopology
 import edu.uwm.cs595.goup11.backend.security.Manager
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -51,12 +58,14 @@ class MessageRoutingUnitTest {
         hostClient.createNetwork("TEST_NET", MeshTopology())
 
         val attendeeAScope = makeScope()
-        val attendeeA = Client("ATTENDEE_A", presentationId = "Presentation_A", scope = attendeeAScope)
+        val attendeeA =
+            Client("ATTENDEE_A", presentationId = "Presentation_A", scope = attendeeAScope)
         attendeeA.attachNetwork(LocalNetwork(scope = attendeeAScope), Network.Config(5))
         attendeeAScope.launch { attendeeA.joinNetwork("TEST_NET") }
 
         val attendeeBScope = makeScope()
-        val attendeeB = Client("ATTENDEE_B", presentationId = "Presentation_B", scope = attendeeBScope)
+        val attendeeB =
+            Client("ATTENDEE_B", presentationId = "Presentation_B", scope = attendeeBScope)
         attendeeB.attachNetwork(LocalNetwork(scope = attendeeBScope), Network.Config(5))
         attendeeBScope.launch { attendeeB.joinNetwork("TEST_NET") }
 
@@ -99,7 +108,12 @@ class MessageRoutingUnitTest {
         hostClient.createNetwork("TEST_NET", MeshTopology())
 
         val adminScope = makeScope()
-        val adminClient = Client("ADMIN_USER", role = UserRole.ADMIN, presentationId = "Presentation_A", scope = adminScope)
+        val adminClient = Client(
+            "ADMIN_USER",
+            role = UserRole.ADMIN,
+            presentationId = "Presentation_A",
+            scope = adminScope
+        )
         adminClient.attachNetwork(LocalNetwork(scope = adminScope), Network.Config(5))
         adminScope.launch { adminClient.joinNetwork("TEST_NET") }
 
@@ -159,7 +173,10 @@ class MessageRoutingUnitTest {
         clientA.sendMessage(msg)
 
         val receivedC = withTimeoutOrNull(5000) { messagesC.receive() }
-        assertNotNull("Node C should receive the broadcast even if it had to jump through Node B", receivedC)
+        assertNotNull(
+            "Node C should receive the broadcast even if it had to jump through Node B",
+            receivedC
+        )
     }
 
     /**
@@ -178,7 +195,7 @@ class MessageRoutingUnitTest {
         scopeB.launch { clientB.joinNetwork("TTL_TEST") }
 
         delay(2000)
-        
+
         val scopeC = makeScope()
         val clientC = Client("NODE_C", scope = scopeC)
         clientC.attachNetwork(LocalNetwork(scope = scopeC), Network.Config(5))
@@ -227,7 +244,11 @@ class MessageRoutingUnitTest {
         hostClient.onMessageReceived(msg)
         hostClient.onMessageReceived(msg)
 
-        assertEquals("Should only process the message once despite receiving it twice", 1, receiveCount.get())
+        assertEquals(
+            "Should only process the message once despite receiving it twice",
+            1,
+            receiveCount.get()
+        )
     }
 
     /**
@@ -248,9 +269,9 @@ class MessageRoutingUnitTest {
         val clientB = Client("B", scope = scopeB)
         clientB.attachNetwork(LocalNetwork(scope = scopeB), Network.Config(5))
         scopeB.launch { clientB.joinNetwork("INTEGRITY_TEST") }
-        
+
         delay(2000)
-        scopeB.launch { Manager.init(key2) } 
+        scopeB.launch { Manager.init(key2) }
 
         val scopeC = makeScope()
         val clientC = Client("C", scope = scopeC)
@@ -270,7 +291,7 @@ class MessageRoutingUnitTest {
             data = "Secret Data".toByteArray(),
             ttl = 5
         )
-        
+
         clientA.sendMessage(msg)
 
         val result = withTimeoutOrNull(5000) { receivedC.receive() }
@@ -337,7 +358,11 @@ class MessageRoutingUnitTest {
             ttl = 5
         )
 
-        assertEquals("Reply to broadcast should be addressed to the specific sender", clientA.endpointId, reply.to)
+        assertEquals(
+            "Reply to broadcast should be addressed to the specific sender",
+            clientA.endpointId,
+            reply.to
+        )
     }
 
     /**
@@ -361,19 +386,49 @@ class MessageRoutingUnitTest {
         client.addMessageListener { receivedMessages.trySend(it) }
 
         // 1. Message for Booth A should be received
-        hostClient.sendMessage(Message(to = "ALL", from = hostClient.endpointId!!, type = MessageType.TEXT_MESSAGE, ttl = 5, presentationId = "BoothA"))
-        assertNotNull("Should receive Booth A message", withTimeoutOrNull(2000) { receivedMessages.receive() })
+        hostClient.sendMessage(
+            Message(
+                to = "ALL",
+                from = hostClient.endpointId!!,
+                type = MessageType.TEXT_MESSAGE,
+                ttl = 5,
+                presentationId = "BoothA"
+            )
+        )
+        assertNotNull(
+            "Should receive Booth A message",
+            withTimeoutOrNull(2000) { receivedMessages.receive() })
 
         // 2. Switch to Booth B
         client.presentationId = "BoothB"
 
         // 3. Message for Booth A should now be filtered
-        hostClient.sendMessage(Message(to = "ALL", from = hostClient.endpointId!!, type = MessageType.TEXT_MESSAGE, ttl = 5, presentationId = "BoothA"))
-        assertNull("Should NOT receive Booth A message after switching", withTimeoutOrNull(2000) { receivedMessages.receive() })
+        hostClient.sendMessage(
+            Message(
+                to = "ALL",
+                from = hostClient.endpointId!!,
+                type = MessageType.TEXT_MESSAGE,
+                ttl = 5,
+                presentationId = "BoothA"
+            )
+        )
+        assertNull(
+            "Should NOT receive Booth A message after switching",
+            withTimeoutOrNull(2000) { receivedMessages.receive() })
 
         // 4. Message for Booth B should be received
-        hostClient.sendMessage(Message(to = "ALL", from = hostClient.endpointId!!, type = MessageType.TEXT_MESSAGE, ttl = 5, presentationId = "BoothB"))
-        assertNotNull("Should receive Booth B message", withTimeoutOrNull(2000) { receivedMessages.receive() })
+        hostClient.sendMessage(
+            Message(
+                to = "ALL",
+                from = hostClient.endpointId!!,
+                type = MessageType.TEXT_MESSAGE,
+                ttl = 5,
+                presentationId = "BoothB"
+            )
+        )
+        assertNotNull(
+            "Should receive Booth B message",
+            withTimeoutOrNull(2000) { receivedMessages.receive() })
     }
 
     /**

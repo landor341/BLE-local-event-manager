@@ -2,9 +2,20 @@ package edu.uwm.cs595.goup11.backend.network
 
 import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.security.Manager
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
-import org.junit.Assert.*
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.charset.StandardCharsets
 
@@ -33,17 +44,19 @@ class LocalNetworkSecurityTest {
         val hostClient = Client("HOST", UserRole.ADMIN, scope = hostScope)
         val hostNet = LocalNetwork(scope = hostScope)
         hostClient.attachNetwork(hostNet, Network.Config(5))
-        
+
         // Host initializes Manager during createNetwork
-        hostClient.createNetwork("SECURE_NET", MeshTopology(
-            keepaliveIntervalMs = 500,
-            keepaliveTimeoutMs = 2000,
-            discoveryIntervalMs = 500
-        ))
-        
+        hostClient.createNetwork(
+            "SECURE_NET", MeshTopology(
+                keepaliveIntervalMs = 500,
+                keepaliveTimeoutMs = 2000,
+                discoveryIntervalMs = 500
+            )
+        )
+
         val hostId = hostClient.endpointId!!
         val hostKey = Manager.getKey()
-        
+
         // 2. Setup Joiner
         val joinerScope = makeScope()
         val joinerClient = Client("JOINER", UserRole.ATTENDEE, scope = joinerScope)
@@ -58,12 +71,12 @@ class LocalNetworkSecurityTest {
                 keyExchangeReceived.complete(msg)
             }
         }
-        
+
         // 3. Joiner joins in a separate coroutine so it doesn't block this one
-        joinerScope.launch { 
-            joinerClient.joinNetwork("SECURE_NET") 
+        joinerScope.launch {
+            joinerClient.joinNetwork("SECURE_NET")
         }
-        
+
         // 4. Wait for connection to be established at the network layer
         var connected = false
         val deadline = System.currentTimeMillis() + 10_000
@@ -78,7 +91,7 @@ class LocalNetworkSecurityTest {
             }
             if (!connected) delay(100)
         }
-        
+
         assertTrue("Connection should be established within timeout", connected)
         assertNotNull("Joiner should have an endpointId", joinerId)
 
@@ -91,25 +104,31 @@ class LocalNetworkSecurityTest {
         // Note: Because Manager is a singleton, it's already initialized with hostKey.
         // We verify that a message sent from Joiner (which will be encrypted using hostKey)
         // is successfully received and decrypted by Host.
-        
+
         val receivedOnHost = CompletableDeferred<Message>()
         hostClient.addMessageListener { msg ->
             if (msg.type == MessageType.TEXT_MESSAGE) {
                 receivedOnHost.complete(msg)
             }
         }
-        
+
         val chatText = "Hello Secure World!"
-        joinerClient.sendMessage(Message(
-            to = hostId,
-            from = joinerId!!,
-            type = MessageType.TEXT_MESSAGE,
-            data = chatText.toByteArray(StandardCharsets.UTF_8),
-            ttl = 5
-        ))
-        
+        joinerClient.sendMessage(
+            Message(
+                to = hostId,
+                from = joinerId!!,
+                type = MessageType.TEXT_MESSAGE,
+                data = chatText.toByteArray(StandardCharsets.UTF_8),
+                ttl = 5
+            )
+        )
+
         val decryptedMsg = withTimeoutOrNull(5000) { receivedOnHost.await() }
         assertNotNull("Host should receive the message", decryptedMsg)
-        assertEquals("Decrypted text should match original", chatText, decryptedMsg!!.data?.toString(StandardCharsets.UTF_8))
+        assertEquals(
+            "Decrypted text should match original",
+            chatText,
+            decryptedMsg!!.data?.toString(StandardCharsets.UTF_8)
+        )
     }
 }

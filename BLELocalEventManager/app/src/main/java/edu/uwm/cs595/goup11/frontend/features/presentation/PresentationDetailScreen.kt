@@ -4,16 +4,15 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
-import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -28,22 +27,17 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import edu.uwm.cs595.goup11.R
 import edu.uwm.cs595.goup11.backend.network.PresentationStatus
 import edu.uwm.cs595.goup11.frontend.core.ui.theme.BLELocalEventManagerTheme
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import java.time.LocalDateTime
 
 // PresentationDetailScreen.kt
@@ -115,7 +109,7 @@ fun PresentationDetailScreen(
             if (presentation.description.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text  = presentation.description,
+                    text = presentation.description,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -159,14 +153,14 @@ fun PresentationDetailPreview() {
     BLELocalEventManagerTheme {
         PresentationDetailScreen(
             presentation = Presentation(
-                id                = "1",
-                name              = "testPresentation",
-                startTime              = LocalDateTime.of(2026, 3, 19, 10, 0),
-                endTime           = LocalDateTime.of(2026, 3, 19, 11, 30),
-                location          = "room 012",
-                speakerName       = "Speaker1",
+                id = "1",
+                name = "testPresentation",
+                startTime = LocalDateTime.of(2026, 3, 19, 10, 0),
+                endTime = LocalDateTime.of(2026, 3, 19, 11, 30),
+                location = "room 012",
+                speakerName = "Speaker1",
                 speakerEndpointId = "speaker-endpoint-id",
-                status            = PresentationStatus.ACTIVE
+                status = PresentationStatus.ACTIVE
             ),
             onBack = {},
             onNavigateToSpeaker = {}
@@ -176,6 +170,7 @@ fun PresentationDetailPreview() {
 
 @RequiresApi(Build.VERSION_CODES.O)
 fun LocalDateTime.toDisplayTime(): String {
-    val formatter = java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.ENGLISH)
+    val formatter =
+        java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.ENGLISH)
     return this.format(formatter)
 }

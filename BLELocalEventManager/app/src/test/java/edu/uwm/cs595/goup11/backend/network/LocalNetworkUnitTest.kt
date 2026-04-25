@@ -1,9 +1,7 @@
 package edu.uwm.cs595.goup11.backend.network
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -16,10 +14,10 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.test.assertFalse
 
 /**
  * Unit tests for [LocalNetwork].
@@ -45,7 +43,7 @@ class LocalNetworkUnitTest {
     // -------------------------------------------------------------------------
 
     private val testDispatcher = StandardTestDispatcher()
-    private val testScope      = TestScope(testDispatcher)
+    private val testScope = TestScope(testDispatcher)
 
     /**
      * Creates and initialises a [LocalNetwork] backed by the test dispatcher so all
@@ -55,8 +53,8 @@ class LocalNetworkUnitTest {
      */
     private fun makeNetwork(
         endpointId: String,
-        acceptAll:  Boolean     = true,
-        chaos:      ChaosConfig = ChaosConfig.NONE
+        acceptAll: Boolean = true,
+        chaos: ChaosConfig = ChaosConfig.NONE
     ): LocalNetwork {
         val net = LocalNetwork(chaos = chaos, scope = testScope)
         net.init(endpointId, Network.Config(defaultTtl = 5))
@@ -66,17 +64,24 @@ class LocalNetworkUnitTest {
 
     private fun encodedName(
         event: String = "TestEvent",
-        topo:  String = "snk",
-        role:  String = "p",
-        name:  String = "Alice"
+        topo: String = "snk",
+        role: String = "p",
+        name: String = "Alice"
     ) = "EVT:$event|TOP:$topo|TYP:$role|N:$name"
 
     // -------------------------------------------------------------------------
     // Setup / Teardown
     // -------------------------------------------------------------------------
 
-    @Before fun setUp()    { LocalNetwork.purge() }
-    @After  fun tearDown() { LocalNetwork.purge() }
+    @Before
+    fun setUp() {
+        LocalNetwork.purge()
+    }
+
+    @After
+    fun tearDown() {
+        LocalNetwork.purge()
+    }
 
     // =========================================================================
     // 1. init / state
@@ -102,7 +107,10 @@ class LocalNetworkUnitTest {
     fun `sendMessage before init throws`() {
         val net = LocalNetwork()
         assertFailsWith<IllegalStateException> {
-            net.sendMessage("B", Message(to = "B", from = "A", type = MessageType.TEXT_MESSAGE, ttl = 1))
+            net.sendMessage(
+                "B",
+                Message(to = "B", from = "A", type = MessageType.TEXT_MESSAGE, ttl = 1)
+            )
         }
     }
 
@@ -112,7 +120,7 @@ class LocalNetworkUnitTest {
 
     @Test
     fun `startAdvertising registers node as advertising`() {
-        val net  = makeNetwork("A")
+        val net = makeNetwork("A")
         val name = encodedName(name = "A")
         net.startAdvertising(name)
 
@@ -165,7 +173,7 @@ class LocalNetworkUnitTest {
         val netA = makeNetwork("A")
         netA.startAdvertising(encodedName(name = "A"))
 
-        val netB      = makeNetwork("B")
+        val netB = makeNetwork("B")
         val collected = mutableListOf<NetworkEvent.EndpointDiscovered>()
 
         val job = launch {
@@ -183,8 +191,10 @@ class LocalNetworkUnitTest {
         discJob.cancel()
         job.cancel()
 
-        assertTrue(collected.any { it.endpointId == "A" },
-            "B should have discovered A immediately")
+        assertTrue(
+            collected.any { it.endpointId == "A" },
+            "B should have discovered A immediately"
+        )
     }
 
     @Test
@@ -194,7 +204,8 @@ class LocalNetworkUnitTest {
 
         val collected = mutableListOf<NetworkEvent.EndpointDiscovered>()
         val job = launch {
-            netA.events.filterIsInstance<NetworkEvent.EndpointDiscovered>().collect { collected.add(it) }
+            netA.events.filterIsInstance<NetworkEvent.EndpointDiscovered>()
+                .collect { collected.add(it) }
         }
 
         val discJob = launch { netA.startDiscovery() }
@@ -208,7 +219,7 @@ class LocalNetworkUnitTest {
 
     @Test
     fun `stopDiscovery returns state to Idle`() = testScope.runTest {
-        val net     = makeNetwork("A")
+        val net = makeNetwork("A")
         val discJob = launch { net.startDiscovery() }
         advanceTimeBy(100)
         net.stopDiscovery()
@@ -224,7 +235,8 @@ class LocalNetworkUnitTest {
 
         val collected = mutableListOf<NetworkEvent.EndpointDiscovered>()
         val collectJob = launch {
-            netB.events.filterIsInstance<NetworkEvent.EndpointDiscovered>().collect { collected.add(it) }
+            netB.events.filterIsInstance<NetworkEvent.EndpointDiscovered>()
+                .collect { collected.add(it) }
         }
 
         // B starts scanning before A starts advertising
@@ -241,8 +253,10 @@ class LocalNetworkUnitTest {
         discJob.cancel()
         collectJob.cancel()
 
-        assertTrue(collected.any { it.endpointId == "A" },
-            "B should discover A after it starts advertising mid-scan")
+        assertTrue(
+            collected.any { it.endpointId == "A" },
+            "B should discover A after it starts advertising mid-scan"
+        )
     }
 
     // =========================================================================
@@ -278,10 +292,14 @@ class LocalNetworkUnitTest {
         netA.connect("B")
         advanceTimeBy(100)
 
-        assertTrue(aEvents.any { it is NetworkEvent.EndpointConnected && it.endpointId == "B" },
-            "A should receive EndpointConnected for B")
-        assertTrue(bEvents.any { it is NetworkEvent.EndpointConnected && it.endpointId == "A" },
-            "B should receive EndpointConnected for A")
+        assertTrue(
+            aEvents.any { it is NetworkEvent.EndpointConnected && it.endpointId == "B" },
+            "A should receive EndpointConnected for B"
+        )
+        assertTrue(
+            bEvents.any { it is NetworkEvent.EndpointConnected && it.endpointId == "A" },
+            "B should receive EndpointConnected for A"
+        )
 
         jobA.cancel(); jobB.cancel()
     }
@@ -294,15 +312,18 @@ class LocalNetworkUnitTest {
 
         val rejected = mutableListOf<NetworkEvent.ConnectionRejected>()
         val job = launch {
-            netA.events.filterIsInstance<NetworkEvent.ConnectionRejected>().collect { rejected.add(it) }
+            netA.events.filterIsInstance<NetworkEvent.ConnectionRejected>()
+                .collect { rejected.add(it) }
         }
 
         netA.connect("B")
         advanceTimeBy(100)
         job.cancel()
 
-        assertTrue(rejected.any { it.endpointId == "B" },
-            "A should receive ConnectionRejected from B")
+        assertTrue(
+            rejected.any { it.endpointId == "B" },
+            "A should receive ConnectionRejected from B"
+        )
         assertFalse(
             LocalNetwork.InMemoryNetworkHolder.getNode("A")?.connections?.contains("B") == true,
             "Connection should not be established after rejection"
@@ -407,7 +428,10 @@ class LocalNetworkUnitTest {
         // NOT connecting
 
         assertFailsWith<IllegalStateException> {
-            netA.sendMessage("B", Message(to = "B", from = "A", type = MessageType.TEXT_MESSAGE, ttl = 1))
+            netA.sendMessage(
+                "B",
+                Message(to = "B", from = "A", type = MessageType.TEXT_MESSAGE, ttl = 1)
+            )
         }
     }
 
@@ -527,7 +551,10 @@ class LocalNetworkUnitTest {
         val received = mutableListOf<Message>()
         netB.addListener { received.add(it) }
 
-        netA.sendMessage("B", Message(to = "B", from = "A", type = MessageType.TEXT_MESSAGE, ttl = 1))
+        netA.sendMessage(
+            "B",
+            Message(to = "B", from = "A", type = MessageType.TEXT_MESSAGE, ttl = 1)
+        )
         advanceTimeBy(200)
 
         assertTrue(received.isEmpty(), "All messages should be dropped with messageDropRate=1.0")
@@ -541,7 +568,8 @@ class LocalNetworkUnitTest {
 
         val rejected = mutableListOf<NetworkEvent.ConnectionRejected>()
         val job = launch {
-            netA.events.filterIsInstance<NetworkEvent.ConnectionRejected>().collect { rejected.add(it) }
+            netA.events.filterIsInstance<NetworkEvent.ConnectionRejected>()
+                .collect { rejected.add(it) }
         }
 
         netA.connect("B")

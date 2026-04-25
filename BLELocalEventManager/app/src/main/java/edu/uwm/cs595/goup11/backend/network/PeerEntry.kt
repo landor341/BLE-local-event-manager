@@ -10,6 +10,7 @@ data class PeerEntry(
     val lamportClock: Long,
     val status: PeerStatus,
 )
+
 @Serializable
 enum class PeerStatus {
     ACTIVE,

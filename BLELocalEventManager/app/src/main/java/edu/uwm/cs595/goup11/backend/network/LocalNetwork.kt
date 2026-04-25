@@ -1,15 +1,15 @@
 package edu.uwm.cs595.goup11.backend.network
 
 import androidx.annotation.VisibleForTesting
-import edu.uwm.cs595.goup11.backend.security.Crypto
-import edu.uwm.cs595.goup11.backend.security.Manager
+import edu.uwm.cs595.goup11.backend.network.ChaosConfig.Companion.MILD
+import edu.uwm.cs595.goup11.backend.network.ChaosConfig.Companion.NONE
+import edu.uwm.cs595.goup11.backend.network.ChaosConfig.Companion.SEVERE
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -41,17 +41,19 @@ class LocalNetwork(
     /**
      * Represents a list of messages to not log on receive. By default, PING, PONG, and HELLO are ignored
      */
-    private val messageTypeLogIgnoreList: List<MessageType> = listOf<MessageType>(MessageType.PONG,
+    private val messageTypeLogIgnoreList: List<MessageType> = listOf<MessageType>(
+        MessageType.PONG,
         MessageType.PING, MessageType.HELLO
     )
 ) : Network {
 
     override val logger: KLogger = KotlinLogging.logger {}
-    private val _isAdvertising  = MutableStateFlow(false)
-    override val isAdvertising:  StateFlow<Boolean> = _isAdvertising.asStateFlow()
+    private val _isAdvertising = MutableStateFlow(false)
+    override val isAdvertising: StateFlow<Boolean> = _isAdvertising.asStateFlow()
 
-    private val _isDiscovering  = MutableStateFlow(false)
-    override val isDiscovering:  StateFlow<Boolean> = _isDiscovering.asStateFlow()
+    private val _isDiscovering = MutableStateFlow(false)
+    override val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
+
     init {
         logger.warn {
             "LocalNetwork created — if this is a unit test or local debug session this warning can be ignored"
@@ -62,7 +64,7 @@ class LocalNetwork(
     // Network interface — reactive state
     // -------------------------------------------------------------------------
 
-    private val _state  = MutableStateFlow<NetworkState>(NetworkState.Idle)
+    private val _state = MutableStateFlow<NetworkState>(NetworkState.Idle)
     override val state: StateFlow<NetworkState> = _state.asStateFlow()
 
     private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64, replay = 1)
@@ -75,7 +77,7 @@ class LocalNetwork(
     /** This node's current endpoint ID — set by init() */
     private var localEndpointId: String? = null
 
-    private var isScanning    = false
+    private var isScanning = false
 
     private val listeners = mutableListOf<(Message) -> Unit>()
 
@@ -136,17 +138,17 @@ class LocalNetwork(
         // Register or update our node in the shared holder
         val existing = InMemoryNetworkHolder.getNode(id)
         if (existing != null) {
-            existing.isAdvertising  = true
-            existing.encodedName    = encodedName
+            existing.isAdvertising = true
+            existing.encodedName = encodedName
         } else {
             InMemoryNetworkHolder.addNode(
                 InMemoryNetworkPeer(
-                    endpointId    = id,
-                    encodedName   = encodedName,
+                    endpointId = id,
+                    encodedName = encodedName,
                     isAdvertising = true,
                     isDiscovering = false,
-                    connections   = mutableListOf(),
-                    network       = this
+                    connections = mutableListOf(),
+                    network = this
                 )
             )
         }
@@ -188,12 +190,12 @@ class LocalNetwork(
             } else {
                 InMemoryNetworkHolder.addNode(
                     InMemoryNetworkPeer(
-                        endpointId    = id,
-                        encodedName   = id,
+                        endpointId = id,
+                        encodedName = id,
                         isAdvertising = false,
                         isDiscovering = true,
-                        connections   = mutableListOf(),
-                        network       = this
+                        connections = mutableListOf(),
+                        network = this
                     )
                 )
             }
@@ -253,8 +255,8 @@ class LocalNetwork(
      * If rejected, fires [NetworkEvent.ConnectionRejected] on this side only.
      */
     override suspend fun connect(endpointId: String) {
-        val localId  = requireLocalEndpointId()
-        val remote   = InMemoryNetworkHolder.getNode(endpointId)
+        val localId = requireLocalEndpointId()
+        val remote = InMemoryNetworkHolder.getNode(endpointId)
             ?: throw IllegalStateException("Endpoint $endpointId not found in network")
 
         // Apply chaos config — randomly fail connection attempts
@@ -295,7 +297,7 @@ class LocalNetwork(
     override fun disconnect(endpointId: String) {
         val localId = localEndpointId ?: return
 
-        val localNode  = InMemoryNetworkHolder.getNode(localId)  ?: return
+        val localNode = InMemoryNetworkHolder.getNode(localId) ?: return
         val remoteNode = InMemoryNetworkHolder.getNode(endpointId) ?: return
 
         localNode.connections.remove(endpointId)
@@ -330,7 +332,7 @@ class LocalNetwork(
     }
 
     override fun sendMessage(endpointId: String, message: Message) {
-        val localId   = requireLocalEndpointId()
+        val localId = requireLocalEndpointId()
         val localNode = InMemoryNetworkHolder.getNode(localId)
             ?: throw IllegalStateException("$localId is not registered in the network")
 
@@ -357,7 +359,7 @@ class LocalNetwork(
         } else {
             remote.network.receiveMessage(message)
         }
-        if(!messageTypeLogIgnoreList.contains(message.type)) {
+        if (!messageTypeLogIgnoreList.contains(message.type)) {
             logger.debug { "$localId sent ${message.type} to $endpointId (id=${message.id})" }
         }
     }
@@ -367,7 +369,7 @@ class LocalNetwork(
      */
     internal fun receiveMessage(message: Message) {
         // Ignore logs for certian message types
-        if(!messageTypeLogIgnoreList.contains(message.type)) {
+        if (!messageTypeLogIgnoreList.contains(message.type)) {
             logger.debug { "$localEndpointId received ${message.type} from ${message.from}" }
         }
         notifyListeners(message)
@@ -418,12 +420,12 @@ class LocalNetwork(
      * Represents one physical device in the simulated network.
      */
     data class InMemoryNetworkPeer(
-        val endpointId:    String,
-        var encodedName:   String,
+        val endpointId: String,
+        var encodedName: String,
         var isAdvertising: Boolean,
         var isDiscovering: Boolean,
-        val connections:   MutableList<String>,
-        val network:       LocalNetwork
+        val connections: MutableList<String>,
+        val network: LocalNetwork
     )
 
     /**
@@ -434,19 +436,26 @@ class LocalNetwork(
     object InMemoryNetworkHolder {
         private val nodes = mutableListOf<InMemoryNetworkPeer>()
 
-        fun allNodes():                    List<InMemoryNetworkPeer> = nodes.toList()
-        fun getNode(endpointId: String):   InMemoryNetworkPeer?      = nodes.find { it.endpointId == endpointId }
-        fun addNode(peer: InMemoryNetworkPeer)                       { if (getNode(peer.endpointId) == null) nodes.add(peer) }
-        fun removeNode(endpointId: String)                           { nodes.removeIf { it.endpointId == endpointId } }
+        fun allNodes(): List<InMemoryNetworkPeer> = nodes.toList()
+        fun getNode(endpointId: String): InMemoryNetworkPeer? =
+            nodes.find { it.endpointId == endpointId }
+
+        fun addNode(peer: InMemoryNetworkPeer) {
+            if (getNode(peer.endpointId) == null) nodes.add(peer)
+        }
+
+        fun removeNode(endpointId: String) {
+            nodes.removeIf { it.endpointId == endpointId }
+        }
 
         fun getOrCreateNode(endpointId: String, network: LocalNetwork): InMemoryNetworkPeer {
             return getNode(endpointId) ?: InMemoryNetworkPeer(
-                endpointId    = endpointId,
-                encodedName   = endpointId,
+                endpointId = endpointId,
+                encodedName = endpointId,
                 isAdvertising = false,
                 isDiscovering = false,
-                connections   = mutableListOf(),
-                network       = network
+                connections = mutableListOf(),
+                network = network
             ).also { addNode(it) }
         }
 
@@ -470,7 +479,7 @@ class LocalNetwork(
             val nodes = InMemoryNetworkHolder.allNodes()
 
             // Collect unique undirected edges — skip B→A if A→B already recorded
-            val seen  = mutableSetOf<Pair<String, String>>()
+            val seen = mutableSetOf<Pair<String, String>>()
             val edges = mutableListOf<Pair<String, String>>()
             for (node in nodes) {
                 for (conn in node.connections) {
@@ -484,10 +493,16 @@ class LocalNetwork(
             fun shortName(id: String): String =
                 Regex("N:([^|]+)").find(id)?.groupValues?.get(1) ?: id
 
-            val sb    = StringBuilder()
+            val sb = StringBuilder()
             val width = 56
 
-            sb.appendLine("┌─ Network Graph (${nodes.size} nodes, ${edges.size} edges) ${"─".repeat(width)}".take(width + 2) + "┐")
+            sb.appendLine(
+                "┌─ Network Graph (${nodes.size} nodes, ${edges.size} edges) ${
+                    "─".repeat(
+                        width
+                    )
+                }".take(width + 2) + "┐"
+            )
 
             // ── Nodes ──
             sb.appendLine("│  Nodes")
@@ -496,8 +511,8 @@ class LocalNetwork(
             } else {
                 for (node in nodes) {
                     val flags = buildString {
-                        append(if (node.isAdvertising)          "A" else " ")
-                        append(if (node.isDiscovering)          "D" else " ")
+                        append(if (node.isAdvertising) "A" else " ")
+                        append(if (node.isDiscovering) "D" else " ")
                         append(if (node.connections.isNotEmpty()) "C" else " ")
                     }
                     sb.appendLine("│    [$flags] ${node.endpointId}")
@@ -511,7 +526,7 @@ class LocalNetwork(
             } else {
                 val maxLen = edges.maxOf { shortName(it.first).length }
                 for ((a, b) in edges) {
-                    val left  = shortName(a).padEnd(maxLen)
+                    val left = shortName(a).padEnd(maxLen)
                     val right = shortName(b)
                     sb.appendLine("│    $left  ↔  $right")
                 }
@@ -535,18 +550,28 @@ class LocalNetwork(
  */
 data class ChaosConfig(
     /** 0.0 = never drop, 1.0 = always drop */
-    val messageDropRate:          Double = 0.0,
+    val messageDropRate: Double = 0.0,
 
     /** Probability a connection attempt fails outright */
-    val connectionFailureRate:    Double = 0.0,
+    val connectionFailureRate: Double = 0.0,
 
     /** Simulated min/max latency added to message delivery */
-    val minLatencyMs:             Long   = 0,
-    val maxLatencyMs:             Long   = 0
+    val minLatencyMs: Long = 0,
+    val maxLatencyMs: Long = 0
 ) {
     companion object {
-        val NONE   = ChaosConfig()
-        val MILD   = ChaosConfig(messageDropRate = 0.05, connectionFailureRate = 0.05, minLatencyMs = 10, maxLatencyMs = 50)
-        val SEVERE = ChaosConfig(messageDropRate = 0.30, connectionFailureRate = 0.20, minLatencyMs = 50, maxLatencyMs = 300)
+        val NONE = ChaosConfig()
+        val MILD = ChaosConfig(
+            messageDropRate = 0.05,
+            connectionFailureRate = 0.05,
+            minLatencyMs = 10,
+            maxLatencyMs = 50
+        )
+        val SEVERE = ChaosConfig(
+            messageDropRate = 0.30,
+            connectionFailureRate = 0.20,
+            minLatencyMs = 50,
+            maxLatencyMs = 300
+        )
     }
 }

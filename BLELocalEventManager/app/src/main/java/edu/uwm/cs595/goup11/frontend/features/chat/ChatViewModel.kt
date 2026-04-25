@@ -56,8 +56,9 @@ class ChatViewModel(
         if (text.isBlank()) return
 
         val currentState = mesh.state.value
-        if (currentState !is MeshUiState.InEvent && 
-            @Suppress("DEPRECATION") (currentState !is MeshUiState.Hosting)) {
+        if (currentState !is MeshUiState.InEvent &&
+            @Suppress("DEPRECATION") (currentState !is MeshUiState.Hosting)
+        ) {
             return
         }
 

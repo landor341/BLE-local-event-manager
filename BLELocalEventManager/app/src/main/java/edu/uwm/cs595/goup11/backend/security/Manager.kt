@@ -1,5 +1,6 @@
 package edu.uwm.cs595.goup11.backend.security
 
+import edu.uwm.cs595.goup11.backend.security.Manager.init
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.SecureRandom
@@ -15,7 +16,7 @@ object Manager {
 
     private var IS_INITIALIZED = false
     private lateinit var key: ByteArray
-    
+
     // Asymmetric keys for signing (Identity verification)
     private var keyPair: KeyPair? = null
 
@@ -30,12 +31,12 @@ object Manager {
             } else {
                 rotateKey()
             }
-            
+
             // Always generate an identity key pair on initialization if it doesn't exist
             if (keyPair == null) {
                 generateIdentityKeys()
             }
-            
+
             IS_INITIALIZED = true
         }
     }
@@ -65,7 +66,8 @@ object Manager {
      * Signs data using the local private key
      */
     fun sign(data: ByteArray): ByteArray {
-        val privateKey = keyPair?.private ?: throw IllegalStateException("Identity keys not generated")
+        val privateKey =
+            keyPair?.private ?: throw IllegalStateException("Identity keys not generated")
         val sig = Signature.getInstance("SHA256withRSA")
         sig.initSign(privateKey)
         sig.update(data)

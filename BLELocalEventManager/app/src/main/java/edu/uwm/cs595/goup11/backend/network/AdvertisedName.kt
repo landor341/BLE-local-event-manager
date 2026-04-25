@@ -40,7 +40,7 @@ data class AdvertisedName(
         "EVT:$eventName|TOP:$topologyCode|TYP:${role.toChar()}|N:$displayName"
 
     companion object {
-        private val REGEX            = Regex("""EVT:([^|]+)\|TOP:([^|]+)\|TYP:([^|]+)\|N:(.+)""")
+        private val REGEX = Regex("""EVT:([^|]+)\|TOP:([^|]+)\|TYP:([^|]+)\|N:(.+)""")
         private val VALID_TOPOLOGIES = setOf("snk", "hub", "msh")
 
         /**
@@ -67,13 +67,13 @@ data class AdvertisedName(
 
 fun TopologyStrategy.Role.toChar(): String = when (this) {
     TopologyStrategy.Role.ROUTER -> "r"
-    TopologyStrategy.Role.LEAF   -> "l"
-    TopologyStrategy.Role.PEER   -> "p"
+    TopologyStrategy.Role.LEAF -> "l"
+    TopologyStrategy.Role.PEER -> "p"
 }
 
 fun TopologyStrategy.Role.Companion.fromChar(c: String): TopologyStrategy.Role? = when (c) {
-    "r"  -> TopologyStrategy.Role.ROUTER
-    "l"  -> TopologyStrategy.Role.LEAF
-    "p"  -> TopologyStrategy.Role.PEER
+    "r" -> TopologyStrategy.Role.ROUTER
+    "l" -> TopologyStrategy.Role.LEAF
+    "p" -> TopologyStrategy.Role.PEER
     else -> null
 }

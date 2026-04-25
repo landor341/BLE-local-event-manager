@@ -33,9 +33,10 @@ class MockClient(
     val network: LocalNetwork = LocalNetwork()
 
     private val _messages = MutableSharedFlow<Message>(replay = 1, extraBufferCapacity = 64)
-    /** 
+
+    /**
      * Flow of messages received by this mock client at the application layer.
-     * Uses replay = 1 to ensure that tests collecting this flow don't miss messages 
+     * Uses replay = 1 to ensure that tests collecting this flow don't miss messages
      * delivered before the collection starts.
      */
     val messages: SharedFlow<Message> = _messages.asSharedFlow()

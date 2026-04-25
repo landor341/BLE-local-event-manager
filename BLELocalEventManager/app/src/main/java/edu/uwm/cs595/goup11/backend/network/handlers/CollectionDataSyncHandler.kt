@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.protobuf.ProtoBuf
 import java.util.UUID
 
@@ -19,9 +18,9 @@ import java.util.UUID
  * all nodes on the network using DATA_SYNC, DATA_SYNC_ACK, DATA_UPDATE_ADD,
  * DATA_UPDATE_MOD, and DATA_UPDATE_REMOVE message types.
  *
- * Multiple instances can be registered on a Client — each instance responds only
- * to messages whose [identifier] matches its own, so different data types (e.g.
- * presentations, polls, announcements) can coexist on the same pipeline without
+ * Multiple instances can be registered on a Client and each instance responds only
+ * to messages whose [identifier] matches its own, so different data types
+ * can coexist on the same pipeline without
  * conflict.
  *
  * Usage:
@@ -71,14 +70,13 @@ class CollectionDataSyncHandler<T : Any>(
     private val _data = MutableStateFlow<List<T>>(emptyList())
 
     /**
-     * The current synced collection. Emits on every add, update, or remove.
-     * Observe this from the frontend via BackendFacade → MeshGateway.
+     * The current synced collection.
      */
     val data: StateFlow<List<T>> = _data.asStateFlow()
 
     // ── Deduplication ─────────────────────────────────────────────────────────
 
-    /** Message IDs we have already processed — prevents re-broadcast loops. */
+    /** Message IDs we have already processed */
     private val seenMessageIds = mutableSetOf<String>()
 
     // ── MessageHandler implementation ─────────────────────────────────────────
@@ -109,27 +107,36 @@ class CollectionDataSyncHandler<T : Any>(
         // Deduplicate
         if (!seenMessageIds.add(message.id)) {
             logger.debug { "[$identifier] Dropping duplicate message ${message.id}" }
-            android.util.Log.d("DataSyncHandler[$identifier]", "Dropping duplicate message ${message.id}")
+            android.util.Log.d(
+                "DataSyncHandler[$identifier]",
+                "Dropping duplicate message ${message.id}"
+            )
             return true
         }
 
         logger.debug { "[$identifier] Processing ${message.type} from ${message.from} id=${message.id}" }
-        android.util.Log.d("DataSyncHandler[$identifier]", "Processing ${message.type} from ${message.from}")
+        android.util.Log.d(
+            "DataSyncHandler[$identifier]",
+            "Processing ${message.type} from ${message.from}"
+        )
 
         // Full decode and dispatch
         try {
             val envelope = ProtoBuf.decodeFromByteArray(envelopeSerializer, data)
             when (message.type) {
-                MessageType.DATA_SYNC          -> handleSync(message, envelope)
-                MessageType.DATA_SYNC_ACK      -> handleSyncAck(envelope)
-                MessageType.DATA_UPDATE_ADD    -> handleAdd(message, envelope)
-                MessageType.DATA_UPDATE_MOD    -> handleMod(message, envelope)
+                MessageType.DATA_SYNC -> handleSync(message, envelope)
+                MessageType.DATA_SYNC_ACK -> handleSyncAck(envelope)
+                MessageType.DATA_UPDATE_ADD -> handleAdd(message, envelope)
+                MessageType.DATA_UPDATE_MOD -> handleMod(message, envelope)
                 MessageType.DATA_UPDATE_REMOVE -> handleRemove(message, envelope)
-                else                           -> Unit
+                else -> Unit
             }
         } catch (e: Exception) {
             logger.warn { "[$identifier] Failed to decode message ${message.id}: ${e.message}" }
-            android.util.Log.w("DataSyncHandler[$identifier]", "Failed to decode ${message.id}: ${e.message}")
+            android.util.Log.w(
+                "DataSyncHandler[$identifier]",
+                "Failed to decode ${message.id}: ${e.message}"
+            )
         }
 
         return true
@@ -138,20 +145,24 @@ class CollectionDataSyncHandler<T : Any>(
     // ── Peer lifecycle hooks ──────────────────────────────────────────────────
 
     /**
-     * Call from DefaultBackendFacade when a new peer connects.
      * Sends our full collection via DATA_SYNC so the new peer has current state.
      */
     fun onPeerConnected(toEndpoint: String) {
         val count = _data.value.size
         logger.info { "[$identifier] Sending DATA_SYNC to $toEndpoint ($count items)" }
-        android.util.Log.d("DataSyncHandler[$identifier]", "onPeerConnected: sending DATA_SYNC to $toEndpoint ($count items)")
+        android.util.Log.d(
+            "DataSyncHandler[$identifier]",
+            "onPeerConnected: sending DATA_SYNC to $toEndpoint ($count items)"
+        )
 
-        send(toEndpoint, buildMessage(
-            to         = toEndpoint,
-            type       = MessageType.DATA_SYNC,
-            items      = _data.value,
-            singleItem = null
-        ))
+        send(
+            toEndpoint, buildMessage(
+                to = toEndpoint,
+                type = MessageType.DATA_SYNC,
+                items = _data.value,
+                singleItem = null
+            )
+        )
     }
 
     // ── Public mutation API ───────────────────────────────────────────────────
@@ -168,14 +179,19 @@ class CollectionDataSyncHandler<T : Any>(
         }
         _data.value = _data.value + item
         logger.info { "[$identifier] addItem: added, collection size=${_data.value.size}" }
-        android.util.Log.d("DataSyncHandler[$identifier]", "addItem: added, size=${_data.value.size}")
+        android.util.Log.d(
+            "DataSyncHandler[$identifier]",
+            "addItem: added, size=${_data.value.size}"
+        )
 
-        broadcast(buildMessage(
-            to         = "ALL",
-            type       = MessageType.DATA_UPDATE_ADD,
-            items      = null,
-            singleItem = item
-        ))
+        broadcast(
+            buildMessage(
+                to = "ALL",
+                type = MessageType.DATA_UPDATE_ADD,
+                items = null,
+                singleItem = item
+            )
+        )
     }
 
     /**
@@ -193,12 +209,14 @@ class CollectionDataSyncHandler<T : Any>(
         logger.info { "[$identifier] updateItem: updated, collection size=${_data.value.size}" }
         android.util.Log.d("DataSyncHandler[$identifier]", "updateItem: updated")
 
-        broadcast(buildMessage(
-            to         = "ALL",
-            type       = MessageType.DATA_UPDATE_MOD,
-            items      = null,
-            singleItem = updated
-        ))
+        broadcast(
+            buildMessage(
+                to = "ALL",
+                type = MessageType.DATA_UPDATE_MOD,
+                items = null,
+                singleItem = updated
+            )
+        )
     }
 
     /**
@@ -214,14 +232,19 @@ class CollectionDataSyncHandler<T : Any>(
         }
         _data.value = _data.value.filter { !isSameItem(it, item) }
         logger.info { "[$identifier] removeItem: removed, collection size=${_data.value.size}" }
-        android.util.Log.d("DataSyncHandler[$identifier]", "removeItem: removed, size=${_data.value.size}")
+        android.util.Log.d(
+            "DataSyncHandler[$identifier]",
+            "removeItem: removed, size=${_data.value.size}"
+        )
 
-        broadcast(buildMessage(
-            to         = "ALL",
-            type       = MessageType.DATA_UPDATE_REMOVE,
-            items      = null,
-            singleItem = item
-        ))
+        broadcast(
+            buildMessage(
+                to = "ALL",
+                type = MessageType.DATA_UPDATE_REMOVE,
+                items = null,
+                singleItem = item
+            )
+        )
     }
 
     /**
@@ -243,72 +266,99 @@ class CollectionDataSyncHandler<T : Any>(
         val added = mergeItems(items)
 
         logger.info { "[$identifier] handleSync from ${message.from}: merged ${added.size} new items, total=${_data.value.size}" }
-        android.util.Log.d("DataSyncHandler[$identifier]", "handleSync from ${message.from}: +${added.size} items, total=${_data.value.size}")
+        android.util.Log.d(
+            "DataSyncHandler[$identifier]",
+            "handleSync from ${message.from}: +${added.size} items, total=${_data.value.size}"
+        )
 
-        send(message.from, buildMessage(
-            to         = message.from,
-            type       = MessageType.DATA_SYNC_ACK,
-            items      = _data.value,
-            singleItem = null,
-            replyTo    = message.id
-        ))
+        send(
+            message.from, buildMessage(
+                to = message.from,
+                type = MessageType.DATA_SYNC_ACK,
+                items = _data.value,
+                singleItem = null,
+                replyTo = message.id
+            )
+        )
     }
 
     private fun handleSyncAck(envelope: DataEnvelope<T>) {
         val items = envelope.items ?: emptyList()
         val added = mergeItems(items)
         logger.info { "[$identifier] handleSyncAck: merged ${added.size} new items, total=${_data.value.size}" }
-        android.util.Log.d("DataSyncHandler[$identifier]", "handleSyncAck: +${added.size} items, total=${_data.value.size}")
+        android.util.Log.d(
+            "DataSyncHandler[$identifier]",
+            "handleSyncAck: +${added.size} items, total=${_data.value.size}"
+        )
     }
 
     private fun handleAdd(message: Message, envelope: DataEnvelope<T>) {
         val item = envelope.singleItem ?: run {
             logger.warn { "[$identifier] handleAdd: no singleItem in envelope" }
-            android.util.Log.w("DataSyncHandler[$identifier]", "handleAdd: no singleItem in envelope")
+            android.util.Log.w(
+                "DataSyncHandler[$identifier]",
+                "handleAdd: no singleItem in envelope"
+            )
             return
         }
 
         if (_data.value.none { isSameItem(it, item) }) {
             _data.value = _data.value + item
             logger.info { "[$identifier] handleAdd: added item from ${message.from}, total=${_data.value.size}" }
-            android.util.Log.d("DataSyncHandler[$identifier]", "handleAdd: added from ${message.from}, total=${_data.value.size}")
+            android.util.Log.d(
+                "DataSyncHandler[$identifier]",
+                "handleAdd: added from ${message.from}, total=${_data.value.size}"
+            )
 
             if (message.ttl > 1) {
                 logger.debug { "[$identifier] handleAdd: re-broadcasting with ttl=${message.ttl - 1}" }
-                broadcast(buildMessage(
-                    to         = "ALL",
-                    type       = MessageType.DATA_UPDATE_ADD,
-                    items      = null,
-                    singleItem = item,
-                    ttl        = message.ttl - 1
-                ))
+                broadcast(
+                    buildMessage(
+                        to = "ALL",
+                        type = MessageType.DATA_UPDATE_ADD,
+                        items = null,
+                        singleItem = item,
+                        ttl = message.ttl - 1
+                    )
+                )
             }
         } else {
             logger.debug { "[$identifier] handleAdd: already exists, skipping" }
-            android.util.Log.d("DataSyncHandler[$identifier]", "handleAdd: already exists, skipping")
+            android.util.Log.d(
+                "DataSyncHandler[$identifier]",
+                "handleAdd: already exists, skipping"
+            )
         }
     }
 
     private fun handleMod(message: Message, envelope: DataEnvelope<T>) {
         val updated = envelope.singleItem ?: run {
             logger.warn { "[$identifier] handleMod: no singleItem in envelope" }
-            android.util.Log.w("DataSyncHandler[$identifier]", "handleMod: no singleItem in envelope")
+            android.util.Log.w(
+                "DataSyncHandler[$identifier]",
+                "handleMod: no singleItem in envelope"
+            )
             return
         }
 
         if (_data.value.any { isSameItem(it, updated) }) {
             _data.value = _data.value.map { if (isSameItem(it, updated)) updated else it }
             logger.info { "[$identifier] handleMod: updated item from ${message.from}" }
-            android.util.Log.d("DataSyncHandler[$identifier]", "handleMod: updated from ${message.from}")
+            android.util.Log.d(
+                "DataSyncHandler[$identifier]",
+                "handleMod: updated from ${message.from}"
+            )
 
             if (message.ttl > 1) {
-                broadcast(buildMessage(
-                    to         = "ALL",
-                    type       = MessageType.DATA_UPDATE_MOD,
-                    items      = null,
-                    singleItem = updated,
-                    ttl        = message.ttl - 1
-                ))
+                broadcast(
+                    buildMessage(
+                        to = "ALL",
+                        type = MessageType.DATA_UPDATE_MOD,
+                        items = null,
+                        singleItem = updated,
+                        ttl = message.ttl - 1
+                    )
+                )
             }
         } else {
             logger.debug { "[$identifier] handleMod: item not found, skipping" }
@@ -319,23 +369,31 @@ class CollectionDataSyncHandler<T : Any>(
     private fun handleRemove(message: Message, envelope: DataEnvelope<T>) {
         val item = envelope.singleItem ?: run {
             logger.warn { "[$identifier] handleRemove: no singleItem in envelope" }
-            android.util.Log.w("DataSyncHandler[$identifier]", "handleRemove: no singleItem in envelope")
+            android.util.Log.w(
+                "DataSyncHandler[$identifier]",
+                "handleRemove: no singleItem in envelope"
+            )
             return
         }
 
         if (_data.value.any { isSameItem(it, item) }) {
             _data.value = _data.value.filter { !isSameItem(it, item) }
             logger.info { "[$identifier] handleRemove: removed item from ${message.from}, total=${_data.value.size}" }
-            android.util.Log.d("DataSyncHandler[$identifier]", "handleRemove: removed from ${message.from}, total=${_data.value.size}")
+            android.util.Log.d(
+                "DataSyncHandler[$identifier]",
+                "handleRemove: removed from ${message.from}, total=${_data.value.size}"
+            )
 
             if (message.ttl > 1) {
-                broadcast(buildMessage(
-                    to         = "ALL",
-                    type       = MessageType.DATA_UPDATE_REMOVE,
-                    items      = null,
-                    singleItem = item,
-                    ttl        = message.ttl - 1
-                ))
+                broadcast(
+                    buildMessage(
+                        to = "ALL",
+                        type = MessageType.DATA_UPDATE_REMOVE,
+                        items = null,
+                        singleItem = item,
+                        ttl = message.ttl - 1
+                    )
+                )
             }
         } else {
             logger.debug { "[$identifier] handleRemove: item not found, skipping" }
@@ -347,7 +405,7 @@ class CollectionDataSyncHandler<T : Any>(
 
     private fun mergeItems(incoming: List<T>): List<T> {
         val current = _data.value.toMutableList()
-        val added   = mutableListOf<T>()
+        val added = mutableListOf<T>()
 
         for (item in incoming) {
             if (current.none { isSameItem(it, item) }) {
@@ -375,18 +433,18 @@ class CollectionDataSyncHandler<T : Any>(
     ): Message {
         val envelope = DataEnvelope(
             identifier = identifier,
-            items      = items,
+            items = items,
             singleItem = singleItem
         )
         val encoded = ProtoBuf.encodeToByteArray(envelopeSerializer, envelope)
         return Message(
-            to      = to,
-            from    = localEndpointId(),
-            type    = type,
-            data    = encoded,
-            ttl     = ttl,
+            to = to,
+            from = localEndpointId(),
+            type = type,
+            data = encoded,
+            ttl = ttl,
             replyTo = replyTo,
-            id      = UUID.randomUUID().toString()
+            id = UUID.randomUUID().toString()
         )
     }
 

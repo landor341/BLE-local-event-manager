@@ -8,7 +8,7 @@ object TopologyFactory {
             "snk" -> SnakeTopology()
             "hub" -> HubAndSpokeTopology(initialRole = TopologyStrategy.Role.LEAF)
             "msh" -> MeshTopology()
-            else  -> throw IllegalArgumentException(
+            else -> throw IllegalArgumentException(
                 "Unknown topology code: ${advertisedName.topologyCode}"
             )
         }

@@ -25,8 +25,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -36,15 +34,15 @@ import kotlinx.coroutines.launch
  */
 interface BackendFacade {
 
-    val myId:    String
-    val myRole:  UserRole
+    val myId: String
+    val myRole: UserRole
 
-    val state:            StateFlow<NetworkState>
-    val events:           SharedFlow<NetworkEvent>
+    val state: StateFlow<NetworkState>
+    val events: SharedFlow<NetworkEvent>
     val currentSessionId: StateFlow<String?>
 
     val localEncodedName: String?
-    val networkPeers:     StateFlow<List<PeerEntry>>
+    val networkPeers: StateFlow<List<PeerEntry>>
 
     /** Live synced presentation collection — updated via [CollectionDataSyncHandler]. */
     val presentations: StateFlow<List<PresentationEntry>>
@@ -56,8 +54,10 @@ interface BackendFacade {
     fun scanNetworks(): Flow<String>
     suspend fun stopScan()
 
-    @Deprecated("Defaults to SnakeTopology. Use createNetwork(eventName, topology) instead.",
-        ReplaceWith("createNetwork(eventName, TopologyChoice.SNAKE)"))
+    @Deprecated(
+        "Defaults to SnakeTopology. Use createNetwork(eventName, topology) instead.",
+        ReplaceWith("createNetwork(eventName, TopologyChoice.SNAKE)")
+    )
     suspend fun createNetwork(eventName: String)
 
     suspend fun createNetwork(eventName: String, topology: TopologyChoice)
@@ -92,7 +92,7 @@ interface BackendFacade {
 @Suppress("DEPRECATION")
 class DefaultBackendFacade(
     private val context: Context,
-    override val myId:   String   = "android-client",
+    override val myId: String = "android-client",
     override val myRole: UserRole = UserRole.ATTENDEE,
 
     @Deprecated("Moved to topology")
@@ -100,7 +100,7 @@ class DefaultBackendFacade(
 
     private val useRealNearby: Boolean = true,
     private val config: Network.Config = Network.Config(defaultTtl = 5),
-    private val scope: CoroutineScope  = CoroutineScope(Dispatchers.Default)
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) : BackendFacade {
 
     private val network: Network =
@@ -118,15 +118,15 @@ class DefaultBackendFacade(
     // ── Presentations handler ─────────────────────────────────────────────────
 
     private val presentationsHandler = CollectionDataSyncHandler(
-        identifier      = "presentations",
-        serializer      = PresentationEntry.serializer(),
+        identifier = "presentations",
+        serializer = PresentationEntry.serializer(),
         localEndpointId = { _client?.endpointId ?: "" },
-        send            = { _, msg -> _client?.sendMessage(msg) },
+        send = { _, msg -> _client?.sendMessage(msg) },
         broadcast = { msg ->
             android.util.Log.d("BackendFacade", "sending presentation message {$msg}")
             broadcastMessage(msg)
-                    },
-        isSameItem      = { a, b -> a.id == b.id }
+        },
+        isSameItem = { a, b -> a.id == b.id }
     )
 
     override fun broadcastMessage(message: Message) {
@@ -171,8 +171,8 @@ class DefaultBackendFacade(
     private val client: Client
         get() = _client ?: Client(
             displayName = displayName,
-            network     = network,
-            scope       = scope
+            network = network,
+            scope = scope
         ).also {
             it.attachNetwork(network, config)
             it.addMessageListener { msg -> appListeners.forEach { l -> l(msg) } }
@@ -215,11 +215,14 @@ class DefaultBackendFacade(
                 val eventName = currentEventName
                 val result = when {
                     advertising && eventName != null -> NetworkState.Joined(eventName)
-                    advertising                      -> NetworkState.Hosting(eventName ?: "")
-                    discovering                      -> NetworkState.Scanning
-                    else                             -> NetworkState.Idle
+                    advertising -> NetworkState.Hosting(eventName ?: "")
+                    discovering -> NetworkState.Scanning
+                    else -> NetworkState.Idle
                 }
-                android.util.Log.d("BackendFacade", "isAdvertising=$advertising isDiscovering=$discovering eventName=$eventName => ${result::class.simpleName}")
+                android.util.Log.d(
+                    "BackendFacade",
+                    "isAdvertising=$advertising isDiscovering=$discovering eventName=$eventName => ${result::class.simpleName}"
+                )
                 result
             }.collect { _state.value = it }
         }
@@ -231,11 +234,15 @@ class DefaultBackendFacade(
                         _events.tryEmit(ev)
                         currentEventName?.let { _events.tryEmit(NetworkEvent.Joined(it)) }
                         // Sync presentations to newly connected peer
-                        android.util.Log.d("BackendFacade", "EndpointConnected: syncing presentations to ${ev.endpointId}")
+                        android.util.Log.d(
+                            "BackendFacade",
+                            "EndpointConnected: syncing presentations to ${ev.endpointId}"
+                        )
                         presentationsHandler.onPeerConnected(ev.endpointId)
                     }
+
                     is NetworkEvent.EndpointDisconnected -> _events.tryEmit(ev)
-                    else                                 -> _events.tryEmit(ev)
+                    else -> _events.tryEmit(ev)
                 }
             }
         }
@@ -251,7 +258,10 @@ class DefaultBackendFacade(
                 client.startScan()
                 android.util.Log.d("BackendFacade", "scanNetworks: startScan returned")
             }.onFailure { e ->
-                android.util.Log.e("BackendFacade", "scanNetworks: startScan FAILED: ${e::class.simpleName}: ${e.message}")
+                android.util.Log.e(
+                    "BackendFacade",
+                    "scanNetworks: startScan FAILED: ${e::class.simpleName}: ${e.message}"
+                )
             }
         }
         return client.discoveredEvents()
@@ -263,8 +273,10 @@ class DefaultBackendFacade(
 
     // ── Hosting / Joining ─────────────────────────────────────────────────────
 
-    @Deprecated("Defaults to SnakeTopology. Use createNetwork(eventName, topology) instead.",
-        ReplaceWith("createNetwork(eventName, TopologyChoice.SNAKE)"))
+    @Deprecated(
+        "Defaults to SnakeTopology. Use createNetwork(eventName, topology) instead.",
+        ReplaceWith("createNetwork(eventName, TopologyChoice.SNAKE)")
+    )
     override suspend fun createNetwork(eventName: String) {
         createNetwork(eventName, TopologyChoice.SNAKE)
     }
@@ -272,8 +284,8 @@ class DefaultBackendFacade(
     override suspend fun createNetwork(eventName: String, topology: TopologyChoice) {
         currentEventName = eventName
         val topo = when (topology) {
-            TopologyChoice.SNAKE         -> SnakeTopology()
-            TopologyChoice.MESH          -> MeshTopology()
+            TopologyChoice.SNAKE -> SnakeTopology()
+            TopologyChoice.MESH -> MeshTopology()
             TopologyChoice.HUB_AND_SPOKE -> HubAndSpokeTopology()
         }
         client.createNetwork(eventName, topo)

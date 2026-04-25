@@ -36,9 +36,9 @@ class EventDetailViewModel(
      */
     val presentations: StateFlow<List<Presentation>> = mesh.presentations
         .stateIn(
-            scope          = viewModelScope,
-            started        = SharingStarted.WhileSubscribed(5_000),
-            initialValue   = emptyList()
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList()
         )
 
     private var joinedSessionId: String? = null

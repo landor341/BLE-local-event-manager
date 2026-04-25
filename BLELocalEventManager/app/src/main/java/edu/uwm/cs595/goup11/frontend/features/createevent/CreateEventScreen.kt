@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,13 +25,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.LinearScale
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,7 +52,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.ExperimentalMaterial3Api
 import edu.uwm.cs595.goup11.frontend.core.mesh.TopologyChoice
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,24 +86,24 @@ fun CreateEventScreen(
             is CreateEventUiState.Error,
             CreateEventUiState.Submitting -> {
                 CreateEventForm(
-                    draft          = draft,
-                    uiState        = uiState,
-                    onTitleChange  = viewModel::updateTitle,
+                    draft = draft,
+                    uiState = uiState,
+                    onTitleChange = viewModel::updateTitle,
                     onTopologyChange = viewModel::updateTopology,
-                    onSubmit       = viewModel::hostEvent,
-                    onBack         = onBack,
-                    modifier       = Modifier.padding(innerPadding)
+                    onSubmit = viewModel::hostEvent,
+                    onBack = onBack,
+                    modifier = Modifier.padding(innerPadding)
                 )
             }
 
             is CreateEventUiState.Hosting -> {
                 HostingSuccessScreen(
-                    sessionId         = state.sessionId,
-                    draft             = draft,
+                    sessionId = state.sessionId,
+                    draft = draft,
                     onAddPresentation = { onNavigateToCreatePresentation() },
-                    onDone            = { onHostingStarted(state.sessionId) },
-                    onCreateAnother   = { viewModel.reset() },
-                    modifier          = Modifier.padding(innerPadding)
+                    onDone = { onHostingStarted(state.sessionId) },
+                    onCreateAnother = { viewModel.reset() },
+                    modifier = Modifier.padding(innerPadding)
                 )
             }
         }
@@ -144,36 +142,36 @@ private fun CreateEventForm(
 
         // ── Event name ────────────────────────────────────────────────────────
         Card(
-            shape     = RoundedCornerShape(28.dp),
-            colors    = CardDefaults.cardColors(
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
-                modifier            = Modifier.padding(18.dp),
+                modifier = Modifier.padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text       = "Event details",
-                    style      = MaterialTheme.typography.titleLarge,
+                    text = "Event details",
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
 
                 OutlinedTextField(
-                    value         = draft.title,
+                    value = draft.title,
                     onValueChange = onTitleChange,
-                    modifier      = Modifier.fillMaxWidth(),
-                    singleLine    = true,
-                    label         = { Text("Event name") },
-                    placeholder   = { Text("Spring showcase, CS meetup, design review…") },
-                    leadingIcon   = {
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Event name") },
+                    placeholder = { Text("Spring showcase, CS meetup, design review…") },
+                    leadingIcon = {
                         Icon(
-                            imageVector        = Icons.Default.CalendarMonth,
+                            imageVector = Icons.Default.CalendarMonth,
                             contentDescription = null
                         )
                     },
-                    shape          = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(18.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                 )
             }
@@ -181,46 +179,46 @@ private fun CreateEventForm(
 
         // ── Topology picker ───────────────────────────────────────────────────
         Card(
-            shape     = RoundedCornerShape(28.dp),
-            colors    = CardDefaults.cardColors(
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
-                modifier            = Modifier.padding(18.dp),
+                modifier = Modifier.padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text       = "Network topology",
-                    style      = MaterialTheme.typography.titleLarge,
+                    text = "Network topology",
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
 
                 Text(
-                    text  = "Choose how devices connect to each other in this event.",
+                    text = "Choose how devices connect to each other in this event.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 TopologyOption(
-                    title       = "Snake",
+                    title = "Snake",
                     description = "Devices connect in a chain — each node links to the next. " +
                             "Best for linear setups like a row of seats or a hallway. " +
                             "Simple and predictable, but if the middle node drops, the chain splits.",
-                    icon        = Icons.Default.LinearScale,
-                    selected    = draft.topology == TopologyChoice.SNAKE,
-                    onClick     = { onTopologyChange(TopologyChoice.SNAKE) }
+                    icon = Icons.Default.LinearScale,
+                    selected = draft.topology == TopologyChoice.SNAKE,
+                    onClick = { onTopologyChange(TopologyChoice.SNAKE) }
                 )
 
                 TopologyOption(
-                    title       = "Mesh",
+                    title = "Mesh",
                     description = "Every device connects to as many nearby peers as possible. " +
                             "More resilient — if one node drops, traffic routes around it. " +
                             "Best for open spaces where people move around freely.",
-                    icon        = Icons.Default.AccountTree,
-                    selected    = draft.topology == TopologyChoice.MESH,
-                    onClick     = { onTopologyChange(TopologyChoice.MESH) }
+                    icon = Icons.Default.AccountTree,
+                    selected = draft.topology == TopologyChoice.MESH,
+                    onClick = { onTopologyChange(TopologyChoice.MESH) }
                 )
             }
         }
@@ -231,8 +229,8 @@ private fun CreateEventForm(
         // ── Actions ───────────────────────────────────────────────────────────
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
-                onClick  = onSubmit,
-                enabled  = !isSubmitting,
+                onClick = onSubmit,
+                enabled = !isSubmitting,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -240,15 +238,15 @@ private fun CreateEventForm(
             ) {
                 if (isSubmitting) {
                     CircularProgressIndicator(
-                        modifier    = Modifier.size(18.dp),
+                        modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
-                        color       = MaterialTheme.colorScheme.onPrimary
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(modifier = Modifier.size(10.dp))
                     Text("Starting host…")
                 } else {
                     Icon(
-                        imageVector        = Icons.Default.Podcasts,
+                        imageVector = Icons.Default.Podcasts,
                         contentDescription = null
                     )
                     Spacer(modifier = Modifier.size(10.dp))
@@ -257,8 +255,8 @@ private fun CreateEventForm(
             }
 
             FilledTonalButton(
-                onClick  = onBack,
-                enabled  = !isSubmitting,
+                onClick = onBack,
+                enabled = !isSubmitting,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -282,7 +280,7 @@ private fun TopologyOption(
 ) {
     val borderColor = if (selected) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.outlineVariant
-    val bgColor     = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+    val bgColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
     else MaterialTheme.colorScheme.surface
 
     Row(
@@ -297,7 +295,7 @@ private fun TopologyOption(
             .clickable { onClick() }
             .padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment     = Alignment.Top
+        verticalAlignment = Alignment.Top
     ) {
         Box(
             modifier = Modifier
@@ -310,40 +308,40 @@ private fun TopologyOption(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector        = icon,
+                imageVector = icon,
                 contentDescription = null,
-                tint               = if (selected) MaterialTheme.colorScheme.primary
+                tint = if (selected) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier           = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
 
         Column(
-            modifier            = Modifier.weight(1f),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row(
-                verticalAlignment     = Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text       = title,
-                    style      = MaterialTheme.typography.titleMedium,
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color      = if (selected) MaterialTheme.colorScheme.primary
+                    color = if (selected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface
                 )
                 if (selected) {
                     Icon(
-                        imageVector        = Icons.Default.CheckCircle,
+                        imageVector = Icons.Default.CheckCircle,
                         contentDescription = "Selected",
-                        tint               = MaterialTheme.colorScheme.primary,
-                        modifier           = Modifier.size(16.dp)
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
             Text(
-                text  = description,
+                text = description,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -363,9 +361,9 @@ private fun HeroSection() {
     )
 
     Card(
-        modifier  = Modifier.fillMaxWidth(),
-        shape     = RoundedCornerShape(30.dp),
-        colors    = CardDefaults.cardColors(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(30.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primary
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -385,7 +383,7 @@ private fun HeroSection() {
                     )
                     .padding(horizontal = 12.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment     = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
@@ -396,18 +394,18 @@ private fun HeroSection() {
                         )
                 )
                 Text(
-                    text       = "Host a live session",
-                    color      = MaterialTheme.colorScheme.onPrimary,
-                    style      = MaterialTheme.typography.labelLarge,
+                    text = "Host a live session",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Medium
                 )
             }
 
             Text(
-                text       = "Launch an event people nearby can discover instantly.",
-                style      = MaterialTheme.typography.headlineSmall,
+                text = "Launch an event people nearby can discover instantly.",
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color      = MaterialTheme.colorScheme.onPrimary
+                color = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
@@ -418,34 +416,36 @@ private fun HeroSection() {
 @Composable
 private fun PreviewCard(draft: CreateEventDraft) {
     Card(
-        modifier  = Modifier.fillMaxWidth(),
-        shape     = RoundedCornerShape(24.dp),
-        colors    = CardDefaults.cardColors(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier            = Modifier.padding(18.dp),
+            modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                text       = "Preview",
-                style      = MaterialTheme.typography.titleMedium,
+                text = "Preview",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
 
             Text(
-                text       = draft.title.ifBlank { "Untitled Event" },
-                style      = MaterialTheme.typography.headlineSmall,
+                text = draft.title.ifBlank { "Untitled Event" },
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
             MetaRow(
-                icon  = Icons.Default.AccountTree,
-                value = "Topology: ${draft.topology.name.lowercase().replaceFirstChar { it.uppercase() }}"
+                icon = Icons.Default.AccountTree,
+                value = "Topology: ${
+                    draft.topology.name.lowercase().replaceFirstChar { it.uppercase() }
+                }"
             )
         }
     }
@@ -471,14 +471,14 @@ private fun HostingSuccessScreen(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Card(
-            modifier  = Modifier.fillMaxWidth(),
-            shape     = RoundedCornerShape(30.dp),
-            colors    = CardDefaults.cardColors(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(30.dp),
+            colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer
             )
         ) {
             Column(
-                modifier            = Modifier.padding(24.dp),
+                modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Box(
@@ -491,21 +491,21 @@ private fun HostingSuccessScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector        = Icons.Default.CheckCircle,
+                        imageVector = Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint               = MaterialTheme.colorScheme.primary,
-                        modifier           = Modifier.size(30.dp)
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(30.dp)
                     )
                 }
 
                 Text(
-                    text       = "Your event is live",
-                    style      = MaterialTheme.typography.headlineSmall,
+                    text = "Your event is live",
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
 
                 Text(
-                    text  = "Nearby users can now discover and join this session.",
+                    text = "Nearby users can now discover and join this session.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -513,24 +513,26 @@ private fun HostingSuccessScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                 MetaRow(
-                    icon  = Icons.Default.CalendarMonth,
+                    icon = Icons.Default.CalendarMonth,
                     value = draft.title.ifBlank { sessionId }
                 )
 
                 MetaRow(
-                    icon  = Icons.Default.AccountTree,
-                    value = "Topology: ${draft.topology.name.lowercase().replaceFirstChar { it.uppercase() }}"
+                    icon = Icons.Default.AccountTree,
+                    value = "Topology: ${
+                        draft.topology.name.lowercase().replaceFirstChar { it.uppercase() }
+                    }"
                 )
 
                 MetaRow(
-                    icon  = Icons.Default.Podcasts,
+                    icon = Icons.Default.Podcasts,
                     value = "Session ID: $sessionId"
                 )
             }
         }
 
         Button(
-            onClick  = onAddPresentation,
+            onClick = onAddPresentation,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -540,7 +542,7 @@ private fun HostingSuccessScreen(
         }
 
         FilledTonalButton(
-            onClick  = onDone,
+            onClick = onDone,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
@@ -550,7 +552,7 @@ private fun HostingSuccessScreen(
         }
 
         TextButton(
-            onClick  = onCreateAnother,
+            onClick = onCreateAnother,
             modifier = Modifier.align(Alignment.CenterHorizontally)
         ) {
             Text("Create another event")
@@ -563,24 +565,24 @@ private fun HostingSuccessScreen(
 @Composable
 private fun ErrorCard(message: String) {
     Card(
-        modifier  = Modifier.fillMaxWidth(),
-        shape     = RoundedCornerShape(22.dp),
-        colors    = CardDefaults.cardColors(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer
         )
     ) {
         Column(
-            modifier            = Modifier.padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text       = "Couldn't start event",
-                style      = MaterialTheme.typography.titleMedium,
+                text = "Couldn't start event",
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color      = MaterialTheme.colorScheme.onErrorContainer
+                color = MaterialTheme.colorScheme.onErrorContainer
             )
             Text(
-                text  = message,
+                text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
@@ -592,16 +594,16 @@ private fun ErrorCard(message: String) {
 private fun MetaRow(icon: ImageVector, value: String) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment     = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector        = icon,
+            imageVector = icon,
             contentDescription = null,
-            tint               = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier           = Modifier.size(18.dp)
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp)
         )
         Text(
-            text  = value,
+            text = value,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

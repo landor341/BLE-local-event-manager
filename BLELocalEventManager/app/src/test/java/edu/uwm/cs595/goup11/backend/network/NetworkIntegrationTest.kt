@@ -11,7 +11,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -64,7 +63,7 @@ class NetworkIntegrationTest {
      * The scope is tracked for cleanup in @After.
      */
     private fun makeClient(name: String): Pair<Client, CoroutineScope> {
-        val scope  = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         scopes.add(scope)
         val client = Client(displayName = name, scope = scope)
         client.attachNetwork(LocalNetwork(scope = scope), Network.Config(defaultTtl = 5))
@@ -72,14 +71,14 @@ class NetworkIntegrationTest {
     }
 
     private fun snake(
-        max:       Int  = 2,
-        keepMs:    Long = 500,
+        max: Int = 2,
+        keepMs: Long = 500,
         timeoutMs: Long = 2_000,
-        discMs:    Long = 50
+        discMs: Long = 50
     ) = SnakeTopology(
-        maxPeerCount        = max,
+        maxPeerCount = max,
         keepaliveIntervalMs = keepMs,
-        keepaliveTimeoutMs  = timeoutMs,
+        keepaliveTimeoutMs = timeoutMs,
         discoveryIntervalMs = discMs
     )
 
@@ -93,21 +92,27 @@ class NetworkIntegrationTest {
         snake(max = 1, keepMs = keepMs, timeoutMs = timeoutMs, discMs = discMs)
 
     private fun mesh(
-        max:       Int  = 6,
-        target:    Int  = 3,
-        keepMs:    Long = 500,
+        max: Int = 6,
+        target: Int = 3,
+        keepMs: Long = 500,
         timeoutMs: Long = 2_000,
-        discMs:    Long = 50
+        discMs: Long = 50
     ) = MeshTopology(
-        maxPeerCount        = max,
-        targetPeerCount     = target,
+        maxPeerCount = max,
+        targetPeerCount = target,
         keepaliveIntervalMs = keepMs,
-        keepaliveTimeoutMs  = timeoutMs,
+        keepaliveTimeoutMs = timeoutMs,
         discoveryIntervalMs = discMs
     )
 
     private fun text(to: String, from: String, body: String = "hello") =
-        Message(to = to, from = from, type = MessageType.TEXT_MESSAGE, ttl = 5, data = body.toByteArray(Charsets.UTF_8))
+        Message(
+            to = to,
+            from = from,
+            type = MessageType.TEXT_MESSAGE,
+            ttl = 5,
+            data = body.toByteArray(Charsets.UTF_8)
+        )
 
     /**
      * Join a network and wait until at least one EndpointConnected event fires,
@@ -118,9 +123,9 @@ class NetworkIntegrationTest {
      * We simply wait until the network reports a real peer connection.
      */
     private suspend fun Client.joinAndWait(
-        eventName:  String,
-        timeoutMs:  Long = 3_000,
-        pollMs:     Long = 20
+        eventName: String,
+        timeoutMs: Long = 3_000,
+        pollMs: Long = 20
     ) {
         val joinScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             .also { scopes.add(it) }
@@ -147,9 +152,9 @@ class NetworkIntegrationTest {
      * runs, then cancel the collector. Returns everything collected.
      */
     private suspend fun <T : NetworkEvent> collectEventsWhile(
-        scope:  CoroutineScope,
+        scope: CoroutineScope,
         client: Client,
-        block:  suspend () -> Unit
+        block: suspend () -> Unit
     ): List<T> {
         val collected = mutableListOf<T>()
         val job: Job = scope.launch {
@@ -164,8 +169,13 @@ class NetworkIntegrationTest {
         return collected
     }
 
-    @Before fun setUp()    { LocalNetwork.purge() }
-    @After  fun tearDown() {
+    @Before
+    fun setUp() {
+        LocalNetwork.purge()
+    }
+
+    @After
+    fun tearDown() {
         scopes.forEach { it.cancel() }
         scopes.clear()
         // Display output for debugging
@@ -177,28 +187,32 @@ class NetworkIntegrationTest {
     // 1. Network creation and identity
     // =========================================================================
 
-    @Test fun `createNetwork marks client as connected`() = runBlocking {
+    @Test
+    fun `createNetwork marks client as connected`() = runBlocking {
         val (alice, _) = makeClient("Alice")
         alice.createNetwork("Fest", snake())
         assertTrue(alice.isConnected())
     }
 
-    @Test fun `createNetwork encodes event name topology and display name in endpointId`() = runBlocking {
+    @Test
+    fun `createNetwork encodes event name topology and display name in endpointId`() = runBlocking {
         val (alice, _) = makeClient("Alice")
         alice.createNetwork("Fest", snake())
         val id = alice.endpointId!!
         assertTrue(id.contains("Alice"), "endpointId should contain display name")
-        assertTrue(id.contains("snk"),   "endpointId should contain snake topology code")
-        assertTrue(id.contains("Fest"),  "endpointId should contain event name")
+        assertTrue(id.contains("snk"), "endpointId should contain snake topology code")
+        assertTrue(id.contains("Fest"), "endpointId should contain event name")
     }
 
-    @Test fun `createNetwork with mesh topology encodes msh in endpointId`() = runBlocking {
+    @Test
+    fun `createNetwork with mesh topology encodes msh in endpointId`() = runBlocking {
         val (alice, _) = makeClient("Alice")
         alice.createNetwork("Fest", mesh())
         assertTrue(alice.endpointId!!.contains("msh"))
     }
 
-    @Test fun `createNetwork registers node as advertising in InMemoryNetworkHolder`() = runBlocking {
+    @Test
+    fun `createNetwork registers node as advertising in InMemoryNetworkHolder`() = runBlocking {
         val (alice, _) = makeClient("Alice")
         alice.createNetwork("Fest", snake())
         val node = LocalNetwork.InMemoryNetworkHolder.getNode(alice.endpointId!!)
@@ -206,7 +220,8 @@ class NetworkIntegrationTest {
         assertTrue(node.isAdvertising, "Alice's node must be advertising")
     }
 
-    @Test fun `leaveNetwork clears connected state and endpointId`() = runBlocking {
+    @Test
+    fun `leaveNetwork clears connected state and endpointId`() = runBlocking {
         val (alice, _) = makeClient("Alice")
         alice.createNetwork("Fest", snake())
         assertTrue(alice.isConnected())
@@ -215,7 +230,8 @@ class NetworkIntegrationTest {
         assertNull(alice.endpointId)
     }
 
-    @Test fun `createNetwork then leaveNetwork then createNetwork new event works`() = runBlocking {
+    @Test
+    fun `createNetwork then leaveNetwork then createNetwork new event works`() = runBlocking {
         val (alice, _) = makeClient("Alice")
         alice.createNetwork("FestA", snake())
         alice.leaveNetwork()
@@ -229,9 +245,10 @@ class NetworkIntegrationTest {
     // 2. Two-client connection
     // =========================================================================
 
-    @Test fun `alice and bob connect via snake topology`() = runBlocking {
+    @Test
+    fun `alice and bob connect via snake topology`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
         bob.joinAndWait("Fest")
@@ -240,9 +257,10 @@ class NetworkIntegrationTest {
         assertTrue(bob.isConnected())
     }
 
-    @Test fun `alice and bob connect via mesh topology`() = runBlocking {
+    @Test
+    fun `alice and bob connect via mesh topology`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("Fest", mesh())
         delay(100)
         bob.joinAndWait("Fest")
@@ -251,9 +269,10 @@ class NetworkIntegrationTest {
         assertTrue(bob.isConnected())
     }
 
-    @Test fun `joining client encodes correct event name and display name`() = runBlocking {
+    @Test
+    fun `joining client encodes correct event name and display name`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("MyFest", snake())
         delay(100)
         bob.joinAndWait("MyFest")
@@ -263,7 +282,8 @@ class NetworkIntegrationTest {
         assertTrue(bob.endpointId!!.contains("Bob"))
     }
 
-    @Test fun `joining non-existent event does not connect`() = runBlocking {
+    @Test
+    fun `joining non-existent event does not connect`() = runBlocking {
         val (alice, _) = makeClient("Alice")
         alice.createNetwork("EventA", snake())
         delay(100)
@@ -276,9 +296,10 @@ class NetworkIntegrationTest {
     // 3. Direct message delivery
     // =========================================================================
 
-    @Test fun `alice sends message bob receives it`() = runBlocking {
+    @Test
+    fun `alice sends message bob receives it`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
         bob.joinAndWait("Fest")
@@ -294,9 +315,10 @@ class NetworkIntegrationTest {
         assertEquals(alice.endpointId, received.first().from)
     }
 
-    @Test fun `bob sends message alice receives it`() = runBlocking {
+    @Test
+    fun `bob sends message alice receives it`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
         bob.joinAndWait("Fest")
@@ -312,9 +334,10 @@ class NetworkIntegrationTest {
         assertEquals(bob.endpointId, received.first().from)
     }
 
-    @Test fun `five messages are all delivered in order`() = runBlocking {
+    @Test
+    fun `five messages are all delivered in order`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
         bob.joinAndWait("Fest")
@@ -332,9 +355,10 @@ class NetworkIntegrationTest {
         assertEquals((0..4).map { "msg$it" }, received.map { it.data?.toString(Charsets.UTF_8) })
     }
 
-    @Test fun `message body is preserved end to end`() = runBlocking {
+    @Test
+    fun `message body is preserved end to end`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
         bob.joinAndWait("Fest")
@@ -353,9 +377,10 @@ class NetworkIntegrationTest {
     // 4. sendMessageAndWait — round-trip and timeout
     // =========================================================================
 
-    @Test fun `sendMessageAndWait receives reply from bob`() = runBlocking {
+    @Test
+    fun `sendMessageAndWait receives reply from bob`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
         bob.joinAndWait("Fest")
@@ -363,27 +388,30 @@ class NetworkIntegrationTest {
 
         // Bob echoes every TEXT_MESSAGE back as a reply
         bob.addMessageListener { incoming ->
-            bob.sendMessage(Message(
-                to      = incoming.from,
-                from    = bob.endpointId!!,
-                type    = MessageType.TEXT_MESSAGE,
-                replyTo = incoming.id,
-                ttl     = 5,
-                data    = "pong".toByteArray(Charsets.UTF_8)
-            ))
+            bob.sendMessage(
+                Message(
+                    to = incoming.from,
+                    from = bob.endpointId!!,
+                    type = MessageType.TEXT_MESSAGE,
+                    replyTo = incoming.id,
+                    ttl = 5,
+                    data = "pong".toByteArray(Charsets.UTF_8)
+                )
+            )
         }
 
-        val req   = text(bob.endpointId!!, alice.endpointId!!, "ping")
+        val req = text(bob.endpointId!!, alice.endpointId!!, "ping")
         val reply = alice.sendMessageAndWait(req, timeoutMillis = 2_000)
 
         assertNotNull(reply, "Alice should receive a reply")
-        assertEquals("pong",  reply!!.data?.toString(Charsets.UTF_8))
-        assertEquals(req.id,  reply.replyTo)
+        assertEquals("pong", reply!!.data?.toString(Charsets.UTF_8))
+        assertEquals(req.id, reply.replyTo)
     }
 
-    @Test fun `sendMessageAndWait returns null when no reply arrives`() = runBlocking {
+    @Test
+    fun `sendMessageAndWait returns null when no reply arrives`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         alice.createNetwork("Fest", snake())
         delay(100)
         bob.joinAndWait("Fest")
@@ -402,9 +430,10 @@ class NetworkIntegrationTest {
     // 5. Three-node Snake chain — routing through middle node
     // =========================================================================
 
-    @Test fun `alice message reaches carol through bob in snake chain`() = runBlocking {
+    @Test
+    fun `alice message reaches carol through bob in snake chain`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
         // Alice is an end-node (max=1) so she stops advertising after Bob joins,
@@ -424,9 +453,10 @@ class NetworkIntegrationTest {
         assertEquals(alice.endpointId, carolReceived.first().from)
     }
 
-    @Test fun `carol message reaches alice through bob in snake chain`() = runBlocking {
+    @Test
+    fun `carol message reaches alice through bob in snake chain`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
         alice.createNetwork("Fest", snakeEnd())
@@ -444,9 +474,10 @@ class NetworkIntegrationTest {
         assertEquals(carol.endpointId, aliceReceived.first().from)
     }
 
-    @Test fun `bob reaches both alice and carol directly as middle node`() = runBlocking {
+    @Test
+    fun `bob reaches both alice and carol directly as middle node`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
         alice.createNetwork("Fest", snakeEnd())
@@ -473,9 +504,10 @@ class NetworkIntegrationTest {
     // 6. Three-node Mesh routing
     // =========================================================================
 
-    @Test fun `all three mesh nodes can message each other directly`() = runBlocking {
+    @Test
+    fun `all three mesh nodes can message each other directly`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
         alice.createNetwork("Fest", mesh(max = 6, target = 2))
@@ -483,22 +515,31 @@ class NetworkIntegrationTest {
         bob.joinAndWait("Fest"); delay(300)
         carol.joinAndWait("Fest"); delay(300)
 
-        val bobRx   = mutableListOf<Message>()
+        val bobRx = mutableListOf<Message>()
         val carolRx = mutableListOf<Message>()
-        bob.addMessageListener   { bobRx.add(it) }
+        bob.addMessageListener { bobRx.add(it) }
         carol.addMessageListener { carolRx.add(it) }
 
-        alice.sendMessage(text(bob.endpointId!!,   alice.endpointId!!, "a→b"))
+        alice.sendMessage(text(bob.endpointId!!, alice.endpointId!!, "a→b"))
         alice.sendMessage(text(carol.endpointId!!, alice.endpointId!!, "a→c"))
         delay(300)
 
-        assertEquals(1, bobRx.filter   { it.data?.toString(Charsets.UTF_8) == "a→b" }.size, "Bob should receive message from Alice")
-        assertEquals(1, carolRx.filter { it.data?.toString(Charsets.UTF_8) == "a→c" }.size, "Carol should receive message from Alice")
+        assertEquals(
+            1,
+            bobRx.filter { it.data?.toString(Charsets.UTF_8) == "a→b" }.size,
+            "Bob should receive message from Alice"
+        )
+        assertEquals(
+            1,
+            carolRx.filter { it.data?.toString(Charsets.UTF_8) == "a→c" }.size,
+            "Carol should receive message from Alice"
+        )
     }
 
-    @Test fun `mesh flood delivers to all peers when destination is unknown`() = runBlocking {
+    @Test
+    fun `mesh flood delivers to all peers when destination is unknown`() = runBlocking {
         val (alice, aliceScope) = makeClient("Alice")
-        val (bob,   bobScope)   = makeClient("Bob")
+        val (bob, bobScope) = makeClient("Bob")
         val (carol, carolScope) = makeClient("Carol")
 
         alice.createNetwork("Fest", mesh(max = 6, target = 2))
@@ -508,15 +549,23 @@ class NetworkIntegrationTest {
 
         // Observe at the network event layer — MessageReceived fires for every
         // payload that arrives at the node, regardless of message.to routing.
-        val bobRx   = mutableListOf<Message>()
+        val bobRx = mutableListOf<Message>()
         val carolRx = mutableListOf<Message>()
         val jobB = bobScope.launch {
             bob.network!!.events.filterIsInstance<NetworkEvent.MessageReceived>()
-                .collect { if (it.message.data?.toString(Charsets.UTF_8) == "broadcast") bobRx.add(it.message) }
+                .collect {
+                    if (it.message.data?.toString(Charsets.UTF_8) == "broadcast") bobRx.add(
+                        it.message
+                    )
+                }
         }
         val jobC = carolScope.launch {
             carol.network!!.events.filterIsInstance<NetworkEvent.MessageReceived>()
-                .collect { if (it.message.data?.toString(Charsets.UTF_8) == "broadcast") carolRx.add(it.message) }
+                .collect {
+                    if (it.message.data?.toString(Charsets.UTF_8) == "broadcast") carolRx.add(
+                        it.message
+                    )
+                }
         }
 
         // Send to an unknown endpoint — topology floods to all direct peers
@@ -524,7 +573,7 @@ class NetworkIntegrationTest {
         delay(500)
         jobB.cancel(); jobC.cancel()
 
-        assertTrue(bobRx.isNotEmpty(),   "Bob should receive flooded message")
+        assertTrue(bobRx.isNotEmpty(), "Bob should receive flooded message")
         assertTrue(carolRx.isNotEmpty(), "Carol should receive flooded message")
     }
 
@@ -532,9 +581,10 @@ class NetworkIntegrationTest {
     // 7. Leave and rejoin
     // =========================================================================
 
-    @Test fun `alice detects bob disconnecting`() = runBlocking {
+    @Test
+    fun `alice detects bob disconnecting`() = runBlocking {
         val (alice, aliceScope) = makeClient("Alice")
-        val (bob,   _)          = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
 
         alice.createNetwork("Fest", snake())
         delay(100)
@@ -557,9 +607,10 @@ class NetworkIntegrationTest {
         assertEquals(bobId, disconnects.first().endpointId)
     }
 
-    @Test fun `bob can rejoin after leaving and receive messages`() = runBlocking {
+    @Test
+    fun `bob can rejoin after leaving and receive messages`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
 
         alice.createNetwork("Fest", snake())
         delay(100)
@@ -583,9 +634,10 @@ class NetworkIntegrationTest {
         assertEquals(1, received.size, "Bob should receive messages after rejoining")
     }
 
-    @Test fun `after bob leaves alice accepts a new peer in the vacated slot`() = runBlocking {
+    @Test
+    fun `after bob leaves alice accepts a new peer in the vacated slot`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
         alice.createNetwork("Fest", snake(max = 1))
@@ -608,12 +660,13 @@ class NetworkIntegrationTest {
     // 8. Topology connection limits
     // =========================================================================
 
-    @Test fun `snake node rejects connection when at its own max peers`() = runBlocking {
+    @Test
+    fun `snake node rejects connection when at its own max peers`() = runBlocking {
         // max=1 per node — Alice stops advertising after Bob joins (slot full).
         // Carol joins and connects to Bob instead (Bob has max=2, still has room).
         // This verifies per-node enforcement, not a network-wide limit.
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
         alice.createNetwork("Fest", snake(max = 1))
@@ -629,7 +682,8 @@ class NetworkIntegrationTest {
         assertTrue(carol.isConnected(), "Carol should connect via Bob, not Alice")
     }
 
-    @Test fun `mesh node stops advertising when at its own maxPeerCount`() = runBlocking {
+    @Test
+    fun `mesh node stops advertising when at its own maxPeerCount`() = runBlocking {
         // max=2 per node, target=1. Host fills to max — verifies it stops advertising.
         // Other nodes in the mesh can still accept connections from each other.
         val (host, _) = makeClient("Host")
@@ -653,10 +707,11 @@ class NetworkIntegrationTest {
         assertTrue(c2.isConnected(), "C2 should be connected")
     }
 
-    @Test fun `mesh allows connections up to target from maxPeerCount`() = runBlocking {
+    @Test
+    fun `mesh allows connections up to target from maxPeerCount`() = runBlocking {
         // target=2, max=4 — fill to target, additional peers should still be accepted
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
         val (carol, _) = makeClient("Carol")
 
         alice.createNetwork("Fest", mesh(max = 4, target = 2))
@@ -665,7 +720,7 @@ class NetworkIntegrationTest {
         carol.joinAndWait("Fest"); delay(300)
 
         // Both bob and carol should have connected — we're at target but below max
-        assertTrue(bob.isConnected(),   "Bob should connect (below max)")
+        assertTrue(bob.isConnected(), "Bob should connect (below max)")
         assertTrue(carol.isConnected(), "Carol should connect (at target but below max)")
     }
 
@@ -673,7 +728,8 @@ class NetworkIntegrationTest {
     // 9. Keepalive through the full stack
     // =========================================================================
 
-    @Test fun `alice sends PING messages to bob via keepalive`() = runBlocking {
+    @Test
+    fun `alice sends PING messages to bob via keepalive`() = runBlocking {
         val (alice, _) = makeClient("Alice")
         val (bob, bobScope) = makeClient("Bob")
 
@@ -694,13 +750,16 @@ class NetworkIntegrationTest {
         delay(800) // multiple keepalive ticks at 100 ms each
         job.cancel()
 
-        assertTrue(pingsAtBob.isNotEmpty(),
-            "Bob should receive PING messages from Alice's keepalive loop")
+        assertTrue(
+            pingsAtBob.isNotEmpty(),
+            "Bob should receive PING messages from Alice's keepalive loop"
+        )
     }
 
-    @Test fun `silent peer is evicted from topology after keepalive timeout`() = runBlocking {
+    @Test
+    fun `silent peer is evicted from topology after keepalive timeout`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
 
         // keepMs=200, timeoutMs=500 — Bob will be evicted ~500 ms after going silent
         alice.createNetwork("Fest", snake(keepMs = 200, timeoutMs = 500))
@@ -716,13 +775,16 @@ class NetworkIntegrationTest {
 
         val aliceNode = LocalNetwork.InMemoryNetworkHolder.getNode(alice.endpointId!!)
         val bobStillConnected = aliceNode?.connections?.contains(bobId) ?: false
-        assertFalse(bobStillConnected,
-            "Alice should evict Bob from her connection list after keepalive timeout")
+        assertFalse(
+            bobStillConnected,
+            "Alice should evict Bob from her connection list after keepalive timeout"
+        )
     }
 
-    @Test fun `after eviction alice restarts discovery to find new peers`() = runBlocking {
+    @Test
+    fun `after eviction alice restarts discovery to find new peers`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
 
         alice.createNetwork("Fest", snake(keepMs = 200, timeoutMs = 500, discMs = 50))
         delay(100)
@@ -736,17 +798,20 @@ class NetworkIntegrationTest {
         // Alice should have re-entered the discovery/advertising state
         val aliceNode = LocalNetwork.InMemoryNetworkHolder.getNode(alice.endpointId!!)
         assertNotNull(aliceNode, "Alice's node should still be in the holder")
-        assertTrue(aliceNode.isAdvertising,
-            "Alice should be advertising again after her peer was evicted")
+        assertTrue(
+            aliceNode.isAdvertising,
+            "Alice should be advertising again after her peer was evicted"
+        )
     }
 
     // =========================================================================
     // 10. No-route safety and graceful teardown
     // =========================================================================
 
-    @Test fun `sending to departed peer does not throw`() = runBlocking {
+    @Test
+    fun `sending to departed peer does not throw`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
 
         alice.createNetwork("Fest", snake())
         delay(100)
@@ -768,9 +833,10 @@ class NetworkIntegrationTest {
         assertFalse(threw, "Sending to a gone peer should not throw — topology returns empty hops")
     }
 
-    @Test fun `two separate events do not interfere with each other`() = runBlocking {
+    @Test
+    fun `two separate events do not interfere with each other`() = runBlocking {
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
 
         alice.createNetwork("EventA", snake())
         delay(100)
@@ -781,19 +847,22 @@ class NetworkIntegrationTest {
         val (carol, _) = makeClient("Carol")
         carol.joinAndWait("EventB", timeoutMs = 500)
 
-        assertFalse(carol.isConnected(),
-            "Carol should not connect to EventA when she is looking for EventB")
+        assertFalse(
+            carol.isConnected(),
+            "Carol should not connect to EventA when she is looking for EventB"
+        )
 
         // Alice and Bob's connection should be unaffected
         assertTrue(alice.isConnected())
         assertTrue(bob.isConnected())
     }
 
-    @Test fun `mesh node can receive messages after snake node leaves same event`() = runBlocking {
+    @Test
+    fun `mesh node can receive messages after snake node leaves same event`() = runBlocking {
         // Verify the stack handles mixed topology presence gracefully.
         // Two clients on EventA — if one leaves the other must still function.
         val (alice, _) = makeClient("Alice")
-        val (bob,   _) = makeClient("Bob")
+        val (bob, _) = makeClient("Bob")
 
         alice.createNetwork("EventA", mesh(max = 4, target = 2))
         delay(100)

@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,39 +31,35 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -72,18 +69,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import edu.uwm.cs595.goup11.backend.network.*
-import edu.uwm.cs595.goup11.backend.network.PeerEntry
 import androidx.core.content.ContextCompat
 import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Client
 import edu.uwm.cs595.goup11.backend.network.ConnectNetwork
-import edu.uwm.cs595.goup11.backend.network.LocalNetwork
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.MockClient
 import edu.uwm.cs595.goup11.backend.network.Network
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
+import edu.uwm.cs595.goup11.backend.network.PeerEntry
 import edu.uwm.cs595.goup11.backend.network.UserRole
 import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.network.topology.SnakeTopology
@@ -94,17 +89,14 @@ import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import edu.uwm.cs595.goup11.frontend.core.mesh.TopologyChoice
 import edu.uwm.cs595.goup11.frontend.dev.DevNetworkScreen
 import edu.uwm.cs595.goup11.frontend.dev.DiscoveredEvent
+import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.material3.ExperimentalMaterial3Api
-import kotlinx.coroutines.withContext
-import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import java.time.LocalDateTime
 
 private enum class DevMode {
@@ -508,14 +500,14 @@ private fun GatewayDevContent(mesh: MeshGateway) {
                 ) {
                     mesh.addPresentation(
                         Presentation(
-                            id                = java.util.UUID.randomUUID().toString(),
-                            name              = "Test Presentation ${presentations.size + 1}",
-                            startTime         = LocalDateTime.now(),
-                            endTime           = LocalDateTime.now().plusHours(1),
-                            location          = "Room 101",
-                            speakerName       = "Dev Speaker",
+                            id = java.util.UUID.randomUUID().toString(),
+                            name = "Test Presentation ${presentations.size + 1}",
+                            startTime = LocalDateTime.now(),
+                            endTime = LocalDateTime.now().plusHours(1),
+                            location = "Room 101",
+                            speakerName = "Dev Speaker",
                             speakerEndpointId = mesh.myId,
-                            status            = edu.uwm.cs595.goup11.backend.network.PresentationStatus.ACTIVE
+                            status = edu.uwm.cs595.goup11.backend.network.PresentationStatus.ACTIVE
                         )
                     )
                 }
@@ -652,7 +644,7 @@ private fun GatewayDevContent(mesh: MeshGateway) {
 /* MOCK MODE                                                                 */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-private suspend fun safelyLeaveMockClient(client: MockClient?){
+private suspend fun safelyLeaveMockClient(client: MockClient?) {
     if (client == null) return
     runCatching { client.leaveSession() }
     delay(250)
@@ -801,7 +793,12 @@ private fun MockDevContent() {
             HorizontalDivider()
             MockStatusRow(
                 label = "Send message workflow",
-                value = if (logs.any { it.contains("sent message", ignoreCase = true) }) "Verified" else "Not run"
+                value = if (logs.any {
+                        it.contains(
+                            "sent message",
+                            ignoreCase = true
+                        )
+                    }) "Verified" else "Not run"
             )
             HorizontalDivider()
             MockStatusRow(
@@ -1062,20 +1059,20 @@ private fun MockStatusRow(
 @Composable
 private fun DirectDevContent() {
     val context = LocalContext.current
-    val scope   = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
 
     // Mirror DevNetworkActivity's state fields
-    val clientState        = remember { mutableStateOf<Client?>(null) }
-    val eventNameState     = remember { mutableStateOf<String?>(null) }
-    val discoveredEvents   = remember { mutableStateListOf<DiscoveredEvent>() }
-    val isDiscovering      = remember { mutableStateOf(false) }
-    val isAdvertising      = remember { mutableStateOf(false) }
-    val isNodeDiscovering  = remember { mutableStateOf(false) }
-    val permissionError    = remember { mutableStateOf<String?>(null) }
+    val clientState = remember { mutableStateOf<Client?>(null) }
+    val eventNameState = remember { mutableStateOf<String?>(null) }
+    val discoveredEvents = remember { mutableStateListOf<DiscoveredEvent>() }
+    val isDiscovering = remember { mutableStateOf(false) }
+    val isAdvertising = remember { mutableStateOf(false) }
+    val isNodeDiscovering = remember { mutableStateOf(false) }
+    val permissionError = remember { mutableStateOf<String?>(null) }
 
-    var networkStateJob    by remember { mutableStateOf<Job?>(null) }
-    var discoverJob        by remember { mutableStateOf<Job?>(null) }
-    var scanNet            by remember { mutableStateOf<ConnectNetwork?>(null) }
+    var networkStateJob by remember { mutableStateOf<Job?>(null) }
+    var discoverJob by remember { mutableStateOf<Job?>(null) }
+    var scanNet by remember { mutableStateOf<ConnectNetwork?>(null) }
 
     // Permissions required by Nearby Connections
     val requiredPerms = remember {
@@ -1241,11 +1238,12 @@ private fun DirectDevContent() {
     // Collect the directory's network-wide active peer list reactively
     val networkPeers by produceState<List<PeerEntry>>(
         initialValue = emptyList(),
-        key1         = clientState.value
+        key1 = clientState.value
     ) {
         val c = clientState.value
-        if (c == null) { value = emptyList() }
-        else c.networkPeersFlow.collect { value = it }
+        if (c == null) {
+            value = emptyList()
+        } else c.networkPeersFlow.collect { value = it }
     }
     val peersExcludingSelf = networkPeers.filter {
         it.endpointId != clientState.value?.endpointId
@@ -1253,15 +1251,15 @@ private fun DirectDevContent() {
 
     // ── Render DevNetworkScreen ───────────────────────────────────────────────
     DevNetworkScreen(
-        client             = clientState.value,
-        networkPeers       = peersExcludingSelf,
-        eventName          = eventNameState.value,
-        discoveredEvents   = discoveredEvents,
-        isDiscovering      = isDiscovering.value,
-        isAdvertising      = isAdvertising.value,
-        isNodeDiscovering  = isNodeDiscovering.value,
-        permissionError    = permissionError.value,
-        onCreateNetwork    = { name, event, topo, maxPeers ->
+        client = clientState.value,
+        networkPeers = peersExcludingSelf,
+        eventName = eventNameState.value,
+        discoveredEvents = discoveredEvents,
+        isDiscovering = isDiscovering.value,
+        isAdvertising = isAdvertising.value,
+        isNodeDiscovering = isNodeDiscovering.value,
+        permissionError = permissionError.value,
+        onCreateNetwork = { name, event, topo, maxPeers ->
             requestPerms { createNetwork(name, event, topo, maxPeers) }
         },
         onJoinNetwork = { name, event ->

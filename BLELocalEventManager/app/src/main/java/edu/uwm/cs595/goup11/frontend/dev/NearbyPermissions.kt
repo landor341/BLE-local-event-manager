@@ -46,9 +46,11 @@ class NearbyPermissions(activity: ComponentActivity) {
             Manifest.permission.BLUETOOTH_CONNECT,
             Manifest.permission.ACCESS_FINE_LOCATION,
         )
+
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
         )
+
         else -> arrayOf(
             Manifest.permission.ACCESS_COARSE_LOCATION,
         )

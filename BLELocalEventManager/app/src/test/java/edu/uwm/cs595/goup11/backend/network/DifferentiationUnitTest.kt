@@ -2,13 +2,20 @@ package edu.uwm.cs595.goup11.backend.network
 
 import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.security.Manager
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.assertArrayEquals
 import org.junit.Before
 import org.junit.Test
 
@@ -60,11 +67,13 @@ class DifferentiationUnitTest {
         val hostClient = Client("HOST", UserRole.ADMIN, scope = hostScope)
         val hostNet = LocalNetwork(scope = hostScope)
         hostClient.attachNetwork(hostNet, Network.Config(5))
-        hostClient.createNetwork("TEST_NET", MeshTopology(
-            keepaliveIntervalMs = 500,
-            keepaliveTimeoutMs = 2000,
-            discoveryIntervalMs = 500
-        ))
+        hostClient.createNetwork(
+            "TEST_NET", MeshTopology(
+                keepaliveIntervalMs = 500,
+                keepaliveTimeoutMs = 2000,
+                discoveryIntervalMs = 500
+            )
+        )
 
         val leafScope = makeScope()
         val leafClient = Client("LEAF", UserRole.PRESENTER, scope = leafScope)
@@ -102,17 +111,19 @@ class DifferentiationUnitTest {
         val hostClient = Client("HOST", UserRole.ADMIN, scope = hostScope)
         val hostNet = LocalNetwork(scope = hostScope)
         hostClient.attachNetwork(hostNet, Network.Config(5))
-        hostClient.createNetwork("TEST_NET", MeshTopology(
-            keepaliveIntervalMs = 500,
-            keepaliveTimeoutMs = 2000,
-            discoveryIntervalMs = 500
-        ))
+        hostClient.createNetwork(
+            "TEST_NET", MeshTopology(
+                keepaliveIntervalMs = 500,
+                keepaliveTimeoutMs = 2000,
+                discoveryIntervalMs = 500
+            )
+        )
 
         val leafScope = makeScope()
         val leafClient = Client("LEAF", UserRole.ATTENDEE, scope = leafScope)
         val leafNet = LocalNetwork(scope = leafScope)
         leafClient.attachNetwork(leafNet, Network.Config(5))
-        
+
         leafScope.launch { leafClient.joinNetwork("TEST_NET") }
 
         // Wait for connection
@@ -177,14 +188,17 @@ class DifferentiationUnitTest {
         val hostClient = Client("HOST", scope = hostScope)
         val hostNet = LocalNetwork(scope = hostScope)
         hostClient.attachNetwork(hostNet, Network.Config(5))
-        hostClient.createNetwork("TEST_NET", MeshTopology(
-            keepaliveIntervalMs = 500,
-            keepaliveTimeoutMs = 2000,
-            discoveryIntervalMs = 500
-        ))
+        hostClient.createNetwork(
+            "TEST_NET", MeshTopology(
+                keepaliveIntervalMs = 500,
+                keepaliveTimeoutMs = 2000,
+                discoveryIntervalMs = 500
+            )
+        )
 
         val presenterScope = makeScope()
-        val presenterClient = Client("PRESENTER", presentationId = presentationId, scope = presenterScope)
+        val presenterClient =
+            Client("PRESENTER", presentationId = presentationId, scope = presenterScope)
         val presenterNet = LocalNetwork(scope = presenterScope)
         presenterClient.attachNetwork(presenterNet, Network.Config(5))
 
@@ -245,7 +259,11 @@ class DifferentiationUnitTest {
         val deserialized = Message.fromBytes(bytes)
 
         assertArrayEquals("Signature should match", original.signature, deserialized.signature)
-        assertArrayEquals("Public key should match", original.senderPublicKey, deserialized.senderPublicKey)
+        assertArrayEquals(
+            "Public key should match",
+            original.senderPublicKey,
+            deserialized.senderPublicKey
+        )
     }
 
     @Test
@@ -262,7 +280,7 @@ class DifferentiationUnitTest {
         val attendeeClient = Client("ATTENDEE", UserRole.ATTENDEE, scope = attendeeScope)
         val attendeeNet = LocalNetwork(scope = attendeeScope)
         attendeeClient.attachNetwork(attendeeNet, Network.Config(5))
-        
+
         attendeeScope.launch { attendeeClient.joinNetwork("VERIFY_NET") }
 
         // Wait for connection and key exchange
@@ -286,7 +304,7 @@ class DifferentiationUnitTest {
         assertEquals("Content should match", "Signed Admin Bulletin", String(received!!.data!!))
         assertNotNull("Message should have a signature", received.signature)
         assertNotNull("Message should have a sender public key", received.senderPublicKey)
-        
+
         // Manual verification check using Manager
         val isValid = Manager.verify(
             received.data!!,

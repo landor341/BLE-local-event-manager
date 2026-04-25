@@ -6,14 +6,12 @@ import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.uwm.cs595.goup11.backend.network.PresentationStatus
-import edu.uwm.cs595.goup11.frontend.core.mesh.ItineraryItem
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
 import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.time.LocalDateTime
 import java.util.UUID
 
 data class CreatePresentationDraft(
@@ -39,7 +37,8 @@ class CreatePresentationViewModel(
     private val _draft = MutableStateFlow(CreatePresentationDraft())
     val draft: StateFlow<CreatePresentationDraft> = _draft.asStateFlow()
 
-    private val _uiState = MutableStateFlow<CreatePresentationUiState>(CreatePresentationUiState.Editing)
+    private val _uiState =
+        MutableStateFlow<CreatePresentationUiState>(CreatePresentationUiState.Editing)
     val uiState: StateFlow<CreatePresentationUiState> = _uiState.asStateFlow()
 
     fun updateTitle(value: String) {
@@ -80,7 +79,8 @@ class CreatePresentationViewModel(
         val title = draftValue.title.trim()
 
         if (title.isBlank()) {
-            _uiState.value = CreatePresentationUiState.Error("Enter a presentation name to continue.")
+            _uiState.value =
+                CreatePresentationUiState.Error("Enter a presentation name to continue.")
             return
         }
 

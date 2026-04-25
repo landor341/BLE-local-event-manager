@@ -35,7 +35,7 @@ class MeshTopology(
 
     private val discoveryIntervalMs: Long = 5_000,
     private val keepaliveIntervalMs: Long = 5_000,
-    private val keepaliveTimeoutMs:  Long = 15_000
+    private val keepaliveTimeoutMs: Long = 15_000
 ) : TopologyStrategy {
 
     override val topologyCode: String = "msh"
@@ -44,8 +44,8 @@ class MeshTopology(
     override val localRole: TopologyStrategy.Role = TopologyStrategy.Role.PEER
 
     private val peers = ConcurrentHashMap<String, TopologyPeer>()
-    private var keepaliveJob:  Job? = null
-    private var discoveryJob:  Job? = null
+    private var keepaliveJob: Job? = null
+    private var discoveryJob: Job? = null
     private val logger = KotlinLogging.logger {}
 
     // -------------------------------------------------------------------------
@@ -89,10 +89,10 @@ class MeshTopology(
                 context.sendMessage(
                     topoPeer,
                     Message(
-                        to   = topoPeer.hardwareId,
+                        to = topoPeer.hardwareId,
                         from = context.endpointId,
                         type = MessageType.PING,
-                        ttl  = 1
+                        ttl = 1
                     )
                 )
             }
@@ -113,11 +113,13 @@ class MeshTopology(
                 logger.info { "Mesh saturated (${peers.size}/$maxPeerCount) — stopping discovery" }
                 stopDiscovery(context)
             }
+
             peers.size < targetPeerCount -> {
                 // Below soft target — actively look for more peers
                 logger.info { "Below target peers (${peers.size}/$targetPeerCount) — starting discovery" }
                 startDiscovery(context)
             }
+
             else -> {
                 // Between target and max — stop scanning but keep advertising.
                 // Cancel the discovery job so it can be restarted if we drop
@@ -151,8 +153,9 @@ class MeshTopology(
                         return@collect
                     }
 
-                    val advertisedName = edu.uwm.cs595.goup11.backend.network.AdvertisedName.decode(ev.encodedName)
-                        ?: return@collect
+                    val advertisedName =
+                        edu.uwm.cs595.goup11.backend.network.AdvertisedName.decode(ev.encodedName)
+                            ?: return@collect
 
                     if (advertisedName.topologyCode != topologyCode) return@collect
 
@@ -190,7 +193,7 @@ class MeshTopology(
         advertisedName: AdvertisedName
     ) {
         peers[endpointId] = TopologyPeer(
-            hardwareId     = endpointId,
+            hardwareId = endpointId,
             advertisedName = advertisedName
         )
 
@@ -225,19 +228,21 @@ class MeshTopology(
                 context.sendMessage(
                     peer,
                     Message(
-                        to      = peer.hardwareId,
-                        from    = context.endpointId,
-                        type    = MessageType.PONG,
+                        to = peer.hardwareId,
+                        from = context.endpointId,
+                        type = MessageType.PONG,
                         replyTo = message.id,
-                        ttl     = 1
+                        ttl = 1
                     )
                 )
                 true
             }
+
             MessageType.PONG -> {
                 senderPeer?.lastPongAt = System.currentTimeMillis()
                 true
             }
+
             else -> false
         }
     }

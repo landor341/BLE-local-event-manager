@@ -1,7 +1,6 @@
 package edu.uwm.cs595.goup11.frontend.features.tutorial
 
 import android.annotation.SuppressLint
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -34,7 +33,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun TutorialScreen(
     onNoClick: () -> Unit,
-    onBack: () -> Unit,){
+    onBack: () -> Unit,
+) {
     //string array to hold the various tutorial sections
     val tutorialText = arrayOf(
         "This app utilizes Bluetooth for communication at large gatherings such as " +
@@ -44,9 +44,10 @@ fun TutorialScreen(
         "From the home screen, you will be able to see nearby events to join.",
         "Users can also communicate with other event attendees. It is recommended " +
                 "users to fill out their personal profile so that other attendees can see " +
-                "their name, profile picture, and interests/skills.")
+                "their name, profile picture, and interests/skills."
+    )
 
-    var i by remember {mutableStateOf(0)}
+    var i by remember { mutableStateOf(0) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -54,10 +55,10 @@ fun TutorialScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
                 }
-            }
-        )
-    }){ inner ->
+            )
+        }) { inner ->
         Column(
             modifier = Modifier
                 .padding(inner)
@@ -66,7 +67,7 @@ fun TutorialScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-        ){
+        ) {
             Spacer(modifier = Modifier.height(100.dp))
 
             Text(
@@ -78,11 +79,14 @@ fun TutorialScreen(
 
             Button(
                 onClick = {
-                    if(i < tutorialText.size - 1){
+                    if (i < tutorialText.size - 1) {
                         i += 1
-                    } else{onNoClick()}},
+                    } else {
+                        onNoClick()
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
-            ){
+            ) {
                 Text("Next")
             }
         }
@@ -97,15 +101,15 @@ fun TutorialScreen(
 fun introTutorialScreen(
     onYesClick: () -> Unit,
     onNoClick: () -> Unit,
-){
+) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Tutorial") },
 
-            )
+                )
         }
-    ){ inner ->
+    ) { inner ->
         Column(
             modifier = Modifier
                 .padding(inner)
@@ -114,7 +118,7 @@ fun introTutorialScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
-        ){
+        ) {
 
 
             Text(
@@ -123,12 +127,12 @@ fun introTutorialScreen(
             )
             Button(
                 onClick = onYesClick
-            ){
+            ) {
                 Text("Yes")
             }
             Button(
                 onClick = onNoClick
-            ){
+            ) {
                 Text("No")
             }
         }

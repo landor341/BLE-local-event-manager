@@ -3,7 +3,6 @@ package edu.uwm.cs595.goup11.frontend.features.inbox
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshGateway
-import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import edu.uwm.cs595.goup11.frontend.domain.models.ChatPeer
 import edu.uwm.cs595.goup11.frontend.domain.models.User
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +42,13 @@ class InboxViewModel(private val meshGateway: MeshGateway) : ViewModel() {
                 if (!message.isBroadcast) {
                     val peerId = if (message.isMine) message.recipientId else message.sender
                     if (peerId != null) {
-                        peerNames.update { it + (peerId to (if (message.isMine) "User ${peerId.take(4)}" else message.senderName)) }
+                        peerNames.update {
+                            it + (peerId to (if (message.isMine) "User ${
+                                peerId.take(
+                                    4
+                                )
+                            }" else message.senderName))
+                        }
                         lastMessages.update { it + (peerId to message.text) }
                         lastTimestamps.update { it + (peerId to formatTime(message.timestampMs)) }
                     }

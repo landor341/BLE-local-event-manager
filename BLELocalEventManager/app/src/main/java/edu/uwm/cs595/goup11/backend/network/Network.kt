@@ -1,7 +1,6 @@
 package edu.uwm.cs595.goup11.backend.network
 
 import io.github.oshai.kotlinlogging.KLogger
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -13,16 +12,20 @@ import kotlinx.coroutines.flow.StateFlow
  * and individual point-to-point connections.
  */
 sealed class NetworkState {
-    data object Idle        : NetworkState()
+    data object Idle : NetworkState()
     data object Advertising : NetworkState()
     data object Discovering : NetworkState()
-    data class  Error(val reason: String) : NetworkState()
+    data class Error(val reason: String) : NetworkState()
 
     // Deprecated classes to allow methods to use it
-    @Deprecated("Use Discovering") data object Scanning : NetworkState()
-    @Deprecated("Use Discovering") data class  Joining(val sessionId: String) : NetworkState()
-    @Deprecated("Use Advertising") data class  Joined(val sessionId: String)  : NetworkState()
-    @Deprecated("Use Advertising") data class  Hosting(val sessionId: String) : NetworkState()
+    @Deprecated("Use Discovering")
+    data object Scanning : NetworkState()
+    @Deprecated("Use Discovering")
+    data class Joining(val sessionId: String) : NetworkState()
+    @Deprecated("Use Advertising")
+    data class Joined(val sessionId: String) : NetworkState()
+    @Deprecated("Use Advertising")
+    data class Hosting(val sessionId: String) : NetworkState()
 }
 
 /**
@@ -36,7 +39,7 @@ sealed class NetworkEvent {
      * [encodedName] is the raw string the remote device passed to startAdvertising().
      */
     data class EndpointDiscovered(
-        val endpointId:  String,
+        val endpointId: String,
         val encodedName: String
     ) : NetworkEvent()
 
@@ -45,7 +48,7 @@ sealed class NetworkEvent {
      * [encodedName] is the advertised name of the remote endpoint.
      */
     data class EndpointConnected(
-        val endpointId:  String,
+        val endpointId: String,
         val encodedName: String
     ) : NetworkEvent()
 
@@ -67,9 +70,12 @@ sealed class NetworkEvent {
     data class MessageReceived(val message: Message) : NetworkEvent()
 
     // Deprecated events
-    @Deprecated("Use EndpointConnected") data class Joined(val sessionId: String) : NetworkEvent()
-    @Deprecated("Use EndpointConnected") data class PeerConnected(val peer: DeprecatedPeer) : NetworkEvent()
-    @Deprecated("Use EndpointDisconnected") data class PeerDisconnected(val endpointId: String) : NetworkEvent()
+    @Deprecated("Use EndpointConnected")
+    data class Joined(val sessionId: String) : NetworkEvent()
+    @Deprecated("Use EndpointConnected")
+    data class PeerConnected(val peer: DeprecatedPeer) : NetworkEvent()
+    @Deprecated("Use EndpointDisconnected")
+    data class PeerDisconnected(val endpointId: String) : NetworkEvent()
 }
 
 /** Compatibility shim for code that still references the old Peer type. */
@@ -145,7 +151,6 @@ interface Network {
      * Stop scanning.
      */
     suspend fun stopDiscovery()
-
 
 
     /**

@@ -3,10 +3,14 @@ package edu.uwm.cs595.goup11.backend.network
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import edu.uwm.cs595.goup11.backend.network.topology.SnakeTopology
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlinx.coroutines.*
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -32,7 +36,7 @@ class MockClientIntegrationTest {
     @Test
     fun testMockClientCommunication() = runBlocking {
         logger.info { "Starting testMockClientCommunication" }
-        
+
         // 1. Create two mock clients
         val alice = MockClient("Alice", UserRole.ADMIN)
         val bob = MockClient("Bob", UserRole.ATTENDEE)
@@ -73,7 +77,7 @@ class MockClientIntegrationTest {
             // We use Bob's endpointId (encoded name) which is Alice's hardware ID for him in LocalNetwork.
             val bobId = bob.endpointId
             assertNotNull("Bob should have an endpointId after joining", bobId)
-            
+
             val messageText = "Hello Bob!"
             logger.info { "Alice sending message to $bobId" }
             alice.sendChat(messageText, bobId!!)

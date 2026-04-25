@@ -65,7 +65,7 @@ class ConnectNetwork(
     // Direct Logcat helpers — KotlinLogging routes through SLF4J which has no
     // Android backend, so all logger.* calls are silently dropped on device.
     // Use cn()/cne() instead; filter Logcat by tag "CN".
-    private fun cn(msg: String)  = Log.w("CN", msg)
+    private fun cn(msg: String) = Log.w("CN", msg)
     private fun cne(msg: String) = Log.e("CN", msg)
 
     // -------------------------------------------------------------------------
@@ -78,16 +78,16 @@ class ConnectNetwork(
     // Reactive state
     // -------------------------------------------------------------------------
 
-    private val _state          = MutableStateFlow<NetworkState>(NetworkState.Idle)
-    override val state:          StateFlow<NetworkState> = _state.asStateFlow()
+    private val _state = MutableStateFlow<NetworkState>(NetworkState.Idle)
+    override val state: StateFlow<NetworkState> = _state.asStateFlow()
 
     // Independent flags — _state can only hold ONE value at a time so it loses
     // advertising status the moment discovery starts. These track them separately.
-    private val _isAdvertising  = MutableStateFlow(false)
-    override val isAdvertising:  StateFlow<Boolean> = _isAdvertising.asStateFlow()
+    private val _isAdvertising = MutableStateFlow(false)
+    override val isAdvertising: StateFlow<Boolean> = _isAdvertising.asStateFlow()
 
-    private val _isDiscovering  = MutableStateFlow(false)
-    override val isDiscovering:  StateFlow<Boolean> = _isDiscovering.asStateFlow()
+    private val _isDiscovering = MutableStateFlow(false)
+    override val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
 
     private val _events = MutableSharedFlow<NetworkEvent>(extraBufferCapacity = 64, replay = 1)
     override val events: SharedFlow<NetworkEvent> = _events.asSharedFlow()
@@ -101,7 +101,7 @@ class ConnectNetwork(
     /** Our local endpoint ID — the encoded advertised name string set by init() */
     private var localEndpointId: String? = null
 
-    private val listeners      = mutableListOf<(Message) -> Unit>()
+    private val listeners = mutableListOf<(Message) -> Unit>()
 
     /**
      * endpointId (hardware Nearby ID) → encodedName (our advertised name string)
@@ -178,7 +178,12 @@ class ConnectNetwork(
 
         val options = AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
 
-        connectionsClient.startAdvertising(encodedName, serviceId, connectionLifecycleCallback, options)
+        connectionsClient.startAdvertising(
+            encodedName,
+            serviceId,
+            connectionLifecycleCallback,
+            options
+        )
             .addOnSuccessListener {
                 _isAdvertising.value = true
                 _state.value = NetworkState.Advertising
@@ -336,7 +341,7 @@ class ConnectNetwork(
 
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
             val code = result.status.statusCode
-            val msg  = result.status.statusMessage
+            val msg = result.status.statusMessage
             cn("[CN] onConnectionResult endpointId='$endpointId' statusCode=$code msg='$msg'")
 
             when (code) {
@@ -345,16 +350,19 @@ class ConnectNetwork(
                     cn("[CN] CONNECTED with $endpointId encodedName='$encodedName'")
                     _events.tryEmit(NetworkEvent.EndpointConnected(endpointId, encodedName))
                 }
+
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> {
                     knownEndpoints.remove(endpointId)
                     cn("[CN] REJECTED by $endpointId")
                     _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
                 }
+
                 ConnectionsStatusCodes.STATUS_ERROR -> {
                     knownEndpoints.remove(endpointId)
                     cne("[CN] ERROR with $endpointId: $msg")
                     _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
                 }
+
                 else -> cne("[CN] onConnectionResult unknown statusCode=$code for $endpointId")
             }
         }

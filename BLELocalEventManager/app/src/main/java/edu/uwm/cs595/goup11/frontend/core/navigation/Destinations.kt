@@ -21,30 +21,40 @@ enum class Destinations {
 @Serializable
 sealed class SealedDestinations(val route: String) {
     @Serializable
-    object HOME: SealedDestinations("HOME")
+    object HOME : SealedDestinations("HOME")
+
     @Serializable
-    object EXPLORE: SealedDestinations("EXPLORE")
+    object EXPLORE : SealedDestinations("EXPLORE")
+
     @Serializable
-    object EVENT_DETAIL: SealedDestinations("EVENT_DETAIL")
+    object EVENT_DETAIL : SealedDestinations("EVENT_DETAIL")
+
     @Serializable
     object CONNECTED_USERS : SealedDestinations("CONNECTED_USERS")
+
     @Serializable
-    object PROFILE: SealedDestinations("PROFILE")
+    object PROFILE : SealedDestinations("PROFILE")
+
     @Serializable
     object EDIT_PROFILE : SealedDestinations("EDIT_PROFILE")
-    @Serializable
-    object CREATE_EVENT: SealedDestinations("CREATE_EVENT")
-    @Serializable
-    object CHAT: SealedDestinations("CHAT")
-    @Serializable
-    object TUTORIAL_INTRO: SealedDestinations("TUTORIAL_INTRO")
-    @Serializable
-    object TUTORIAL: SealedDestinations("TUTORIAL")
 
-    object INBOX: SealedDestinations("INBOX")
-    object DEVELOPER: SealedDestinations("DEVELOPER")
     @Serializable
-    object CREATE_PRESENTATION: SealedDestinations("CREATE_PRESENTATION")
+    object CREATE_EVENT : SealedDestinations("CREATE_EVENT")
+
+    @Serializable
+    object CHAT : SealedDestinations("CHAT")
+
+    @Serializable
+    object TUTORIAL_INTRO : SealedDestinations("TUTORIAL_INTRO")
+
+    @Serializable
+    object TUTORIAL : SealedDestinations("TUTORIAL")
+
+    object INBOX : SealedDestinations("INBOX")
+    object DEVELOPER : SealedDestinations("DEVELOPER")
+
+    @Serializable
+    object CREATE_PRESENTATION : SealedDestinations("CREATE_PRESENTATION")
 
     @Serializable
     object PRESENTATION_DETAIL : SealedDestinations("PRESENTATION_DETAIL")
