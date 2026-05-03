@@ -164,6 +164,12 @@ class SnakeTopology(
                      */
                     if (context.encodedName() > ev.encodedName) return@collect
 
+                    // Random backoff before connecting reduces simultaneous-connect
+                    // collisions where both sides call requestConnection at the same
+                    // time and one rejects the other. The loser retries after discovery
+                    // restarts, but fewer collisions means faster overall connection.
+                    delay((100L..600L).random())
+
                     context.connect(ev.endpointId)
                 }
         }

@@ -646,7 +646,7 @@ class Client(
                 if (!deferred.isCompleted) deferred.complete(message)
             }
         }
-        handleMessage(message)
+        scope.launch { handleMessage(message) }
     }
 
     /**
@@ -657,7 +657,7 @@ class Client(
      *  2. Directory — DIRECTORY_* messages
      *  3. Application — TEXT_MESSAGE and other app-layer messages
      */
-    private fun handleMessage(message: Message) {
+    private suspend fun handleMessage(message: Message) {
         android.util.Log.d(
             "Client",
             "handleMessage: type=${message.type} to=${message.to} from=${message.from} endpointId=$endpointId"

@@ -30,6 +30,11 @@ enum class MessageType {
      */
     PONG,
 
+    /*
+     * Topology types
+     */
+    TOPOLOGY_HELLO,
+
 
     /*
      * ATTACHING TO ROUTER

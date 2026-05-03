@@ -6,7 +6,7 @@ import edu.uwm.cs595.goup11.backend.network.payloads.DirectorySyncPayload
 import edu.uwm.cs595.goup11.backend.network.payloads.DirectoryVerifyAckPayload
 import edu.uwm.cs595.goup11.backend.network.payloads.DirectoryVerifyPayload
 import edu.uwm.cs595.goup11.backend.network.payloads.VerifyStatus
-import io.github.oshai.kotlinlogging.KotlinLogging
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
@@ -36,10 +38,10 @@ class DirectoryManager(
 
     private val initialClock: Long = 0L
 ) {
-    private val logger = KotlinLogging.logger {}
+    private val mutex = Mutex()
 
-    private fun log(msg: String) = Log.w("CN", msg)
-    private fun logError(msg: String) = Log.e("CN", msg)
+    private fun logDebug(msg: String) = Log.d("DirectoryManager", msg)
+    private fun logWarn(msg: String) = Log.w("DirectoryManager", msg)
 
     // -------------------------------------------------------------------------
     // Internal directory state
@@ -88,13 +90,15 @@ class DirectoryManager(
     /**
      * Registers this node in the directory and starts the periodic verify loop.
      */
-    fun start() {
-        registerSelf()
+    suspend fun start() {
+        mutex.withLock {
+            registerSelf()
+        }
         startVerifyLoop()
     }
 
-    /** Adds the local peer to the directory as the first ACTIVE entry. */
-    fun registerSelf() {
+    /** Adds the local peer to the directory as the first ACTIVE entry. Must be called under [mutex]. */
+    private fun registerSelf() {
         val localId = localEndpointId()
         directory[localId] = PeerEntry(
             endpointId = localId,
@@ -104,15 +108,15 @@ class DirectoryManager(
             status = PeerStatus.ACTIVE
         )
         notifyDirectoryChanged()
-        logger.info { "DirectoryManager started for $localId" }
+        logDebug("DirectoryManager started for $localId")
     }
 
     /** Launches the background coroutine that periodically sends DIRECTORY_VERIFY. */
-    fun startVerifyLoop() {
+    private fun startVerifyLoop() {
         verifyJob = scope.launch {
             while (isActive) {
                 delay(verifyIntervalMs)
-                runVerifyRound()
+                mutex.withLock { runVerifyRound() }
             }
         }
     }
@@ -120,15 +124,17 @@ class DirectoryManager(
     /**
      * Cancels the verify loop and clears all directory state.
      */
-    fun stop() {
+    suspend fun stop() {
         verifyJob?.cancel()
         verifyJob = null
-        directory.clear()
-        directNeighbors.clear()
-        lastVerifiedAt.clear()
-        lamportClock = 0L
-        notifyDirectoryChanged()
-        logger.info { "DirectoryManager Stopped" }
+        mutex.withLock {
+            directory.clear()
+            directNeighbors.clear()
+            lastVerifiedAt.clear()
+            lamportClock = 0L
+            notifyDirectoryChanged()
+        }
+        logDebug("DirectoryManager stopped")
     }
 
     // -------------------------------------------------------------------------
@@ -139,45 +145,31 @@ class DirectoryManager(
      * Called by Client when EndpointConnected fires.
      * Adds the peer as a direct neighbor and sends our full directory via DIRECTORY_SYNC.
      */
-    fun onPeerConnected(endpointId: String, advertisedName: AdvertisedName) {
-        directNeighbors.add(endpointId)
-        log("onPeerConnected: $endpointId, (${advertisedName.displayName})")
-        // Add a placeholder for the user
-        val existing = directory[endpointId]
-        if (existing == null || existing.status == PeerStatus.DISCONNECTED) {
-            directory[endpointId] = PeerEntry(
-                endpointId = endpointId,
-                displayName = advertisedName.displayName,
-                joinTimestamp = System.currentTimeMillis(),
-                lamportClock = 0L,
-                status = PeerStatus.ACTIVE
-            )
-            notifyDirectoryChanged()
+    suspend fun onPeerConnected(endpointId: String, advertisedName: AdvertisedName) {
+        mutex.withLock {
+            directNeighbors.add(endpointId)
+            logDebug("onPeerConnected: $endpointId (${advertisedName.displayName})")
         }
-
         sendSync(endpointId)
-        logger.info { "Peer connected: $endpointId (${advertisedName.displayName})" }
+        logDebug("peer connected: $endpointId (${advertisedName.displayName})")
     }
 
     /**
      * Called by Client when EndpointDisconnected fires.
-     * Tombstones the peer and broadcasts DIRECTORY_PEER_DISCONNECTED to all remaining neighbors.
+     * Removes the peer from the directory and broadcasts DIRECTORY_PEER_DISCONNECTED to neighbors.
      */
-    fun onPeerDisconnected(endpointId: String) {
-        directNeighbors.remove(endpointId)
-
-        val existing = directory[endpointId] ?: return
-
-        val tombstone = existing.copy(
-            status = PeerStatus.DISCONNECTED,
-            lamportClock = tickClock()
-        )
-        directory[endpointId] = tombstone
-        notifyDirectoryChanged()
-
-        broadcastToNeighbors(MessageType.DIRECTORY_PEER_DISCONNECTED, tombstone, exclude = null)
-
-        logger.info { "Peer disconnected $endpointId" }
+    suspend fun onPeerDisconnected(endpointId: String) {
+        val removed = mutex.withLock {
+            directNeighbors.remove(endpointId)
+            val existing = directory[endpointId] ?: return
+            // Guard against double-fire
+            if (existing.status == PeerStatus.DISCONNECTED) return
+            directory.remove(endpointId)
+            notifyDirectoryChanged()
+            existing
+        }
+        broadcastToNeighbors(MessageType.DIRECTORY_PEER_DISCONNECTED, removed, exclude = endpointId)
+        logDebug("peer disconnected: $endpointId")
     }
 
     // -------------------------------------------------------------------------
@@ -188,36 +180,20 @@ class DirectoryManager(
      * Routes an inbound directory message to the appropriate handler.
      * Returns true if consumed, false if not a DIRECTORY_* message type.
      */
-    fun onMessage(message: Message): Boolean {
-        // Sync Lamport clock with sender on every directory message received
-        lamportClock =
-            maxOf(lamportClock, message.data?.let { extractClock(it, message.type) } ?: 0L) + 1
+    suspend fun onMessage(message: Message): Boolean {
+        mutex.withLock {
+            // Sync Lamport clock with sender on every directory message received
+            lamportClock =
+                maxOf(lamportClock, message.data?.let { extractClock(it, message.type) } ?: 0L) + 1
+        }
 
         return when (message.type) {
-            MessageType.DIRECTORY_SYNC -> {
-                handleSync(message); true
-            }
-
-            MessageType.DIRECTORY_SYNC_ACK -> {
-                handleSyncAck(message); true
-            }
-
-            MessageType.DIRECTORY_PEER_ADDED -> {
-                handlePeerAdded(message); true
-            }
-
-            MessageType.DIRECTORY_PEER_DISCONNECTED -> {
-                handlePeerDisconnected(message); true
-            }
-
-            MessageType.DIRECTORY_VERIFY -> {
-                handleVerify(message); true
-            }
-
-            MessageType.DIRECTORY_VERIFY_ACK -> {
-                handleVerifyAck(message); true
-            }
-
+            MessageType.DIRECTORY_SYNC -> { handleSync(message); true }
+            MessageType.DIRECTORY_SYNC_ACK -> { handleSyncAck(message); true }
+            MessageType.DIRECTORY_PEER_ADDED -> { handlePeerAdded(message); true }
+            MessageType.DIRECTORY_PEER_DISCONNECTED -> { handlePeerDisconnected(message); true }
+            MessageType.DIRECTORY_VERIFY -> { handleVerify(message); true }
+            MessageType.DIRECTORY_VERIFY_ACK -> { handleVerifyAck(message); true }
             else -> false
         }
     }
@@ -232,133 +208,120 @@ class DirectoryManager(
      * replies with DIRECTORY_SYNC_ACK, then broadcasts the sender's ACTIVE entry
      * to all other neighbors so they learn about the (re)join immediately.
      */
-    private fun handleSync(message: Message) {
+    private suspend fun handleSync(message: Message) {
         val payload = message.decodePayload<DirectorySyncPayload>()
 
-        try {
-            localEndpointId()
-        } catch (e: IllegalStateException) {
-            logger.warn { "DirectoryManager: ignoring DIRECTORY_SYNC before local identity is established" }
+        try { localEndpointId() } catch (e: IllegalStateException) {
+            logWarn("ignoring DIRECTORY_SYNC before local identity is established")
             return
         }
 
-        // Sync clock to payload max before creating the ACTIVE entry so it beats everything
-        val payloadMaxClock = payload.peers.maxOfOrNull { it.lamportClock } ?: 0L
-        lamportClock = maxOf(lamportClock, payloadMaxClock)
+        val (activeEntry, snapshot) = mutex.withLock {
+            val payloadMaxClock = payload.peers.maxOfOrNull { it.lamportClock } ?: 0L
+            // Also factor in any existing tombstone clock so the ACTIVE entry we broadcast
+            // is guaranteed to beat it on every node that receives the DIRECTORY_PEER_ADDED.
+            val existingClock = directory[message.from]?.lamportClock ?: 0L
+            lamportClock = maxOf(lamportClock, payloadMaxClock, existingClock)
 
-        // Force-mark sender as definitively ACTIVE
-        val existingEntry = directory[message.from]
-        val activeEntry = PeerEntry(
-            endpointId = message.from,
-            displayName = existingEntry?.displayName ?: message.from,
-            joinTimestamp = existingEntry?.joinTimestamp ?: System.currentTimeMillis(),
-            lamportClock = tickClock(),
-            status = PeerStatus.ACTIVE
-        )
-        directory[message.from] = activeEntry
+            val existingEntry = directory[message.from]
+            val resolvedDisplayName = existingEntry?.displayName
+                ?: AdvertisedName.decode(message.from)?.displayName
+                ?: message.from
+            val entry = PeerEntry(
+                endpointId = message.from,
+                displayName = resolvedDisplayName,
+                joinTimestamp = existingEntry?.joinTimestamp ?: System.currentTimeMillis(),
+                lamportClock = tickClock(),
+                status = PeerStatus.ACTIVE
+            )
+            directory[message.from] = entry
+            mergeEntries(payload.peers)
+            notifyDirectoryChanged()
+            entry to directory.values.filter { it.status == PeerStatus.ACTIVE }
+        }
 
-        mergeEntries(payload.peers)
-        notifyDirectoryChanged()
-
-        // Reply with full directory including the high-clock ACTIVE entry for sender
         send(
             message.from, buildMessage(
                 to = message.from,
                 type = MessageType.DIRECTORY_SYNC_ACK,
-                payload = DirectorySyncPayload(directory.values.toList()),
+                payload = DirectorySyncPayload(snapshot),
                 replyTo = message.id
-            )
+            ) ?: return
         )
-
-        // Broadcast the ACTIVE entry so all neighbors override any stale tombstone
-        broadcastToNeighbors(
-            type = MessageType.DIRECTORY_PEER_ADDED,
-            entry = activeEntry,
-            exclude = message.from
-        )
-
-        logger.debug { "Handled DIRECTORY_SYNC from ${message.from}, replied with ${directory.size} entries" }
+        broadcastToNeighbors(MessageType.DIRECTORY_PEER_ADDED, activeEntry, exclude = message.from)
+        logDebug("handled DIRECTORY_SYNC from ${message.from}, replied with ${snapshot.size} entries")
     }
 
     /**
      * Handles DIRECTORY_SYNC_ACK.
      * Syncs clock, force-marks sender ACTIVE, merges, then broadcasts the diff.
      */
-    private fun handleSyncAck(message: Message) {
+    private suspend fun handleSyncAck(message: Message) {
         val payload = message.decodePayload<DirectorySyncPayload>()
 
-        val payloadMaxClock = payload.peers.maxOfOrNull { it.lamportClock } ?: 0L
-        lamportClock = maxOf(lamportClock, payloadMaxClock)
-
-        val existingEntry = directory[message.from]
-        directory[message.from] = PeerEntry(
-            endpointId = message.from,
-            displayName = existingEntry?.displayName ?: message.from,
-            joinTimestamp = existingEntry?.joinTimestamp ?: System.currentTimeMillis(),
-            lamportClock = tickClock(),
-            status = PeerStatus.ACTIVE
-        )
-
-        val diff = mergeEntries(payload.peers)
-        notifyDirectoryChanged()
-
-        diff.forEach { entry ->
-            broadcastToNeighbors(
-                type = MessageType.DIRECTORY_PEER_ADDED,
-                entry = entry,
-                exclude = message.from
-            )
+        try { localEndpointId() } catch (e: IllegalStateException) {
+            logWarn("ignoring DIRECTORY_SYNC_ACK before local identity is established")
+            return
         }
 
-        logger.debug { "Handled DIRECTORY_SYNC_ACK from ${message.from}, ${diff.size} new/updated entries broadcast" }
+        val diff = mutex.withLock {
+            val payloadMaxClock = payload.peers.maxOfOrNull { it.lamportClock } ?: 0L
+            lamportClock = maxOf(lamportClock, payloadMaxClock)
+
+            val existingEntry = directory[message.from]
+            val resolvedDisplayName = existingEntry?.displayName
+                ?: AdvertisedName.decode(message.from)?.displayName
+                ?: message.from
+            directory[message.from] = PeerEntry(
+                endpointId = message.from,
+                displayName = resolvedDisplayName,
+                joinTimestamp = existingEntry?.joinTimestamp ?: System.currentTimeMillis(),
+                lamportClock = tickClock(),
+                status = PeerStatus.ACTIVE
+            )
+            val d = mergeEntries(payload.peers)
+            notifyDirectoryChanged()
+            d
+        }
+
+        diff.forEach { entry ->
+            broadcastToNeighbors(MessageType.DIRECTORY_PEER_ADDED, entry, exclude = message.from)
+        }
+        logDebug("handled DIRECTORY_SYNC_ACK from ${message.from}, ${diff.size} new/updated entries broadcast")
     }
 
     /**
      * Handles DIRECTORY_PEER_ADDED.
      * Merges the single entry and propagates onward if it changed our state.
      */
-    private fun handlePeerAdded(message: Message) {
+    private suspend fun handlePeerAdded(message: Message) {
         val payload = message.decodePayload<DirectoryPeerPayload>()
-        val diff = mergeEntries(listOf(payload.peer))
+        val diff = mutex.withLock { mergeEntries(listOf(payload.peer)) }
 
         if (diff.isNotEmpty()) {
             notifyDirectoryChanged()
-            broadcastToNeighbors(
-                type = MessageType.DIRECTORY_PEER_ADDED,
-                entry = payload.peer,
-                exclude = message.from
-            )
+            broadcastToNeighbors(MessageType.DIRECTORY_PEER_ADDED, payload.peer, exclude = message.from)
         }
-
-        logger.debug { "Handled DIRECTORY_PEER_ADDED for ${payload.peer.endpointId} from ${message.from}" }
+        logDebug("handled DIRECTORY_PEER_ADDED for ${payload.peer.endpointId} from ${message.from}")
     }
 
     /**
      * Handles DIRECTORY_PEER_DISCONNECTED.
-     * Applies the tombstone via Lamport clock resolution and propagates if our state changed.
+     * Removes the peer from the directory and propagates if our state changed.
      */
-    private fun handlePeerDisconnected(message: Message) {
+    private suspend fun handlePeerDisconnected(message: Message) {
         val payload = message.decodePayload<DirectoryPeerPayload>()
-        val existing = directory[payload.peer.endpointId]
-
-        logger.debug {
-            "PEER_DISCONNECTED for ${payload.peer.endpointId}: " +
-                    "incoming clock=${payload.peer.lamportClock}, " +
-                    "existing clock=${existing?.lamportClock}, " +
-                    "existing status=${existing?.status}"
+        val removed = mutex.withLock {
+            if (directory.containsKey(payload.peer.endpointId)) {
+                directory.remove(payload.peer.endpointId)
+                notifyDirectoryChanged()
+                true
+            } else false
         }
-
-        val diff = mergeEntries(listOf(payload.peer))
-
-        if (diff.isNotEmpty()) {
-            notifyDirectoryChanged()
-            broadcastToNeighbors(
-                type = MessageType.DIRECTORY_PEER_DISCONNECTED,
-                entry = payload.peer,
-                exclude = message.from
-            )
+        if (removed) {
+            broadcastToNeighbors(MessageType.DIRECTORY_PEER_DISCONNECTED, payload.peer, exclude = message.from)
         } else {
-            logger.debug { "Discarding stale DIRECTORY_PEER_DISCONNECTED for ${payload.peer.endpointId} — clock too low" }
+            logDebug("ignoring DIRECTORY_PEER_DISCONNECTED for ${payload.peer.endpointId} — already removed")
         }
     }
 
@@ -366,19 +329,18 @@ class DirectoryManager(
      * Handles DIRECTORY_VERIFY.
      * Compares hashes and replies OK or MISMATCH + full directory.
      */
-    private fun handleVerify(message: Message) {
+    private suspend fun handleVerify(message: Message) {
         val payload = message.decodePayload<DirectoryVerifyPayload>()
-        val ourHash = computeDirectoryHash()
+        val (ourHash, snapshot) = mutex.withLock {
+            computeDirectoryHash() to directory.values.toList()
+        }
 
         val ackPayload = if (payload.hash == ourHash) {
-            logger.debug { "DIRECTORY_VERIFY from ${message.from}: hashes match" }
+            logDebug("DIRECTORY_VERIFY from ${message.from}: hashes match")
             DirectoryVerifyAckPayload(status = VerifyStatus.OK)
         } else {
-            logger.debug { "DIRECTORY_VERIFY from ${message.from}: hash mismatch, sending full directory" }
-            DirectoryVerifyAckPayload(
-                status = VerifyStatus.MISMATCH,
-                peers = directory.values.toList()
-            )
+            logDebug("DIRECTORY_VERIFY from ${message.from}: hash mismatch, sending full directory")
+            DirectoryVerifyAckPayload(status = VerifyStatus.MISMATCH, peers = snapshot)
         }
 
         send(
@@ -387,7 +349,7 @@ class DirectoryManager(
                 type = MessageType.DIRECTORY_VERIFY_ACK,
                 payload = ackPayload,
                 replyTo = message.id
-            )
+            ) ?: return
         )
     }
 
@@ -396,31 +358,40 @@ class DirectoryManager(
      * On OK, records the verify timestamp.
      * On MISMATCH, merges the received directory and broadcasts the diff.
      */
-    private fun handleVerifyAck(message: Message) {
+    private suspend fun handleVerifyAck(message: Message) {
         val payload = message.decodePayload<DirectoryVerifyAckPayload>()
 
         when (payload.status) {
             VerifyStatus.OK -> {
-                lastVerifiedAt[message.from] = System.currentTimeMillis()
-                logger.debug { "DIRECTORY_VERIFY_ACK from ${message.from}: OK" }
+                mutex.withLock { lastVerifiedAt[message.from] = System.currentTimeMillis() }
+                logDebug("DIRECTORY_VERIFY_ACK from ${message.from}: OK")
             }
-
             VerifyStatus.MISMATCH -> {
-                val diff = mergeEntries(payload.peers)
-                lastVerifiedAt[message.from] = System.currentTimeMillis()
+                val (added, removedEntries) = mutex.withLock {
+                    val localId = try { localEndpointId() } catch (_: IllegalStateException) { null }
+                    val incomingIds = payload.peers.map { it.endpointId }.toSet()
 
-                if (diff.isNotEmpty()) {
-                    notifyDirectoryChanged()
-                    diff.forEach { entry ->
-                        val type = if (entry.status == PeerStatus.ACTIVE)
-                            MessageType.DIRECTORY_PEER_ADDED
-                        else
-                            MessageType.DIRECTORY_PEER_DISCONNECTED
-                        broadcastToNeighbors(type = type, entry = entry, exclude = message.from)
+                    // Remove entries we have that the sender doesn't — they've been removed
+                    // from the network and the PEER_DISCONNECTED message was dropped.
+                    val stale = directory.entries
+                        .filter { (id, _) -> id != localId && id !in incomingIds }
+                        .map { it.value }
+                    stale.forEach { directory.remove(it.endpointId) }
+
+                    val d = mergeEntries(payload.peers)
+                    lastVerifiedAt[message.from] = System.currentTimeMillis()
+                    if (stale.isNotEmpty() || d.isNotEmpty()) notifyDirectoryChanged()
+                    d to stale
+                }
+                if (added.isNotEmpty() || removedEntries.isNotEmpty()) {
+                    added.forEach { entry ->
+                        broadcastToNeighbors(MessageType.DIRECTORY_PEER_ADDED, entry, exclude = message.from)
+                    }
+                    removedEntries.forEach { entry ->
+                        broadcastToNeighbors(MessageType.DIRECTORY_PEER_DISCONNECTED, entry, exclude = message.from)
                     }
                 }
-
-                logger.debug { "DIRECTORY_VERIFY_ACK from ${message.from}: MISMATCH, merged ${diff.size} entries and broadcast diff" }
+                logDebug("DIRECTORY_VERIFY_ACK from ${message.from}: MISMATCH, added ${added.size}, removed ${removedEntries.size}")
             }
         }
     }
@@ -432,21 +403,26 @@ class DirectoryManager(
     /**
      * Merges incoming PeerEntries into the local directory using Lamport clock
      * conflict resolution. Returns entries that actually changed.
+     * Only ACTIVE entries are expected — DISCONNECTED peers are removed, not stored.
      */
     private fun mergeEntries(incoming: List<PeerEntry>): List<PeerEntry> {
+        val localId = try {
+            localEndpointId()
+        } catch (_: IllegalStateException) {
+            logWarn("mergeEntries called before identity established — skipping")
+            return emptyList()
+        }
         val changed = mutableListOf<PeerEntry>()
-        val localId = localEndpointId()
 
         for (entry in incoming) {
             if (entry.endpointId == localId) continue
+            if (entry.status != PeerStatus.ACTIVE) continue
 
             val existing = directory[entry.endpointId]
 
             val winner = when {
                 existing == null -> entry
                 entry.lamportClock > existing.lamportClock -> entry
-                entry.lamportClock < existing.lamportClock -> existing
-                entry.status == PeerStatus.ACTIVE && existing.status == PeerStatus.DISCONNECTED -> entry
                 else -> existing
             }
 
@@ -468,7 +444,7 @@ class DirectoryManager(
         val sorted = directory.values
             .sortedBy { it.endpointId }
             .joinToString(separator = "|") { entry ->
-                "${entry.endpointId}:${entry.lamportClock}:${entry.status.name}"
+                "${entry.endpointId}:${entry.status.name}"
             }
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(sorted.toByteArray()).joinToString("") { "%02x".format(it) }
@@ -487,25 +463,24 @@ class DirectoryManager(
     /** Sends DIRECTORY_VERIFY to the least-recently-verified neighbor. */
     private fun runVerifyRound() {
         val target = selectVerifyTarget() ?: return
-        send(
-            target, buildMessage(
-                to = target,
-                type = MessageType.DIRECTORY_VERIFY,
-                payload = DirectoryVerifyPayload(hash = computeDirectoryHash())
-            )
-        )
-        logger.debug { "Sent DIRECTORY_VERIFY to $target" }
+        val msg = buildMessage(
+            to = target,
+            type = MessageType.DIRECTORY_VERIFY,
+            payload = DirectoryVerifyPayload(hash = computeDirectoryHash())
+        ) ?: return
+        send(target, msg)
+        logDebug("sent DIRECTORY_VERIFY to $target")
     }
 
     /** Sends our full directory to a specific endpoint via DIRECTORY_SYNC. */
     private fun sendSync(toEndpointId: String) {
-        send(
-            toEndpointId, buildMessage(
-                to = toEndpointId,
-                type = MessageType.DIRECTORY_SYNC,
-                payload = DirectorySyncPayload(directory.values.toList())
-            )
-        )
+        val activeEntries = directory.values.filter { it.status == PeerStatus.ACTIVE }
+        val msg = buildMessage(
+            to = toEndpointId,
+            type = MessageType.DIRECTORY_SYNC,
+            payload = DirectorySyncPayload(activeEntries)
+        ) ?: return
+        send(toEndpointId, msg)
     }
 
     /** Broadcasts a single PeerEntry to all direct neighbors, optionally excluding one. */
@@ -514,13 +489,8 @@ class DirectoryManager(
         directNeighbors
             .filter { it != exclude }
             .forEach { neighborId ->
-                send(
-                    neighborId, buildMessage(
-                        to = neighborId,
-                        type = type,
-                        payload = payload
-                    )
-                )
+                val msg = buildMessage(to = neighborId, type = type, payload = payload) ?: return@forEach
+                send(neighborId, msg)
             }
     }
 
@@ -552,27 +522,33 @@ class DirectoryManager(
                 else -> 0L
             }
         } catch (e: Exception) {
-            logger.warn { "Failed to extract clock from $type message: ${e.message}" }
+            logWarn("failed to extract clock from $type message: ${e.message}")
             0L
         }
     }
 
-    /** Builds an outbound Message with a serialized protobuf payload. */
+    /** Builds an outbound Message with a serialized protobuf payload, or null if identity not yet set. */
     @OptIn(ExperimentalSerializationApi::class)
     private inline fun <reified T : Any> buildMessage(
         to: String,
         type: MessageType,
         payload: T,
         replyTo: String? = null
-    ): Message = Message(
-        to = to,
-        from = localEndpointId(),
-        type = type,
-        data = ProtoBuf.encodeToByteArray(payload),
-        ttl = 1,
-        replyTo = replyTo,
-        id = UUID.randomUUID().toString()
-    )
+    ): Message? {
+        val from = try { localEndpointId() } catch (_: IllegalStateException) {
+            logWarn("buildMessage($type) called before identity established — dropping")
+            return null
+        }
+        return Message(
+            to = to,
+            from = from,
+            type = type,
+            data = ProtoBuf.encodeToByteArray(payload),
+            ttl = 1,
+            replyTo = replyTo,
+            id = UUID.randomUUID().toString()
+        )
+    }
 
     // -------------------------------------------------------------------------
     // Private — StateFlow emission
@@ -584,7 +560,7 @@ class DirectoryManager(
      */
     private fun notifyDirectoryChanged() {
         val snapshot = directory.values.toList()
-        log("directory changed: ${snapshot.map { "${it.displayName}=${it.status}" }}")
+        logDebug("directory changed: ${snapshot.map { "${it.displayName}=${it.status}" }}")
         _allPeers.value = snapshot
         _activePeers.value = snapshot.filter { it.status == PeerStatus.ACTIVE }
     }

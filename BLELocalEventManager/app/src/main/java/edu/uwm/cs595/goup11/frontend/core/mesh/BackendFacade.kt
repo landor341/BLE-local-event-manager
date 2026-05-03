@@ -109,8 +109,17 @@ class DefaultBackendFacade(
 
     // ── Peers ─────────────────────────────────────────────────────────────────
 
-    private val _networkPeers = MutableStateFlow<List<PeerEntry>>(emptyList())
+    private var _networkPeers = MutableStateFlow<List<PeerEntry>>(emptyList())
     override val networkPeers: StateFlow<List<PeerEntry>> = _networkPeers.asStateFlow()
+
+    private var peersCollectionJob: kotlinx.coroutines.Job? = null
+
+    private fun startPeersCollection() {
+        peersCollectionJob?.cancel()
+        peersCollectionJob = scope.launch {
+            client.networkPeersFlow.collect { _networkPeers.value = it }
+        }
+    }
 
     override val localEncodedName: String?
         get() = _client?.endpointId
@@ -200,12 +209,12 @@ class DefaultBackendFacade(
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-    override fun start() {
-        val c = client
+    private var started = false
 
-        scope.launch {
-            c.networkPeersFlow.collect { _networkPeers.value = it }
-        }
+    override fun start() {
+        if (started) return
+        started = true
+        startPeersCollection()
 
         scope.launch {
             kotlinx.coroutines.flow.combine(
@@ -233,12 +242,16 @@ class DefaultBackendFacade(
                     is NetworkEvent.EndpointConnected -> {
                         _events.tryEmit(ev)
                         currentEventName?.let { _events.tryEmit(NetworkEvent.Joined(it)) }
-                        // Sync presentations to newly connected peer
-                        android.util.Log.d(
-                            "BackendFacade",
-                            "EndpointConnected: syncing presentations to ${ev.endpointId}"
-                        )
-                        presentationsHandler.onPeerConnected(ev.endpointId)
+                        // Only sync presentations if we're actually in a network —
+                        // if _client is null or currentEventName is null we're in a
+                        // transitional state and calling sendMessage would crash.
+                        if (_client != null && currentEventName != null) {
+                            android.util.Log.d(
+                                "BackendFacade",
+                                "EndpointConnected: syncing presentations to ${ev.endpointId}"
+                            )
+                            presentationsHandler.onPeerConnected(ev.endpointId)
+                        }
                     }
 
                     is NetworkEvent.EndpointDisconnected -> _events.tryEmit(ev)
@@ -289,11 +302,13 @@ class DefaultBackendFacade(
             TopologyChoice.HUB_AND_SPOKE -> HubAndSpokeTopology()
         }
         client.createNetwork(eventName, topo)
+        startPeersCollection()
     }
 
     override suspend fun joinNetwork(sessionId: String) {
         currentEventName = sessionId
         client.joinNetwork(sessionId)
+        startPeersCollection()
     }
 
     override fun setDisplayName(name: String) {
@@ -307,6 +322,9 @@ class DefaultBackendFacade(
     override suspend fun leave() {
         client.leaveNetwork()
         currentEventName = null
+        peersCollectionJob?.cancel()
+        peersCollectionJob = null
+        _networkPeers.value = emptyList()
         _client = null
     }
 
