@@ -4,7 +4,7 @@ import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
 import edu.uwm.cs595.goup11.backend.network.NetworkEvent
-import io.github.oshai.kotlinlogging.KotlinLogging
+import android.util.Log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterIsInstance
@@ -58,7 +58,9 @@ class SnakeTopology(
 
     private var keepaliveJob: Job? = null
     private var discoveryJob: Job? = null
-    private val logger = KotlinLogging.logger {}
+
+    private fun logDebug(msg: String) = Log.d("SnakeTopology", msg)
+    private fun logWarn(msg: String) = Log.w("SnakeTopology", msg)
 
 
     override fun start(context: TopologyContext) {
@@ -100,7 +102,7 @@ class SnakeTopology(
             val timeSinceLastPong = now - topoPeer.lastPongAt
 
             if (timeSinceLastPong > keepaliveTimeoutMs) {
-                logger.warn { "Peer ${topoPeer.hardwareId} timed out — removing" }
+                logWarn("Peer ${topoPeer.hardwareId} timed out — removing")
                 onPeerDisconnected(context, topoPeer.hardwareId)
             } else {
                 context.sendMessage(
@@ -119,10 +121,10 @@ class SnakeTopology(
 
     private fun evaluateHealth(context: TopologyContext) {
         if (peers.size < maxPeerCount) {
-            logger.info { "Below max peers (${peers.size}/$maxPeerCount) — starting discovery" }
+            logDebug("Below max peers (${peers.size}/$maxPeerCount) — starting discovery")
             startDiscovery(context)
         } else {
-            logger.info { "At max peers — stopping discovery" }
+            logDebug("At max peers — stopping discovery")
             stopDiscovery(context)
         }
     }
@@ -190,14 +192,14 @@ class SnakeTopology(
     ): Boolean {
         // Hard slot limit
         if (peers.size >= maxPeerCount) {
-            logger.info { "Rejecting $endpointId — slots full (${peers.size}/$maxPeerCount)" }
+            logDebug("Rejecting $endpointId — slots full (${peers.size}/$maxPeerCount)")
             return false
         }
 
         // Ring guard — reject if the requester is already part of our chain.
         // This prevents A↔B↔C from looping back to A and sealing the network.
         if (chainMembers.contains(endpointId)) {
-            logger.info { "Rejecting $endpointId — already a chain member (ring prevention)" }
+            logDebug("Rejecting $endpointId — already a chain member (ring prevention)")
             return false
         }
 
@@ -217,7 +219,7 @@ class SnakeTopology(
         // Add the new peer to our chain membership knowledge
         chainMembers.add(endpointId)
 
-        logger.info { "Snake peer connected: $endpointId (${peers.size}/$maxPeerCount)" }
+        logDebug("Snake peer connected: $endpointId (${peers.size}/$maxPeerCount)")
 
         // Broadcast our full chain membership to all neighbors
         broadcastChainMembers(context)
@@ -231,7 +233,7 @@ class SnakeTopology(
         // Rebuild the chain members to keep up to date
         rebuildChainMembers(context)
 
-        logger.info { "Snake peer disconnected: $endpointId (${peers.size}/$maxPeerCount)" }
+        logDebug("Snake peer disconnected: $endpointId (${peers.size}/$maxPeerCount)")
 
         evaluateHealth(context)
     }
@@ -281,7 +283,7 @@ class SnakeTopology(
         return when (message.type) {
             MessageType.PING -> {
                 val peer = senderPeer ?: run {
-                    logger.warn { "PING from unknown sender '${message.from}' — cannot reply" }
+                    logWarn("PING from unknown sender '${message.from}' — cannot reply")
                     return true
                 }
                 context.sendMessage(
@@ -352,7 +354,7 @@ class SnakeTopology(
         return peers.values
             .filter { it != senderPeer }
             .map { it.hardwareId }
-            .also { if (it.isEmpty()) logger.warn { "No route to ${message.to}" } }
+            .also { if (it.isEmpty()) logWarn("No route to ${message.to}") }
     }
 
     // -------------------------------------------------------------------------
