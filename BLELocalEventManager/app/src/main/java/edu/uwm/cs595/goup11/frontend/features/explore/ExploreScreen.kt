@@ -546,6 +546,8 @@ private fun heroSubtitle(state: MeshUiState): String =
 
         is MeshUiState.Advertising ->
             ""
+
+        else -> {""}
     }
 
 @Composable
@@ -558,4 +560,5 @@ private fun heroContentColor(state: MeshUiState): Color =
         is MeshUiState.Hosting -> Color.White
         is MeshUiState.Error -> MaterialTheme.colorScheme.onError
         is MeshUiState.Advertising -> Color.White
+        else -> {Color.Red}
     }

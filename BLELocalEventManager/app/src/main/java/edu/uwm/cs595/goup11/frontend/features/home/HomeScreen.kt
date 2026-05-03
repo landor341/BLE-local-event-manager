@@ -80,7 +80,8 @@ fun HomeScreen(
         p
     }
 
-    val isInEvent = uiState is MeshUiState.InEvent || uiState is MeshUiState.Hosting
+    val isInEvent = uiState is MeshUiState.InEvent || uiState is MeshUiState.Hosting ||
+            uiState is MeshUiState.WaitingForPeers
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background
@@ -186,7 +187,8 @@ private fun HeroSection(
         )
     )
 
-    val isInEvent = state is MeshUiState.InEvent || state is MeshUiState.Hosting
+    val isInEvent = state is MeshUiState.InEvent || state is MeshUiState.Hosting ||
+            state is MeshUiState.WaitingForPeers
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -579,6 +581,7 @@ private fun StatusSection(state: MeshUiState) {
                     label = "Session",
                     value = when (state) {
                         is MeshUiState.Joining -> state.sessionId
+                        is MeshUiState.WaitingForPeers -> state.sessionId
                         is MeshUiState.InEvent -> state.sessionId
                         is MeshUiState.Hosting -> state.sessionId
                         else -> "None"
@@ -591,6 +594,7 @@ private fun StatusSection(state: MeshUiState) {
                     label = "Connection",
                     value = when (state) {
                         MeshUiState.Scanning -> "Searching"
+                        is MeshUiState.WaitingForPeers -> "Waiting for peers"
                         is MeshUiState.InEvent -> "Connected"
                         is MeshUiState.Hosting -> "Broadcasting"
                         is MeshUiState.Joining -> "Joining"
@@ -641,6 +645,7 @@ private fun heroTitle(state: MeshUiState): String = when (state) {
     MeshUiState.Idle -> "Find or host local events."
     MeshUiState.Scanning -> "Looking for nearby events."
     is MeshUiState.Joining -> "Joining ${state.sessionId}."
+    is MeshUiState.WaitingForPeers -> "Waiting for peers to join."
     is MeshUiState.InEvent -> "You're connected."
     is MeshUiState.Hosting -> "Your event is live."
     is MeshUiState.Error -> "Something needs attention."
@@ -651,6 +656,7 @@ private fun stateSummary(state: MeshUiState): String = when (state) {
     MeshUiState.Idle -> "Ready to explore or host"
     MeshUiState.Scanning -> "Scanning nearby"
     is MeshUiState.Joining -> "Joining event"
+    is MeshUiState.WaitingForPeers -> "In event, no peers yet"
     is MeshUiState.InEvent -> "In active event"
     is MeshUiState.Hosting -> "Hosting now"
     is MeshUiState.Error -> "Check connection state"
@@ -661,6 +667,7 @@ private fun statusTitle(state: MeshUiState): String = when (state) {
     MeshUiState.Idle -> "Ready"
     MeshUiState.Scanning -> "Scanning"
     is MeshUiState.Joining -> "Joining"
+    is MeshUiState.WaitingForPeers -> "Waiting"
     is MeshUiState.InEvent -> "Connected"
     is MeshUiState.Hosting -> "Hosting"
     is MeshUiState.Error -> "Error"
@@ -677,8 +684,11 @@ private fun statusDescription(state: MeshUiState): String = when (state) {
     is MeshUiState.Joining ->
         "Connecting to ${state.sessionId}."
 
+    is MeshUiState.WaitingForPeers ->
+        "You're in ${state.sessionId}. Waiting for other devices to join the mesh."
+
     is MeshUiState.InEvent ->
-        "You're currently connected to ${state.sessionId}. If you just joined the event and don't see any peers, please give the network some time to auto-connect to peers"
+        "You're currently connected to ${state.sessionId}."
 
     is MeshUiState.Hosting ->
         "You're hosting ${state.sessionId}."

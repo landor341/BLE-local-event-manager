@@ -57,10 +57,22 @@ sealed class MeshUiState {
     data class InEvent(val sessionId: String) : MeshUiState()
     data class Error(val reason: String) : MeshUiState()
 
+    /** Joined and advertising/discovering, but no peers connected yet. */
+    data class WaitingForPeers(val sessionId: String) : MeshUiState()
+
     @Deprecated("Use Scanning")
     data class Joining(val sessionId: String) : MeshUiState()
     @Deprecated("Use InEvent")
     data class Hosting(val sessionId: String) : MeshUiState()
+}
+
+/** Granular connection lifecycle events emitted during mesh negotiation. */
+sealed class ConnectionEvent {
+    data class DeviceFound(val deviceName: String) : ConnectionEvent()
+    data class Connecting(val deviceName: String) : ConnectionEvent()
+    data class Connected(val deviceName: String) : ConnectionEvent()
+    data class DeviceLost(val deviceName: String) : ConnectionEvent()
+    data class Rejected(val deviceName: String) : ConnectionEvent()
 }
 
 enum class TopologyChoice(val code: String) {
@@ -84,6 +96,15 @@ interface MeshGateway {
 
     /** Live list of peers currently connected to this node. */
     val connectedPeers: StateFlow<List<GatewayPeer>>
+
+    /**
+     * Granular connection lifecycle events — device found, connecting, connected, etc.
+     * Use this to drive a live status UI during the mesh negotiation phase.
+     */
+    val connectionEvents: Flow<ConnectionEvent>
+
+    /** True if this node created (hosted) the current event. False if it joined. */
+    val isHost: StateFlow<Boolean>
 
     /**
      * Live list of presentations synced across the mesh.

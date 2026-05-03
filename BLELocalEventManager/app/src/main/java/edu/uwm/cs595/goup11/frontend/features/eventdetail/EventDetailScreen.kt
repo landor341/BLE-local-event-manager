@@ -2,21 +2,34 @@ package edu.uwm.cs595.goup11.frontend.features.eventdetail
 
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,10 +48,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import edu.uwm.cs595.goup11.frontend.core.mesh.ConnectionEvent
+import edu.uwm.cs595.goup11.frontend.core.mesh.GatewayPeer
 import edu.uwm.cs595.goup11.frontend.core.mesh.MeshUiState
 import edu.uwm.cs595.goup11.frontend.domain.models.Presentation
 import edu.uwm.cs595.goup11.frontend.features.presentation.toDisplayTime
@@ -59,6 +75,8 @@ fun EventDetailScreen(
     val uiState by viewModel.uiState.collectAsState()
     val meshState by viewModel.meshState.collectAsState()
     val presentations by viewModel.presentations.collectAsState()
+    val connectedPeers by viewModel.connectedPeers.collectAsState()
+    val isHost by viewModel.isHost.collectAsState()
 
     LaunchedEffect(sessionId) {
         viewModel.joinEvent(sessionId)
@@ -91,6 +109,23 @@ fun EventDetailScreen(
                 JoiningContent(modifier = Modifier.padding(innerPadding))
             }
 
+            is EventDetailUiState.Connecting -> {
+                ConnectingContent(
+                    peers = connectedPeers,
+                    connectionLog = viewModel.connectionLog.collectAsState().value,
+                    onCancel = { viewModel.leaveEvent() },
+                    modifier = Modifier.padding(innerPadding)
+                )
+            }
+
+            is EventDetailUiState.Success -> {
+                SuccessContent(
+                    eventName = state.event.title,
+                    peerName = state.peerName,
+                    modifier = Modifier.padding(innerPadding)
+                )
+            }
+
             is EventDetailUiState.Error -> {
                 ErrorContent(
                     message = state.message,
@@ -115,6 +150,144 @@ fun EventDetailScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ConnectingContent(
+    peers: List<GatewayPeer>,
+    connectionLog: List<ConnectionEvent>,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_alpha"
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = Icons.Default.Wifi,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+            modifier = Modifier.height(56.dp)
+        )
+
+        Text(
+            text = if (peers.isEmpty()) "Searching for nearby devices…"
+            else "Connected to ${peers.size} device${if (peers.size == 1) "" else "s"}",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        if (connectionLog.isNotEmpty()) {
+            val latest = connectionLog.last()
+            val line = when (latest) {
+                is ConnectionEvent.DeviceFound -> "Found ${latest.deviceName}"
+                is ConnectionEvent.Connecting -> "Connecting to ${latest.deviceName}…"
+                is ConnectionEvent.Connected -> "✓ Connected to ${latest.deviceName}"
+                is ConnectionEvent.DeviceLost -> "${latest.deviceName} moved out of range"
+                is ConnectionEvent.Rejected -> "Connection rejected, retrying…"
+            }
+            Text(
+                text = line,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (latest is ConnectionEvent.Connected)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = onCancel,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            ),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Text("Cancel")
+        }
+    }
+}
+
+@Composable
+private fun SuccessContent(
+    eventName: String,
+    peerName: String,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "glow")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow_alpha"
+    )
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = glowAlpha * 0.15f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = glowAlpha),
+                modifier = Modifier.size(56.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        Text(
+            text = "Welcome to",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = eventName,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Connected to $peerName",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

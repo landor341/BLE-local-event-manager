@@ -57,6 +57,15 @@ class RealMeshGateway(
     private val _connectedPeers = MutableStateFlow<List<GatewayPeer>>(emptyList())
     override val connectedPeers: StateFlow<List<GatewayPeer>> = _connectedPeers.asStateFlow()
 
+    private val _connectionEvents = MutableSharedFlow<ConnectionEvent>(extraBufferCapacity = 64)
+    override val connectionEvents: Flow<ConnectionEvent> = _connectionEvents.asSharedFlow()
+
+    /** Hardware endpointId → display name, populated from EndpointDiscovered events. */
+    private val endpointNames = mutableMapOf<String, String>()
+
+    private val _isHost = MutableStateFlow(false)
+    override val isHost: StateFlow<Boolean> = _isHost.asStateFlow()
+
     /**
      * Maps backend [PresentationEntry] → frontend [Presentation] UI model.
      * Only ACTIVE presentations are exposed — ENDED ones are filtered out.
@@ -116,12 +125,15 @@ class RealMeshGateway(
                     is NetworkState.Joining -> MeshUiState.Scanning
                     is NetworkState.Joined -> {
                         currentEventName = s.sessionId
-                        MeshUiState.InEvent(s.sessionId)
+                        // Start in WaitingForPeers — the peer watcher promotes to InEvent
+                        MeshUiState.WaitingForPeers(s.sessionId)
                     }
 
                     is NetworkState.Hosting -> {
                         currentEventName = s.sessionId
-                        MeshUiState.InEvent(s.sessionId)
+                        // Host sees WaitingForPeers too — but EventDetailViewModel
+                        // skips the connecting gate for hosts via isHost flag
+                        MeshUiState.WaitingForPeers(s.sessionId)
                     }
 
                     is NetworkState.Error -> MeshUiState.Error(s.reason)
@@ -144,7 +156,7 @@ class RealMeshGateway(
         scope.launch {
             backend.networkPeers.collect { peers ->
                 val localId = backend.localEncodedName
-                _connectedPeers.value = peers
+                val gatewayPeers = peers
                     .filter { it.endpointId != localId }
                     .map { entry ->
                         GatewayPeer(
@@ -153,6 +165,30 @@ class RealMeshGateway(
                             encodedName = entry.endpointId
                         )
                     }
+
+                val previous = _connectedPeers.value
+                _connectedPeers.value = gatewayPeers
+
+                // Emit granular connect/disconnect events for the status UI
+                val previousIds = previous.map { it.endpointId }.toSet()
+                val currentIds = gatewayPeers.map { it.endpointId }.toSet()
+                gatewayPeers
+                    .filter { it.endpointId !in previousIds }
+                    .forEach { _connectionEvents.tryEmit(ConnectionEvent.Connected(it.displayName)) }
+
+                // Promote WaitingForPeers → InEvent when first peer appears
+                val currentState = _state.value
+                val sessionId = currentEventName
+                if (sessionId != null && gatewayPeers.isNotEmpty() &&
+                    currentState is MeshUiState.WaitingForPeers
+                ) {
+                    _state.value = MeshUiState.InEvent(sessionId)
+                } else if (sessionId != null && gatewayPeers.isEmpty() &&
+                    currentState is MeshUiState.InEvent
+                ) {
+                    // All peers left — go back to waiting
+                    _state.value = MeshUiState.WaitingForPeers(sessionId)
+                }
             }
         }
 
@@ -160,13 +196,32 @@ class RealMeshGateway(
             backend.events.collect { event ->
                 when (event) {
                     is NetworkEvent.Joined -> log("Joined network: ${event.sessionId}")
-                    is NetworkEvent.EndpointConnected -> log("endpoint connected: ${event.encodedName}")
-                    is NetworkEvent.EndpointDisconnected -> log("endpoint disconnected: ${event.endpointId}")
+                    is NetworkEvent.EndpointDiscovered -> {
+                        val name = AdvertisedName.decode(event.encodedName)?.displayName
+                            ?: event.encodedName
+                        endpointNames[event.endpointId] = name
+                        _connectionEvents.tryEmit(ConnectionEvent.DeviceFound(name))
+                        _connectionEvents.tryEmit(ConnectionEvent.Connecting(name))
+                    }
+                    is NetworkEvent.EndpointConnected -> {
+                        val name = AdvertisedName.decode(event.encodedName)?.displayName
+                            ?: event.encodedName
+                        endpointNames[event.endpointId] = name
+                        log("endpoint connected: ${event.encodedName}")
+                        _connectionEvents.tryEmit(ConnectionEvent.Connected(name))
+                    }
+                    is NetworkEvent.EndpointDisconnected -> {
+                        log("endpoint disconnected: ${event.endpointId}")
+                    }
+                    is NetworkEvent.ConnectionRejected -> {
+                        val name = endpointNames[event.endpointId] ?: event.endpointId
+                        _connectionEvents.tryEmit(ConnectionEvent.Rejected(name))
+                        log("connection rejected by $name")
+                    }
                     is NetworkEvent.MessageReceived -> {
                         val text = event.message.data?.toString(StandardCharsets.UTF_8).orEmpty()
                         log("Message from ${event.message.from}: $text")
                     }
-
                     else -> Unit
                 }
             }
@@ -188,6 +243,7 @@ class RealMeshGateway(
             discoveredFlow.collect { sessionId ->
                 if (!seenSessionIds.add(sessionId)) return@collect
                 log("Discovered nearby network: $sessionId")
+                _connectionEvents.tryEmit(ConnectionEvent.DeviceFound(sessionId))
                 _discovered.emit(
                     DiscoveredEventSummary(
                         sessionId = sessionId,
@@ -231,6 +287,7 @@ class RealMeshGateway(
     ) {
         log("Hosting event: $eventName (topology: ${topology.code})")
         currentEventName = eventName
+        _isHost.value = true
         backend.createNetwork(eventName, topology)
     }
 
@@ -257,6 +314,7 @@ class RealMeshGateway(
             scanTimeoutJob?.cancel()
             scanTimeoutJob = null
             seenSessionIds.clear()
+            _isHost.value = false
 
             withTimeout(15_000) {
                 backend.joinNetwork(sessionId)
@@ -288,6 +346,7 @@ class RealMeshGateway(
     override suspend fun leaveEvent() {
         log("Leaving event")
         isLeaving = true
+        _isHost.value = false
         seenChatMessageIds.clear()
         backend.removeMessageListener(::onBackendMessage)
 

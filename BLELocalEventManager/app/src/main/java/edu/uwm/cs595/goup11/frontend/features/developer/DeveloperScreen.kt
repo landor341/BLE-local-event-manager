@@ -307,6 +307,7 @@ private fun GatewayDevContent(mesh: MeshGateway) {
                 is MeshUiState.InEvent -> "In event ${s.sessionId}"
                 is MeshUiState.Error -> "Error: ${s.reason}"
                 is MeshUiState.Advertising -> "Advertising"
+                else -> {""}
             }
             DevMonoText(label)
         }
