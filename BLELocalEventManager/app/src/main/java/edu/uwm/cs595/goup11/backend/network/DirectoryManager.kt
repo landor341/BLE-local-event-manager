@@ -373,10 +373,21 @@ class DirectoryManager(
 
                     // Remove entries we have that the sender doesn't — they've been removed
                     // from the network and the PEER_DISCONNECTED message was dropped.
-                    val stale = directory.entries
-                        .filter { (id, _) -> id != localId && id !in incomingIds }
-                        .map { it.value }
-                    stale.forEach { directory.remove(it.endpointId) }
+                    // Skip if localId is null — we can't safely exclude ourselves from removal.
+                    // Also never remove direct neighbors — Nearby confirms they're alive.
+                    val stale = if (localId != null) {
+                        directory.entries
+                            .filter { (id, _) ->
+                                id != localId &&
+                                        id !in incomingIds &&
+                                        id !in directNeighbors  // don't remove directly connected peers
+                            }
+                            .map { it.value }
+                            .also { entries -> entries.forEach { directory.remove(it.endpointId) } }
+                    } else {
+                        logWarn("MISMATCH stale removal skipped — identity not established")
+                        emptyList()
+                    }
 
                     val d = mergeEntries(payload.peers)
                     lastVerifiedAt[message.from] = System.currentTimeMillis()

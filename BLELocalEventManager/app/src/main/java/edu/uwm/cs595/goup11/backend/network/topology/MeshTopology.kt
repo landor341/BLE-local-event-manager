@@ -3,7 +3,7 @@ package edu.uwm.cs595.goup11.backend.network.topology
 import edu.uwm.cs595.goup11.backend.network.AdvertisedName
 import edu.uwm.cs595.goup11.backend.network.Message
 import edu.uwm.cs595.goup11.backend.network.MessageType
-import io.github.oshai.kotlinlogging.KotlinLogging
+import android.util.Log
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterIsInstance
@@ -34,19 +34,23 @@ class MeshTopology(
     private val targetPeerCount: Int = 3,
 
     private val discoveryIntervalMs: Long = 5_000,
-    private val keepaliveIntervalMs: Long = 5_000,
-    private val keepaliveTimeoutMs: Long = 15_000
+    private val keepaliveIntervalMs: Long = 10_000,
+    private val keepaliveTimeoutMs: Long = 45_000
 ) : TopologyStrategy {
 
     override val topologyCode: String = "msh"
-
-    // Everyone is equal in a full mesh — no routers or leaves
     override val localRole: TopologyStrategy.Role = TopologyStrategy.Role.PEER
 
     private val peers = ConcurrentHashMap<String, TopologyPeer>()
+
+    /** Prevents simultaneous-accept race exceeding maxPeerCount. */
+    private val pendingConnections = java.util.concurrent.atomic.AtomicInteger(0)
+
     private var keepaliveJob: Job? = null
     private var discoveryJob: Job? = null
-    private val logger = KotlinLogging.logger {}
+
+    private fun logDebug(msg: String) = Log.d("MeshTopology", msg)
+    private fun logWarn(msg: String) = Log.w("MeshTopology", msg)
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -61,6 +65,7 @@ class MeshTopology(
         keepaliveJob?.cancel()
         discoveryJob?.cancel()
         peers.clear()
+        pendingConnections.set(0)
     }
 
     // -------------------------------------------------------------------------
@@ -79,11 +84,13 @@ class MeshTopology(
     private fun tickKeepalive(context: TopologyContext) {
         val now = System.currentTimeMillis()
 
-        peers.values.forEach { topoPeer ->
+        peers.values.toList().forEach { topoPeer ->
             val timeSinceLastPong = now - topoPeer.lastPongAt
 
             if (timeSinceLastPong > keepaliveTimeoutMs) {
-                logger.warn { "Peer ${topoPeer.hardwareId} timed out — removing" }
+                // Guard: only remove if this is still the same peer instance.
+                if (peers[topoPeer.hardwareId] !== topoPeer) return@forEach
+                logWarn("Peer ${topoPeer.hardwareId} timed out — removing")
                 onPeerDisconnected(context, topoPeer.hardwareId)
             } else {
                 context.sendMessage(
@@ -97,9 +104,6 @@ class MeshTopology(
                 )
             }
         }
-
-        // Re-evaluate whether we need more connections after each tick
-        evaluateHealth(context)
     }
 
     // -------------------------------------------------------------------------
@@ -109,22 +113,22 @@ class MeshTopology(
     private fun evaluateHealth(context: TopologyContext) {
         when {
             peers.size >= maxPeerCount -> {
-                // Saturated — stop being discoverable, stop looking
-                logger.info { "Mesh saturated (${peers.size}/$maxPeerCount) — stopping discovery" }
-                stopDiscovery(context)
+                logDebug("Mesh saturated (${peers.size}/$maxPeerCount) — stopping scan, keeping advertising")
+                // Keep advertising so new nodes can discover the mesh exists,
+                // but stop scanning since we can't accept anyone anyway.
+                discoveryJob?.cancel()
+                discoveryJob = null
+                context.stopScan()
+                context.startAdvertising(context.encodedName())
             }
 
             peers.size < targetPeerCount -> {
-                // Below soft target — actively look for more peers
-                logger.info { "Below target peers (${peers.size}/$targetPeerCount) — starting discovery" }
+                logDebug("Below target peers (${peers.size}/$targetPeerCount) — starting discovery")
                 startDiscovery(context)
             }
 
             else -> {
-                // Between target and max — stop scanning but keep advertising.
-                // Cancel the discovery job so it can be restarted if we drop
-                // back below target (isActive guard in startDiscovery would
-                // otherwise prevent it from restarting).
+                // Between target and max — stop scanning but keep advertising
                 discoveryJob?.cancel()
                 discoveryJob = null
                 context.stopScan()
@@ -134,12 +138,9 @@ class MeshTopology(
     }
 
     private fun startDiscovery(context: TopologyContext) {
-        // Always re-advertise and re-scan — e.g. after eviction the scan may have
-        // been stopped internally but the collect job is still alive.
         context.startAdvertising(context.encodedName())
         context.startScan()
 
-        // Only launch a new collect job if one is not already running.
         if (discoveryJob?.isActive == true) return
 
         discoveryJob = context.launchJob {
@@ -147,8 +148,8 @@ class MeshTopology(
                 .filterIsInstance<edu.uwm.cs595.goup11.backend.network.NetworkEvent.EndpointDiscovered>()
                 .collect { ev ->
                     if (peers.size >= maxPeerCount) {
+                        // Slots full — stop scanning but keep advertising
                         context.stopScan()
-                        context.stopAdvertising()
                         discoveryJob?.cancel()
                         return@collect
                     }
@@ -161,6 +162,9 @@ class MeshTopology(
 
                     // Tie-breaking: lower encodedName initiates to avoid simultaneous connect
                     if (context.encodedName() > ev.encodedName) return@collect
+
+                    // Random backoff reduces simultaneous-connect collisions
+                    delay((100L..600L).random())
 
                     context.connect(ev.endpointId)
                 }
@@ -183,8 +187,13 @@ class MeshTopology(
         endpointId: String,
         advertisedName: AdvertisedName
     ): Boolean {
-        // Hard limit — never exceed maxPeerCount
-        return peers.size < maxPeerCount
+        val total = peers.size + pendingConnections.get()
+        if (total >= maxPeerCount) {
+            logDebug("Rejecting $endpointId — slots full ($total/$maxPeerCount)")
+            return false
+        }
+        pendingConnections.incrementAndGet()
+        return true
     }
 
     override fun onPeerConnected(
@@ -192,22 +201,19 @@ class MeshTopology(
         endpointId: String,
         advertisedName: AdvertisedName
     ) {
+        pendingConnections.decrementAndGet()
         peers[endpointId] = TopologyPeer(
             hardwareId = endpointId,
             advertisedName = advertisedName
         )
 
-        logger.info { "Mesh peer connected: $endpointId (${peers.size}/$maxPeerCount)" }
-
+        logDebug("Mesh peer connected: $endpointId (${peers.size}/$maxPeerCount)")
         evaluateHealth(context)
     }
 
     override fun onPeerDisconnected(context: TopologyContext, endpointId: String) {
         peers.remove(endpointId)
-
-        logger.info { "Mesh peer disconnected: $endpointId (${peers.size}/$maxPeerCount)" }
-
-        // Immediately try to fill the gap
+        logDebug("Mesh peer disconnected: $endpointId (${peers.size}/$maxPeerCount)")
         evaluateHealth(context)
     }
 
@@ -219,10 +225,13 @@ class MeshTopology(
         val senderPeer = peers[message.from]
             ?: peers.values.find { it.advertisedName.encode() == message.from }
 
+        // Any message from a peer proves it's alive — reset its keepalive timer.
+        senderPeer?.lastPongAt = System.currentTimeMillis()
+
         return when (message.type) {
             MessageType.PING -> {
                 val peer = senderPeer ?: run {
-                    logger.warn { "PING from unknown sender '${message.from}' — cannot reply" }
+                    logWarn("PING from unknown sender '${message.from}' — cannot reply")
                     return true
                 }
                 context.sendMessage(
@@ -238,10 +247,7 @@ class MeshTopology(
                 true
             }
 
-            MessageType.PONG -> {
-                senderPeer?.lastPongAt = System.currentTimeMillis()
-                true
-            }
+            MessageType.PONG -> true // lastPongAt already updated above
 
             else -> false
         }
@@ -266,7 +272,7 @@ class MeshTopology(
         return peers.values
             .filter { it != senderPeer }
             .map { it.hardwareId }
-            .also { if (it.isEmpty()) logger.warn { "No route to ${message.to}" } }
+            .also { if (it.isEmpty()) logWarn("No route to ${message.to}") }
     }
 
     // -------------------------------------------------------------------------

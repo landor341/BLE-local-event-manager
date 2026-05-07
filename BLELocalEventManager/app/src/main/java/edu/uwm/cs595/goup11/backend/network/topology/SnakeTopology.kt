@@ -39,14 +39,21 @@ import java.util.concurrent.ConcurrentHashMap
 class SnakeTopology(
     override val maxPeerCount: Int = 2,
     private val discoveryIntervalMs: Long = 5_000,
-    private val keepaliveIntervalMs: Long = 5_000,
-    private val keepaliveTimeoutMs: Long = 15_000
+    private val keepaliveIntervalMs: Long = 10_000,
+    private val keepaliveTimeoutMs: Long = 45_000
 ) : TopologyStrategy {
 
     override val topologyCode: String = "snk"
     override val localRole: TopologyStrategy.Role = TopologyStrategy.Role.PEER
 
     private val peers = ConcurrentHashMap<String, TopologyPeer>()
+
+    /**
+     * Counts connections that have been accepted but not yet confirmed via onPeerConnected.
+     * Prevents a race where two simultaneous inbound connections both pass the peers.size check
+     * and the node ends up with more than maxPeerCount direct connections.
+     */
+    private val pendingConnections = java.util.concurrent.atomic.AtomicInteger(0)
 
     /**
      * All endpoint IDs known to be in this node's chain segment, including
@@ -80,6 +87,7 @@ class SnakeTopology(
         discoveryJob?.cancel()
         peers.clear()
         chainMembers.clear()
+        pendingConnections.set(0)
     }
 
 
@@ -98,10 +106,15 @@ class SnakeTopology(
     private fun tickKeepalive(context: TopologyContext) {
         val now = System.currentTimeMillis()
 
-        peers.values.forEach { topoPeer ->
+        // Snapshot peers to avoid ConcurrentModificationException during removal
+        peers.values.toList().forEach { topoPeer ->
             val timeSinceLastPong = now - topoPeer.lastPongAt
 
             if (timeSinceLastPong > keepaliveTimeoutMs) {
+                // Guard: only remove if this is still the same peer instance.
+                // If the peer reconnected with the same hardware ID, peers[hardwareId]
+                // will be a different object — don't remove the fresh connection.
+                if (peers[topoPeer.hardwareId] !== topoPeer) return@forEach
                 logWarn("Peer ${topoPeer.hardwareId} timed out — removing")
                 onPeerDisconnected(context, topoPeer.hardwareId)
             } else {
@@ -136,9 +149,15 @@ class SnakeTopology(
         if (discoveryJob?.isActive == true) return
 
         context.startAdvertising(context.encodedName())
-        context.startScan()
 
         discoveryJob = context.launchJob {
+            // If we already have peers, wait briefly for HELLO messages to propagate
+            // before scanning. This gives our neighbors time to tell us about their
+            // chain members so the ring guard has accurate data before we connect.
+            if (peers.isNotEmpty()) delay(1_500)
+
+            context.startScan()
+
             context.events
                 .filterIsInstance<NetworkEvent.EndpointDiscovered>()
                 .collect { ev ->
@@ -190,19 +209,20 @@ class SnakeTopology(
         endpointId: String,
         advertisedName: AdvertisedName
     ): Boolean {
-        // Hard slot limit
-        if (peers.size >= maxPeerCount) {
-            logDebug("Rejecting $endpointId — slots full (${peers.size}/$maxPeerCount)")
+        // Hard slot limit — include pending to prevent simultaneous-accept race
+        val total = peers.size + pendingConnections.get()
+        if (total >= maxPeerCount) {
+            logDebug("Rejecting $endpointId — slots full ($total/$maxPeerCount)")
             return false
         }
 
         // Ring guard — reject if the requester is already part of our chain.
-        // This prevents A↔B↔C from looping back to A and sealing the network.
         if (chainMembers.contains(endpointId)) {
             logDebug("Rejecting $endpointId — already a chain member (ring prevention)")
             return false
         }
 
+        pendingConnections.incrementAndGet()
         return true
     }
 
@@ -211,6 +231,7 @@ class SnakeTopology(
         endpointId: String,
         advertisedName: AdvertisedName
     ) {
+        pendingConnections.decrementAndGet()
         peers[endpointId] = TopologyPeer(
             hardwareId = endpointId,
             advertisedName = advertisedName
@@ -279,6 +300,11 @@ class SnakeTopology(
     override fun onMessage(context: TopologyContext, message: Message): Boolean {
         val senderPeer = peers[message.from]
             ?: peers.values.find { it.advertisedName.encode() == message.from }
+
+        // Any message from a peer proves it's alive — reset its keepalive timer.
+        // This prevents false timeouts when PONG responses are delayed by BLE
+        // congestion while other message types are still flowing normally.
+        senderPeer?.lastPongAt = System.currentTimeMillis()
 
         return when (message.type) {
             MessageType.PING -> {

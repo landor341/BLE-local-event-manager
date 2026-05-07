@@ -18,6 +18,7 @@ import edu.uwm.cs595.goup11.backend.network.topology.MeshTopology
 import edu.uwm.cs595.goup11.backend.network.topology.SnakeTopology
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -177,18 +178,30 @@ class DefaultBackendFacade(
     // ── Client ────────────────────────────────────────────────────────────────
 
     private var _client: Client? = null
-    private val client: Client
-        get() = _client ?: Client(
+    private var _clientScope: kotlinx.coroutines.CoroutineScope? = null
+
+    @Synchronized
+    private fun getOrCreateClient(): Client {
+        _client?.let { return it }
+        val childScope = kotlinx.coroutines.CoroutineScope(
+            scope.coroutineContext + kotlinx.coroutines.SupervisorJob(
+                scope.coroutineContext[kotlinx.coroutines.Job]
+            )
+        )
+        _clientScope = childScope
+        return Client(
             displayName = displayName,
             network = network,
-            scope = scope
+            scope = childScope
         ).also {
             it.attachNetwork(network, config)
             it.addMessageListener { msg -> appListeners.forEach { l -> l(msg) } }
-            // Register presentation handler in the message pipeline
             it.addMessageHandler(presentationsHandler)
             _client = it
         }
+    }
+
+    private val client: Client get() = getOrCreateClient()
 
     // ── Application-layer message listeners ───────────────────────────────────
 
@@ -209,11 +222,10 @@ class DefaultBackendFacade(
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-    private var started = false
+    private val started = java.util.concurrent.atomic.AtomicBoolean(false)
 
     override fun start() {
-        if (started) return
-        started = true
+        if (!started.compareAndSet(false, true)) return
         startPeersCollection()
 
         scope.launch {
@@ -315,17 +327,25 @@ class DefaultBackendFacade(
         if (name == displayName) return
         displayName = name
         if (currentEventName == null) {
-            _client = null
+            discardClient()
         }
     }
 
-    override suspend fun leave() {
-        client.leaveNetwork()
-        currentEventName = null
+    @Synchronized
+    private fun discardClient() {
         peersCollectionJob?.cancel()
         peersCollectionJob = null
         _networkPeers.value = emptyList()
+        _clientScope?.cancel()
+        _clientScope = null
         _client = null
+    }
+
+    override suspend fun leave() {
+        android.util.Log.w("BackendFacade", "leave() called", Exception("leave() caller trace"))
+        client.leaveNetwork()
+        currentEventName = null
+        discardClient()
     }
 
     // ── Messaging ─────────────────────────────────────────────────────────────
