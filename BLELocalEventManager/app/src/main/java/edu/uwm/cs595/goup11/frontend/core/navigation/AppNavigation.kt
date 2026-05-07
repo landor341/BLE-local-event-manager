@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubbleOutline
@@ -77,6 +78,8 @@ import edu.uwm.cs595.goup11.frontend.features.createevent.CreateEventViewModel
 import edu.uwm.cs595.goup11.frontend.features.createpresentation.CreatePresentationScreen
 import edu.uwm.cs595.goup11.frontend.features.createpresentation.CreatePresentationViewModel
 import edu.uwm.cs595.goup11.frontend.features.developer.DeveloperScreen
+import edu.uwm.cs595.goup11.frontend.features.telemetry.TelemetryScreen
+import edu.uwm.cs595.goup11.frontend.features.telemetry.TelemetryViewModel
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailScreen
 import edu.uwm.cs595.goup11.frontend.features.eventdetail.EventDetailViewModel
 import edu.uwm.cs595.goup11.frontend.features.explore.ExploreScreen
@@ -140,7 +143,9 @@ private fun AppDrawer(
     val currentRoute = backStackEntry?.destination?.route
     val meshState by meshGateway.state.collectAsState()
 
-    val isInEvent = meshState is MeshUiState.InEvent || meshState is MeshUiState.Hosting
+    val isInEvent = meshState is MeshUiState.InEvent ||
+            meshState is MeshUiState.Hosting ||
+            meshState is MeshUiState.WaitingForPeers
 
     val primaryItems = if (isInEvent) {
         listOf(
@@ -181,6 +186,7 @@ private fun AppDrawer(
             SealedDestinations.TUTORIAL_INTRO.route,
             Icons.Default.HelpOutline
         ),
+        DrawerDestination("Telemetry", SealedDestinations.TELEMETRY.route, Icons.Default.Analytics),
         DrawerDestination("Developer", SealedDestinations.DEVELOPER.route, Icons.Default.BugReport)
     )
 
@@ -361,6 +367,7 @@ private fun AppDrawer(
 private fun sessionIdFromState(state: MeshUiState): String? = when (state) {
     is MeshUiState.InEvent -> state.sessionId
     is MeshUiState.Hosting -> state.sessionId
+    is MeshUiState.WaitingForPeers -> state.sessionId
     else -> null
 }
 
@@ -399,7 +406,8 @@ fun AppNavigation() {
             SealedDestinations.EDIT_PROFILE.route,
             SealedDestinations.TUTORIAL_INTRO.route,
             SealedDestinations.TUTORIAL.route,
-            SealedDestinations.DEVELOPER.route
+            SealedDestinations.DEVELOPER.route,
+            SealedDestinations.TELEMETRY.route
         )
     } == true && currentRoute != PROFILE_SETUP_ROUTE
 
@@ -642,6 +650,14 @@ fun AppNavigation() {
             composable(SealedDestinations.DEVELOPER.route) {
                 DeveloperScreen(
                     mesh = meshGateway,
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            // ── Telemetry ─────────────────────────────────────────────────────
+            composable(SealedDestinations.TELEMETRY.route) {
+                TelemetryScreen(
+                    viewModel = remember { TelemetryViewModel(meshGateway) },
                     onBack = { navController.popBackStack() }
                 )
             }

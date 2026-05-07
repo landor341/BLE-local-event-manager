@@ -58,4 +58,7 @@ sealed class SealedDestinations(val route: String) {
 
     @Serializable
     object PRESENTATION_DETAIL : SealedDestinations("PRESENTATION_DETAIL")
+
+    @Serializable
+    object TELEMETRY : SealedDestinations("TELEMETRY")
 }

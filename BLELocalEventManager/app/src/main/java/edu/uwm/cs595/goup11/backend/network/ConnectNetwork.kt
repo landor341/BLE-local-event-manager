@@ -101,7 +101,7 @@ class ConnectNetwork(
     /** Our local endpoint ID — the encoded advertised name string set by init() */
     private var localEndpointId: String? = null
 
-    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Message) -> Unit>()
+    private val listeners = mutableListOf<(Message) -> Unit>()
 
     /**
      * endpointId (hardware Nearby ID) → encodedName (our advertised name string)
@@ -127,14 +127,18 @@ class ConnectNetwork(
         this.connectionsClient = Nearby.getConnectionsClient(context)
 
         if (!wasAlreadyInit) {
+            // First init — wipe any lingering Nearby state from a previous app session
+            // so ghost networks don't keep appearing on discovering devices.
             connectionsClient.stopAllEndpoints()
-            knownEndpoints.clear()
             _isAdvertising.value = false
             _isDiscovering.value = false
             _state.value = NetworkState.Idle
             cn("[CN] init() localId='$localEndpointId' (fresh)")
         } else {
-            knownEndpoints.clear()
+            // Re-init (e.g. joiner updating identity after discovering the host).
+            // Do NOT call stopAllEndpoints here — it would wipe Nearby's knowledge
+            // of the endpoint we just discovered, causing STATUS_ENDPOINT_IO_ERROR
+            // when we immediately call connect() after this.
             cn("[CN] init() localId='$localEndpointId' (re-init, skipping stopAllEndpoints)")
         }
     }
@@ -251,12 +255,8 @@ class ConnectNetwork(
 
     override suspend fun connect(endpointId: String) {
         val localId = requireLocalEndpointId()
-        if (!knownEndpoints.containsKey(endpointId)) {
-            cn("[CN] connect() to $endpointId skipped — endpoint no longer known (lost before connect)")
-            _events.tryEmit(NetworkEvent.ConnectionRejected(endpointId))
-            return
-        }
         cn("[CN] connect() localId='$localId' target='$endpointId'")
+
         connectionsClient.requestConnection(localId, endpointId, connectionLifecycleCallback)
             .addOnSuccessListener { cn("[CN] requestConnection sent to $endpointId") }
             .addOnFailureListener { e ->
@@ -287,6 +287,7 @@ class ConnectNetwork(
         val bytes = message.toBytes()
         connectionsClient.sendPayload(endpointId, Payload.fromBytes(bytes))
         cn("[CN] sendMessage() to='$endpointId' type=${message.type} id=${message.id}")
+        edu.uwm.cs595.goup11.backend.network.TelemetryManager.recordSent(message.type)
     }
 
     override fun addListener(listener: (Message) -> Unit) {
@@ -413,6 +414,7 @@ class ConnectNetwork(
             val bytes = payload.asBytes() ?: return
             val message = Message.fromBytes(bytes)
             cn("[CN] onPayloadReceived from='$endpointId' type=${message.type} id=${message.id}")
+            edu.uwm.cs595.goup11.backend.network.TelemetryManager.recordReceived(message.type)
             notifyListeners(message)
             _events.tryEmit(NetworkEvent.MessageReceived(message))
         }

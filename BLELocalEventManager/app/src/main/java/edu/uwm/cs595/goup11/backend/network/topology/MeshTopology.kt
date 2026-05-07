@@ -208,12 +208,18 @@ class MeshTopology(
         )
 
         logDebug("Mesh peer connected: $endpointId (${peers.size}/$maxPeerCount)")
+        edu.uwm.cs595.goup11.backend.network.TelemetryManager.updateDirectPeers(
+            peers.values.map { it.advertisedName.displayName }
+        )
         evaluateHealth(context)
     }
 
     override fun onPeerDisconnected(context: TopologyContext, endpointId: String) {
         peers.remove(endpointId)
         logDebug("Mesh peer disconnected: $endpointId (${peers.size}/$maxPeerCount)")
+        edu.uwm.cs595.goup11.backend.network.TelemetryManager.updateDirectPeers(
+            peers.values.map { it.advertisedName.displayName }
+        )
         evaluateHealth(context)
     }
 

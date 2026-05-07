@@ -742,6 +742,7 @@ class Client(
                 if (processedMessage.to == "ALL" || processedMessage.to != endpointId) {
                     if (processedMessage.ttl > 1) {
                         val forwarded = processedMessage.copy(ttl = processedMessage.ttl - 1)
+                        edu.uwm.cs595.goup11.backend.network.TelemetryManager.recordForwarded(forwarded.type)
                         sendMessage(forwarded)
                     } else if (processedMessage.to != "ALL" && processedMessage.to != endpointId) {
                         logger.warn { "Dropping message ${processedMessage.id} to ${processedMessage.to} — TTL exhausted" }

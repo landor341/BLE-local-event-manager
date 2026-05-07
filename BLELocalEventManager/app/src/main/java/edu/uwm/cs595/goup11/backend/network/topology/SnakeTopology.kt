@@ -241,6 +241,9 @@ class SnakeTopology(
         chainMembers.add(endpointId)
 
         logDebug("Snake peer connected: $endpointId (${peers.size}/$maxPeerCount)")
+        edu.uwm.cs595.goup11.backend.network.TelemetryManager.updateDirectPeers(
+            peers.values.map { it.advertisedName.displayName }
+        )
 
         // Broadcast our full chain membership to all neighbors
         broadcastChainMembers(context)
@@ -255,6 +258,9 @@ class SnakeTopology(
         rebuildChainMembers(context)
 
         logDebug("Snake peer disconnected: $endpointId (${peers.size}/$maxPeerCount)")
+        edu.uwm.cs595.goup11.backend.network.TelemetryManager.updateDirectPeers(
+            peers.values.map { it.advertisedName.displayName }
+        )
 
         evaluateHealth(context)
     }

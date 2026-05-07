@@ -289,6 +289,7 @@ class RealMeshGateway(
         currentEventName = eventName
         _isHost.value = true
         backend.createNetwork(eventName, topology)
+        edu.uwm.cs595.goup11.backend.network.TelemetryManager.onSessionStarted(eventName)
     }
 
     override suspend fun joinEvent(sessionId: String): JoinedEventBundle {
@@ -323,6 +324,7 @@ class RealMeshGateway(
             currentEventName = sessionId
             _state.value = MeshUiState.InEvent(sessionId)
             log("Joined network: $sessionId")
+            edu.uwm.cs595.goup11.backend.network.TelemetryManager.onSessionStarted(sessionId)
 
             return createJoinedEventBundle(sessionId)
         } catch (e: Exception) {
@@ -345,6 +347,7 @@ class RealMeshGateway(
 
     override suspend fun leaveEvent() {
         log("Leaving event")
+        edu.uwm.cs595.goup11.backend.network.TelemetryManager.onSessionEnded()
         isLeaving = true
         _isHost.value = false
         seenChatMessageIds.clear()
