@@ -103,13 +103,20 @@ class Client(
         DirectoryManager(
             // Our directory identity is the encoded name — consistent across all peers
             localEndpointId = { endpointId ?: error("$displayName is not on a network") },
-            // Resolve encoded name → hardware ID before handing off to the network
+            // Resolve encoded name → hardware ID using the connected-peer map.
+            // ConnectNetwork.encodedNameToHardwareId uses knownEndpoints which is
+            // discovery-only and loses entries once a peer connects — so we use
+            // hardwareToEncoded (maintained for the lifetime of the connection) instead.
             send = { toEncodedName, message ->
-                val hardwareId = requireNetwork().encodedNameToHardwareId(toEncodedName)
+                val hardwareId = hardwareToEncoded.entries
+                    .firstOrNull { it.value == toEncodedName }?.key
                 if (hardwareId != null) {
                     sendDirectoryMessage(hardwareId, message)
                 } else {
-                    logger.warn { "DirectoryManager: no hardware ID for encoded name '$toEncodedName', dropping message" }
+                    android.util.Log.w(
+                        "Client",
+                        "DirectoryManager: no hardware ID for '$toEncodedName' — dropping ${message.type}"
+                    )
                 }
             },
             scope = scope
