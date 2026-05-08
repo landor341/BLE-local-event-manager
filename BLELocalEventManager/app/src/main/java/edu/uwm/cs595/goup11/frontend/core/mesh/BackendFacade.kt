@@ -237,7 +237,8 @@ class DefaultBackendFacade(
                 val result = when {
                     advertising && eventName != null -> NetworkState.Joined(eventName)
                     advertising -> NetworkState.Hosting(eventName ?: "")
-                    discovering -> NetworkState.Scanning
+                    discovering && eventName == null -> NetworkState.Scanning
+                    eventName != null -> NetworkState.Joined(eventName)
                     else -> NetworkState.Idle
                 }
                 android.util.Log.d(
